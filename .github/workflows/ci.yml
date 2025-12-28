@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: keep-esp32
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/secp256k1-frost
+          ref: esp-idf-support
+          path: secp256k1-frost
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/libnostr-c
+          ref: v0.1.2
+          path: libnostr-c
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/noscrypt
+          ref: esp-idf-support
+          path: noscrypt
+
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.1
+          target: esp32s3
+          path: keep-esp32

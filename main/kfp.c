@@ -57,7 +57,7 @@ kfp_msg_type_t kfp_parse(const char *json, kfp_msg_t *out) {
         kfp_announce_t *a = &out->announce;
         cJSON *v = cJSON_GetObjectItem(root, "version");
         a->version = v && cJSON_IsNumber(v) ? (uint8_t)v->valueint : KFP_VERSION;
-        parse_hex_field(root, "group_pubkey", a->group_pubkey, 32);
+        parse_hex_field(root, "group_pubkey", a->group_pubkey, sizeof(a->group_pubkey));
         cJSON *idx = cJSON_GetObjectItem(root, "share_index");
         a->share_index = idx && cJSON_IsNumber(idx) ? (uint16_t)idx->valueint : 0;
         cJSON *name = cJSON_GetObjectItem(root, "name");
@@ -69,7 +69,7 @@ kfp_msg_type_t kfp_parse(const char *json, kfp_msg_t *out) {
         out->type = KFP_MSG_SIGN_REQUEST;
         kfp_sign_request_t *s = &out->sign_request;
         parse_hex_field(root, "session_id", s->session_id, 32);
-        parse_hex_field(root, "group_pubkey", s->group_pubkey, 32);
+        parse_hex_field(root, "group_pubkey", s->group_pubkey, sizeof(s->group_pubkey));
         parse_hex_vec(root, "message", s->message, KFP_MAX_MESSAGE_LEN, &s->message_len);
         cJSON *mt = cJSON_GetObjectItem(root, "message_type");
         if (mt && cJSON_IsString(mt)) {
@@ -147,8 +147,8 @@ char *kfp_serialize_announce(const kfp_announce_t *msg) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "type", "announce");
     cJSON_AddNumberToObject(root, "version", msg->version);
-    char hex[65];
-    hex_encode(msg->group_pubkey, 32, hex);
+    char hex[67];
+    hex_encode(msg->group_pubkey, sizeof(msg->group_pubkey), hex);
     cJSON_AddStringToObject(root, "group_pubkey", hex);
     cJSON_AddNumberToObject(root, "share_index", msg->share_index);
     cJSON *caps = cJSON_AddArrayToObject(root, "capabilities");

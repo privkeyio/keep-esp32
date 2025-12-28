@@ -24,14 +24,14 @@ typedef enum {
 
 typedef struct {
     uint8_t version;
-    uint8_t group_pubkey[32];
+    uint8_t group_pubkey[33];
     uint16_t share_index;
     char name[64];
 } kfp_announce_t;
 
 typedef struct {
     uint8_t session_id[32];
-    uint8_t group_pubkey[32];
+    uint8_t group_pubkey[33];
     uint8_t message[KFP_MAX_MESSAGE_LEN];
     size_t message_len;
     char message_type[32];

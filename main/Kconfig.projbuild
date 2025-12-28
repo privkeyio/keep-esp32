@@ -1,5 +1,12 @@
 menu "FROST Participant Configuration"
 
+    config USE_UART_CONSOLE
+        bool "Use UART for serial console (for QEMU)"
+        default n
+        help
+            Use UART0 instead of USB Serial JTAG for serial console.
+            Enable this for QEMU testing.
+
     config WIFI_SSID
         string "WiFi SSID"
         default "myssid"

@@ -6,9 +6,41 @@
 
 #ifndef ESP_PLATFORM
 #include <stdio.h>
+#include <stdlib.h>
+
+#if defined(__linux__) && defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 25))
+#include <sys/random.h>
+#define HAVE_GETRANDOM 1
+#endif
+
 static void fill_random(uint8_t *buf, size_t len) {
+#ifdef HAVE_GETRANDOM
+    ssize_t ret = getrandom(buf, len, 0);
+    if (ret == (ssize_t)len) return;
+    fprintf(stderr, "FATAL: getrandom failed (returned %zd, expected %zu)\n", ret, len);
+    abort();
+#else
     FILE *fp = fopen("/dev/urandom", "r");
-    if (fp) { fread(buf, 1, len, fp); fclose(fp); }
+    if (fp) {
+        size_t total = 0;
+        while (total < len) {
+            size_t n = fread(buf + total, 1, len - total, fp);
+            if (n == 0) break;
+            total += n;
+        }
+        fclose(fp);
+        if (total == len) return;
+    }
+#ifdef FROST_ALLOW_WEAK_RNG
+    fprintf(stderr, "WARNING: Using weak RNG fallback (test mode only)\n");
+    for (size_t i = 0; i < len; i++) {
+        buf[i] = (uint8_t)(rand() & 0xff);
+    }
+#else
+    fprintf(stderr, "FATAL: /dev/urandom unavailable and secure RNG required\n");
+    abort();
+#endif
+#endif
 }
 static void secure_zero(void *buf, size_t len) {
     volatile uint8_t *p = buf;
@@ -39,9 +71,14 @@ int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_le
     memcpy(group_pubkey33, p, 33); p += 33;
 
     uint32_t index = p[0] | (p[1] << 8); p += 2;
-    uint32_t max_participants = p[0] | (p[1] << 8);
+    uint32_t max_participants = p[0] | (p[1] << 8); p += 2;
+    uint32_t threshold = 2;
+    if (share_len >= KEYPAIR_SERIALIZED_LEN + 2) {
+        threshold = p[0] | (p[1] << 8);
+    }
 
     state->share_index = (uint16_t)index;
+    state->threshold = (uint16_t)threshold;
 
     secp256k1_frost_keypair *kp = secp256k1_frost_keypair_create(index);
     if (!kp) {
@@ -62,7 +99,7 @@ int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_le
 
     uint8_t gpk33[33], dummy[33];
     secp256k1_frost_pubkey_save(dummy, gpk33, &kp->public_keys);
-    memcpy(state->group_pubkey, gpk33 + 1, 32);
+    memcpy(state->group_pubkey, gpk33, sizeof(state->group_pubkey));
 
     return 0;
 }
@@ -117,9 +154,9 @@ static void deserialize_commitment(const uint8_t *data, secp256k1_frost_nonce_co
     memcpy(c->binding, data + 68, 64);
 }
 
-int frost_sign(frost_state_t *state, session_t *session,
-               const uint8_t *msg_hash, size_t hash_len,
-               uint8_t *sig_share_out, size_t *sig_share_len) {
+int frost_sign_share(frost_state_t *state, session_t *session,
+                     const uint8_t *msg_hash, size_t hash_len,
+                     uint8_t *sig_share_out, size_t *sig_share_len) {
     if (!session_has_all_commitments(session)) return -1;
 
     secp256k1_frost_nonce nonce;
