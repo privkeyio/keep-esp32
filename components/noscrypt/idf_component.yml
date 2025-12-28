@@ -1,0 +1,5 @@
+version: "0.1.0"
+description: "Nostr cryptography (NIP-44) for ESP32"
+url: "https://github.com/privkeyio/noscrypt"
+dependencies:
+  idf: ">=5.0"
