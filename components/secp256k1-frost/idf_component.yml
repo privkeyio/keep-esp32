@@ -1,0 +1,5 @@
+version: "0.1.0"
+description: "FROST threshold signatures for ESP32"
+url: "https://github.com/privkeyio/secp256k1-frost"
+dependencies:
+  idf: ">=5.0"

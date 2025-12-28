@@ -1,0 +1,21 @@
+menu "FROST Participant Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+        help
+            SSID of the WiFi network to connect to.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "mypassword"
+        help
+            Password for the WiFi network.
+
+    config NOSTR_RELAY_URL
+        string "Nostr Relay URL"
+        default "wss://relay.damus.io"
+        help
+            WebSocket URL of the Nostr relay to connect to.
+
+endmenu

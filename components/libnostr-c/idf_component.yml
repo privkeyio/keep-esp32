@@ -1,0 +1,5 @@
+version: "0.1.0"
+description: "Nostr protocol primitives"
+url: "https://github.com/privkeyio/libnostr-c"
+dependencies:
+  idf: ">=5.0"
