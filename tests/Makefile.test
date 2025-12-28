@@ -1,0 +1,27 @@
+SECP_DIR = ../../secp256k1-frost
+SECP_INC = $(SECP_DIR)/include
+SECP_LIB = $(SECP_DIR)/build/src
+
+CC = gcc
+CFLAGS = -I$(SECP_INC) -Wall
+LDFLAGS = -L$(SECP_LIB) -lsecp256k1 -Wl,-rpath,$(SECP_LIB)
+
+.PHONY: all test clean
+
+all: test_frost_native test_firmware_flow
+
+test_frost_native: test_frost_native.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+test_firmware_flow: test_firmware_flow.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+test: all
+	@echo "=== Running FROST Native Test ==="
+	@./test_frost_native
+	@echo ""
+	@echo "=== Running Firmware Flow Test ==="
+	@./test_firmware_flow
+
+clean:
+	rm -f test_frost_native test_firmware_flow

@@ -6,6 +6,7 @@
 static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "ping") == 0) return RPC_METHOD_PING;
     if (strcmp(method, "get_share_pubkey") == 0) return RPC_METHOD_GET_SHARE_PUBKEY;
+    if (strcmp(method, "frost_commit") == 0) return RPC_METHOD_FROST_COMMIT;
     if (strcmp(method, "frost_sign") == 0) return RPC_METHOD_FROST_SIGN;
     if (strcmp(method, "import_share") == 0) return RPC_METHOD_IMPORT_SHARE;
     if (strcmp(method, "delete_share") == 0) return RPC_METHOD_DELETE_SHARE;
@@ -47,6 +48,14 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         cJSON *share = cJSON_GetObjectItem(params, "share");
         if (share && cJSON_IsString(share)) {
             snprintf(req->share, sizeof(req->share), "%s", share->valuestring);
+        }
+        cJSON *session_id = cJSON_GetObjectItem(params, "session_id");
+        if (session_id && cJSON_IsString(session_id)) {
+            snprintf(req->session_id, sizeof(req->session_id), "%s", session_id->valuestring);
+        }
+        cJSON *commitments = cJSON_GetObjectItem(params, "commitments");
+        if (commitments && cJSON_IsString(commitments)) {
+            snprintf(req->commitments, sizeof(req->commitments), "%s", commitments->valuestring);
         }
     }
 

@@ -108,8 +108,8 @@ int nostr_client_subscribe(nostr_client_t *client, const uint8_t *group_pubkey) 
 
     snprintf(client->sub_id, sizeof(client->sub_id), "kfp%08x", (unsigned)esp_random());
 
-    char gpk_hex[65];
-    hex_encode(group_pubkey, 32, gpk_hex);
+    char gpk_hex[67];
+    hex_encode(group_pubkey, 33, gpk_hex);
 
     char req[512];
     snprintf(req, sizeof(req),

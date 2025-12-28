@@ -4,11 +4,11 @@
 #include "main/kfp.h"
 
 int test_announce(void) {
-    const char *json = "{\"type\":\"announce\",\"version\":1,\"group_pubkey\":\"0102030405060708091011121314151617181920212223242526272829303132\",\"share_index\":2,\"name\":\"esp32\"}";
+    const char *json = "{\"type\":\"announce\",\"version\":1,\"group_pubkey\":\"020102030405060708091011121314151617181920212223242526272829303132\",\"share_index\":2,\"name\":\"esp32\"}";
     kfp_msg_t msg;
     if (kfp_parse(json, &msg) != KFP_MSG_ANNOUNCE) return 1;
     if (msg.announce.share_index != 2) return 2;
-    if (msg.announce.group_pubkey[0] != 0x01) return 3;
+    if (msg.announce.group_pubkey[0] != 0x02) return 3;
     if (strcmp(msg.announce.name, "esp32") != 0) return 4;
     char *out = kfp_serialize_announce(&msg.announce);
     if (!out) return 5;
@@ -18,7 +18,7 @@ int test_announce(void) {
 }
 
 int test_sign_request(void) {
-    const char *json = "{\"type\":\"sign_request\",\"session_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"group_pubkey\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"message\":\"48656c6c6f\",\"message_type\":\"raw\",\"participants\":[1,2],\"timestamp\":1234567890}";
+    const char *json = "{\"type\":\"sign_request\",\"session_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"group_pubkey\":\"02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"message\":\"48656c6c6f\",\"message_type\":\"raw\",\"participants\":[1,2],\"timestamp\":1234567890}";
     kfp_msg_t msg;
     if (kfp_parse(json, &msg) != KFP_MSG_SIGN_REQUEST) return 1;
     if (msg.sign_request.message_len != 5) return 2;
