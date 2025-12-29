@@ -106,7 +106,9 @@ static int load_frost_state(frost_state_t *state, const char *group) {
 }
 
 int frost_signer_init(void) {
-    memset(sessions, 0, sizeof(sessions));
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        sessions[i].active = false;
+    }
     ESP_LOGI(TAG, "FROST signer ready");
     return 0;
 }

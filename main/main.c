@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 
 #include "protocol.h"
 #include "serial.h"
@@ -126,8 +127,12 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "Ready");
 
-    char rx_buf[PROTOCOL_MAX_MESSAGE_LEN];
-    char tx_buf[PROTOCOL_MAX_MESSAGE_LEN];
+#ifdef CONFIG_USE_UART_CONSOLE
+    esp_log_level_set("*", ESP_LOG_ERROR);
+#endif
+
+    static char rx_buf[PROTOCOL_MAX_MESSAGE_LEN];
+    static char tx_buf[PROTOCOL_MAX_MESSAGE_LEN];
 
     while (1) {
         int len = serial_read_line(rx_buf, sizeof(rx_buf));
