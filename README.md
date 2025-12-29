@@ -65,8 +65,13 @@ echo '{"id":5,"method":"frost_sign","params":{"group":"mygroup","session_id":"<3
 ## Testing
 
 ```bash
-# Native FROST crypto tests
-cd tests && make -f Makefile.test test
+# Native tests (protocol + FROST crypto)
+cd test/native
+cmake -B build && cmake --build build
+./build/test_protocol && ./build/test_frost
+
+# Hardware tests (requires ESP32-S3)
+python3 test/hardware/test_hardware.py
 ```
 
 ## License

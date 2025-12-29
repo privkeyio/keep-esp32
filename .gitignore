@@ -7,8 +7,10 @@ sdkconfig.old
 __pycache__/
 .cache/
 
-# Test binaries
+# Test binaries and build directories
 test_kfp
 test_native_frost
 test_frost_native
 test_firmware_flow
+test/native/build/
+tests/*.o

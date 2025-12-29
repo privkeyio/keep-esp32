@@ -21,9 +21,14 @@ def find_qemu():
     raise RuntimeError("QEMU not found. Set QEMU_BIN env var or add qemu-system-xtensa to PATH")
 
 QEMU = find_qemu()
-FLASH = os.environ.get("FLASH", "../build/merged_flash.bin")
+FLASH = os.environ.get("FLASH", "../build/qemu_flash_8mb.bin")
 if not os.path.isfile(FLASH):
-    raise RuntimeError(f"Flash image not found: {FLASH}")
+    raise RuntimeError(
+        f"Flash image not found: {FLASH}\n"
+        f"From repository root, run:\n"
+        f"  dd if=/dev/zero bs=1M count=8 of=build/qemu_flash_8mb.bin\n"
+        f"  dd if=build/qemu_flash.bin of=build/qemu_flash_8mb.bin conv=notrunc"
+    )
 
 def drain_output(master, timeout=0.5):
     """Drain any pending output"""
@@ -93,8 +98,9 @@ def run_qemu_test():
     master, slave = pty.openpty()
 
     proc = subprocess.Popen(
-        [QEMU, "-M", "esp32s3", "-nographic",
-         "-drive", f"file={FLASH},format=raw,if=mtd"],
+        [QEMU, "-M", "esp32s3", "-m", "32M", "-nographic",
+         "-drive", f"file={FLASH},if=mtd,format=raw",
+         "-global", "driver=timer.esp32s3.timg,property=wdt_disable,value=true"],
         stdin=slave,
         stdout=slave,
         stderr=subprocess.STDOUT
