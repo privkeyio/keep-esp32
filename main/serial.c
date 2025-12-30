@@ -1,69 +1,48 @@
 #include "serial.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
-#include "sdkconfig.h"
+#include "driver/uart.h"
 #include <string.h>
 #include <stdio.h>
 
-#define SERIAL_BUF_SIZE 1024
-
-#ifdef CONFIG_USE_UART_CONSOLE
-#include "esp_rom_serial_output.h"
-#else
-#include "driver/usb_serial_jtag.h"
-#endif
+#define UART_NUM UART_NUM_0
+#define RX_BUF_SIZE 2048
 
 static const char *TAG = "serial";
+static char rx_buf[RX_BUF_SIZE];
+static size_t rx_pos = 0;
 
-void serial_init(void) {
-#ifdef CONFIG_USE_UART_CONSOLE
-    ESP_LOGI(TAG, "ROM UART console ready");
-#else
-    usb_serial_jtag_driver_config_t config = {
-        .rx_buffer_size = SERIAL_BUF_SIZE,
-        .tx_buffer_size = SERIAL_BUF_SIZE,
-    };
-    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&config));
-    ESP_LOGI(TAG, "USB serial initialized");
-#endif
+int serial_init(void) {
+    esp_err_t err = uart_driver_install(UART_NUM, RX_BUF_SIZE, 0, 0, NULL, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "UART driver install failed: %s (%d)", esp_err_to_name(err), err);
+        return -1;
+    }
+    ESP_LOGI(TAG, "UART driver installed");
+    return 0;
 }
 
 int serial_read_line(char *buf, size_t len) {
-    if (len < 2) return 0;
-    size_t pos = 0;
-    while (pos + 1 < len) {
-#ifdef CONFIG_USE_UART_CONSOLE
-        uint8_t c;
-        while (esp_rom_output_rx_one_char(&c) != 0) {
-            vTaskDelay(1);
+    uint8_t c;
+    while (uart_read_bytes(UART_NUM, &c, 1, pdMS_TO_TICKS(10)) > 0) {
+        if (c == '\n' || c == '\r') {
+            if (rx_pos > 0) {
+                size_t copy_len = rx_pos < len - 1 ? rx_pos : len - 1;
+                memcpy(buf, rx_buf, copy_len);
+                buf[copy_len] = '\0';
+                rx_pos = 0;
+                return (int)copy_len;
+            }
+        } else if (rx_pos < RX_BUF_SIZE - 1) {
+            rx_buf[rx_pos++] = (char)c;
         }
-        buf[pos] = (char)c;
-#else
-        int n = usb_serial_jtag_read_bytes((uint8_t *)&buf[pos], 1, portMAX_DELAY);
-        if (n <= 0) continue;
-#endif
-        if (buf[pos] == '\n' || buf[pos] == '\r') {
-            buf[pos] = '\0';
-            if (pos > 0) return (int)pos;
-            continue;
-        }
-        pos++;
     }
-    buf[pos] = '\0';
-    return (int)pos;
+    return 0;
 }
 
 int serial_write_line(const char *buf) {
-    size_t blen = strlen(buf);
-#ifdef CONFIG_USE_UART_CONSOLE
-    for (size_t i = 0; i < blen; i++) {
-        esp_rom_output_tx_one_char((uint8_t)buf[i]);
-    }
-    esp_rom_output_tx_one_char('\n');
-    return (int)blen;
-#else
-    int written = usb_serial_jtag_write_bytes((const uint8_t *)buf, blen, portMAX_DELAY);
-    usb_serial_jtag_write_bytes((const uint8_t *)"\n", 1, portMAX_DELAY);
-    return written;
-#endif
+    size_t len = strlen(buf);
+    uart_write_bytes(UART_NUM, buf, len);
+    uart_write_bytes(UART_NUM, "\n", 1);
+    return (int)len;
 }

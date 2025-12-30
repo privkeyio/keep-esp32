@@ -93,7 +93,7 @@ def generate_test_share():
     return "ae0b3900b19a1f5de719ac0b14311770b5fbe499be512f80144e092e1740ac9d02930950a722fc8b79610e9d5f00ed8a1407fee195b8914d97233c5c8767c81bdd03dd00fe90614f9628d8db944334a6e82867d69896c5995470e17f39273332188e0100030002000000"
 
 def main():
-    port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM0"
+    port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
     print(f"Connecting to {port}...")
 
     try:

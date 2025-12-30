@@ -21,20 +21,34 @@ jobs:
           ref: esp-idf-support
           path: secp256k1-frost
 
-      - uses: actions/checkout@v4
-        with:
-          repository: privkeyio/libnostr-c
-          ref: v0.1.2
-          path: libnostr-c
-
-      - uses: actions/checkout@v4
-        with:
-          repository: privkeyio/noscrypt
-          ref: esp-idf-support
-          path: noscrypt
-
       - uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.4.1
           target: esp32s3
           path: keep-esp32
+
+  native-tests:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: keep-esp32
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/secp256k1-frost
+          ref: esp-idf-support
+          path: secp256k1-frost
+
+      - name: Build secp256k1-frost
+        run: |
+          cd secp256k1-frost
+          mkdir build && cd build
+          cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON -DSECP256K1_ENABLE_MODULE_FROST=ON -DSECP256K1_EXPERIMENTAL=ON
+          make -j$(nproc)
+
+      - name: Run native tests
+        run: |
+          cd keep-esp32/tests
+          make -f Makefile.test test
