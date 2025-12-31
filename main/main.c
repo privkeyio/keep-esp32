@@ -12,6 +12,10 @@
 
 #define TAG "main"
 #define VERSION "0.1.0"
+#define RATE_LIMIT_THRESHOLD 5
+#define RATE_LIMIT_DELAY_MS 1000
+
+static int consecutive_errors = 0;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
     char result[64];
@@ -80,7 +84,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
             frost_get_pubkey(req->group, resp);
             break;
         case RPC_METHOD_FROST_COMMIT:
-            frost_commit(req->group, req->session_id, req->message, resp);
+            frost_commit(req->group, req->message, resp);
             break;
         case RPC_METHOD_FROST_SIGN:
             frost_sign(req->group, req->session_id, req->commitments, resp);
@@ -126,11 +130,19 @@ void app_main(void) {
     while (1) {
         int len = serial_read_line(line_buf, sizeof(line_buf));
         if (len > 0) {
+            if (consecutive_errors >= RATE_LIMIT_THRESHOLD) {
+                vTaskDelay(pdMS_TO_TICKS(RATE_LIMIT_DELAY_MS));
+            }
             memset(&resp, 0, sizeof(resp));
             if (protocol_parse_request(line_buf, &req) == 0) {
                 handle_request(&req, &resp);
             } else {
                 protocol_error(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
+            }
+            if (resp.success) {
+                consecutive_errors = 0;
+            } else {
+                consecutive_errors++;
             }
             int fmt_ret = protocol_format_response(&resp, resp_buf, sizeof(resp_buf));
             if (fmt_ret >= 0) {
