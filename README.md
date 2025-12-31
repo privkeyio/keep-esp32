@@ -1,6 +1,22 @@
 # keep-esp32
 
-ESP32-S3 air-gapped FROST threshold signing device.
+ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com/privkeyio/keep).
+
+## Quick Start
+
+```bash
+# 1. Install Keep CLI
+cargo install keep-cli
+
+# 2. Flash device (see Build below), then test connection
+keep frost hardware ping --device /dev/ttyUSB0
+
+# 3. Import a FROST share to device
+keep frost hardware import --device /dev/ttyUSB0 --group mygroup --share 1
+
+# 4. Sign (CLI coordinates with other signers via relay)
+keep frost network sign --group mygroup --message <hash> --hardware /dev/ttyUSB0
+```
 
 ## Features
 
@@ -30,8 +46,8 @@ ESP32-S3 air-gapped FROST threshold signing device.
 ## Prerequisites
 
 ```bash
-# ESP-IDF v6.1
-cd ~/esp && git clone -b v6.1 --recursive https://github.com/espressif/esp-idf.git
+# ESP-IDF v5.4.1
+cd ~/esp && git clone -b v5.4.1 --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf && ./install.sh esp32s3 && source export.sh
 
 # Dependency (sibling directory to this repo)
@@ -50,17 +66,16 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ## Usage
 
+Use [Keep CLI](https://github.com/privkeyio/keep) to interact with the device:
+
 ```bash
-# Import share
-echo '{"id":1,"method":"import_share","params":{"group":"mygroup","share":"<hex>"}}' > /dev/ttyUSB0
-
-# List shares
-echo '{"id":2,"method":"list_shares"}' > /dev/ttyUSB0
-
-# Signing (two rounds)
-echo '{"id":3,"method":"frost_commit","params":{"group":"mygroup","session_id":"<32-byte-hex>","message":"<32-byte-hex>"}}' > /dev/ttyUSB0
-echo '{"id":4,"method":"frost_sign","params":{"group":"mygroup","session_id":"<32-byte-hex>","commitments":"<peer-commitments-hex>"}}' > /dev/ttyUSB0
+keep frost hardware ping --device /dev/ttyUSB0
+keep frost hardware import --device /dev/ttyUSB0 --group <group> --share <n>
+keep frost hardware list --device /dev/ttyUSB0
+keep frost hardware delete --device /dev/ttyUSB0 --group <group>
 ```
+
+See JSON-RPC API section above for low-level protocol details.
 
 ## Testing
 
