@@ -29,7 +29,7 @@ git clone https://github.com/privkeyio/keep
 ```
 
 Your directory structure should look like:
-```
+```text
 ~/projects/
 ├── secp256k1-frost/   # FROST crypto library
 ├── keep-esp32/        # This repo (ESP32 firmware)

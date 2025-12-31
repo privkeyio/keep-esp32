@@ -14,13 +14,33 @@ static void generate_random_bytes(uint8_t *buf, size_t len) { esp_fill_random(bu
 #else
 #include <time.h>
 #include <stdlib.h>
+#include <stdio.h>
 static uint32_t get_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 static void generate_random_bytes(uint8_t *buf, size_t len) {
-    for (size_t i = 0; i < len; i++) buf[i] = (uint8_t)rand();
+    FILE *fp = fopen("/dev/urandom", "r");
+    if (fp) {
+        size_t total = 0;
+        while (total < len) {
+            size_t n = fread(buf + total, 1, len - total, fp);
+            if (n == 0) break;
+            total += n;
+        }
+        fclose(fp);
+        if (total == len) return;
+    }
+#ifdef FROST_ALLOW_WEAK_RNG
+    fprintf(stderr, "WARNING: Using weak RNG fallback (test mode only)\n");
+    for (size_t i = 0; i < len; i++) {
+        buf[i] = (uint8_t)(rand() & 0xff);
+    }
+#else
+    fprintf(stderr, "FATAL: /dev/urandom unavailable and secure RNG required\n");
+    abort();
+#endif
 }
 #endif
 
