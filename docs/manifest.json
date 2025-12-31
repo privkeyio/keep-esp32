@@ -1,0 +1,12 @@
+{
+  "name": "Keep FROST Signer",
+  "version": "0.1.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "frost-participant-merged.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

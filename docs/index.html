@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keep FROST Signer - Web Flasher</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+      line-height: 1.6;
+    }
+    h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+    .subtitle { color: #8b949e; margin-bottom: 2rem; }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    h2 { color: #c9d1d9; font-size: 1.1rem; margin-top: 0; }
+    ol { padding-left: 1.25rem; }
+    li { margin-bottom: 0.5rem; }
+    code {
+      background: #0d1117;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    esp-web-install-button {
+      display: block;
+      margin: 1.5rem 0;
+    }
+    esp-web-install-button::part(button) {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      width: 100%;
+    }
+    esp-web-install-button::part(button):hover {
+      background: #2ea043;
+    }
+    .warning {
+      background: #0d1117;
+      border-left: 3px solid #d29922;
+      padding: 0.75rem 1rem;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    a { color: #58a6ff; }
+    .footer { margin-top: 2rem; font-size: 0.85rem; color: #8b949e; }
+  </style>
+</head>
+<body>
+  <h1>Keep FROST Signer</h1>
+  <p class="subtitle">Air-gapped threshold signing for ESP32-S3</p>
+
+  <div class="card">
+    <h2>Flash Firmware</h2>
+    <ol>
+      <li>Connect your ESP32-S3 via USB</li>
+      <li>Click the button below</li>
+      <li>Select your device's serial port</li>
+      <li>Wait for flashing to complete</li>
+    </ol>
+
+    <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+
+    <div class="warning">
+      Requires Chrome or Edge browser. Not supported on iOS.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>After Flashing</h2>
+    <p>Use the <a href="https://github.com/privkeyio/keep">Keep CLI</a> to interact with your device:</p>
+    <code>keep frost hardware ping --device /dev/ttyUSB0</code>
+  </div>
+
+  <div class="footer">
+    <a href="https://github.com/privkeyio/keep-esp32">GitHub</a> ·
+    Hardware: ESP32-S3 with 8MB Flash
+  </div>
+
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</body>
+</html>
