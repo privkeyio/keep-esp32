@@ -27,7 +27,7 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
     size_t buf_size = sizeof(result);
     size_t offset = 0;
 
-    int ret = snprintf(result, buf_size, "{\"shares\":[");
+    int ret = snprintf(result, buf_size, "{\"groups\":[");
     if (ret < 0 || (size_t)ret >= buf_size) {
         protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer error");
         return;
@@ -54,11 +54,6 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 static void handle_import_share(const rpc_request_t *req, rpc_response_t *resp) {
-    if (strlen(req->group) == 0 || strlen(req->share) == 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing group or share");
-        return;
-    }
-
     if (storage_save_share(req->group, req->share) == 0) {
         protocol_success(resp, req->id, "{\"ok\":true}");
     } else {
@@ -67,13 +62,11 @@ static void handle_import_share(const rpc_request_t *req, rpc_response_t *resp) 
 }
 
 static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) {
-    if (strlen(req->group) == 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing group");
-        return;
+    if (storage_delete_share(req->group) == 0) {
+        protocol_success(resp, req->id, "{\"ok\":true}");
+    } else {
+        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
     }
-
-    storage_delete_share(req->group);
-    protocol_success(resp, req->id, "{\"ok\":true}");
 }
 
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
@@ -110,49 +103,42 @@ void app_main(void) {
     ESP_LOGI(TAG, "=================================");
     ESP_LOGI(TAG, "  Keep Hardware - FROST Signer");
     ESP_LOGI(TAG, "  Version: %s", VERSION);
-    ESP_LOGI(TAG, "  Air-gapped mode");
     ESP_LOGI(TAG, "=================================");
 
     if (storage_init() != 0) {
-        ESP_LOGE(TAG, "Storage init failed");
-        return;
+        ESP_LOGW(TAG, "Storage init failed, continuing without storage");
     }
 
-    if (frost_signer_init() != 0) {
-        ESP_LOGE(TAG, "FROST signer init failed");
-        return;
+    frost_signer_init();
+
+    if (serial_init() != 0) {
+        ESP_LOGE(TAG, "Serial init failed, restarting");
+        esp_restart();
     }
 
-    serial_init();
+    ESP_LOGI(TAG, "Initialization complete");
 
-    ESP_LOGI(TAG, "Ready");
-
-#ifdef CONFIG_USE_UART_CONSOLE
-    esp_log_level_set("*", ESP_LOG_ERROR);
-#endif
-
-    static char rx_buf[PROTOCOL_MAX_MESSAGE_LEN];
-    static char tx_buf[PROTOCOL_MAX_MESSAGE_LEN];
+    static char line_buf[PROTOCOL_MAX_MESSAGE_LEN];
+    static char resp_buf[PROTOCOL_MAX_MESSAGE_LEN];
+    static rpc_request_t req;
+    static rpc_response_t resp;
 
     while (1) {
-        int len = serial_read_line(rx_buf, sizeof(rx_buf));
-        if (len <= 0) continue;
-
-        rpc_request_t req;
-        rpc_response_t resp = {0};
-
-        int parse_err = protocol_parse_request(rx_buf, &req);
-        if (parse_err != 0) {
-            protocol_error(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
-        } else {
-            handle_request(&req, &resp);
+        int len = serial_read_line(line_buf, sizeof(line_buf));
+        if (len > 0) {
+            memset(&resp, 0, sizeof(resp));
+            if (protocol_parse_request(line_buf, &req) == 0) {
+                handle_request(&req, &resp);
+            } else {
+                protocol_error(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
+            }
+            int fmt_ret = protocol_format_response(&resp, resp_buf, sizeof(resp_buf));
+            if (fmt_ret >= 0) {
+                serial_write_line(resp_buf);
+            } else {
+                ESP_LOGE(TAG, "Response formatting failed");
+            }
         }
-
-        if (protocol_format_response(&resp, tx_buf, sizeof(tx_buf)) != 0) {
-            ESP_LOGE(TAG, "Response formatting failed");
-            serial_write_line("{\"error\":{\"code\":-32603,\"message\":\"Internal error\"}}");
-            continue;
-        }
-        serial_write_line(tx_buf);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
