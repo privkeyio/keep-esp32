@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: keep-esp32
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/secp256k1-frost
+          ref: esp-idf-support
+          path: secp256k1-frost
+
+      - name: Build ESP32-S3 firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.1
+          target: esp32s3
+          path: keep-esp32
+
+      - name: Install esptool
+        run: pip install esptool
+
+      - name: Package release
+        run: |
+          mkdir -p release
+          sudo cp keep-esp32/build/frost-participant.bin release/
+          sudo cp keep-esp32/build/bootloader/bootloader.bin release/
+          sudo cp keep-esp32/build/partition_table/partition-table.bin release/
+          sudo cp keep-esp32/build/ota_data_initial.bin release/
+          sudo cp keep-esp32/build/flash_args release/
+          cp keep-esp32/README.md release/
+          sudo chown -R $(id -u):$(id -g) release/
+          cd release
+          esptool --chip esp32s3 merge-bin \
+            --flash-mode dio \
+            --flash-freq 80m \
+            --flash-size 8MB \
+            -o frost-participant-merged.bin \
+            0x0 bootloader.bin \
+            0x8000 partition-table.bin \
+            0xd000 ota_data_initial.bin \
+            0x10000 frost-participant.bin
+          tar -czvf ../keep-esp32-firmware-${{ github.ref_name }}.tar.gz *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: keep-esp32-firmware
+          path: keep-esp32/keep-esp32-firmware-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          body: |
+            ## Flashing Instructions
+
+            ### Quick Flash (Merged Binary)
+            Flash the merged binary directly at address 0x0:
+            ```bash
+            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 frost-participant-merged.bin
+            ```
+
+            ### Individual Binaries
+            Or flash each binary separately:
+            ```bash
+            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash \
+              --flash-mode dio --flash-freq 80m --flash-size 8MB \
+              0x0 bootloader.bin \
+              0x8000 partition-table.bin \
+              0xd000 ota_data_initial.bin \
+              0x10000 frost-participant.bin
+            ```
+
+            Replace `/dev/ttyUSB0` with your device's serial port (e.g., `COM3` on Windows, `/dev/tty.usbserial-*` on macOS).
