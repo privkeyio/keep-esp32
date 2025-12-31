@@ -76,6 +76,9 @@ static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) 
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
 
+    // Clean up expired sessions before handling request
+    frost_signer_cleanup_stale();
+
     switch (req->method) {
         case RPC_METHOD_PING:
             handle_ping(req, resp);

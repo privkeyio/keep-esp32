@@ -2,21 +2,86 @@
 
 ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com/privkeyio/keep).
 
+## Hardware
+
+- **ESP32-S3** with USB Serial JTAG support
+- 8MB Flash, 8MB PSRAM recommended
+- Tested on ESP32-S3-DevKitC-1-N8R8
+
+## Prerequisites
+
+### 1. ESP-IDF v5.4+
+
+```bash
+mkdir -p ~/esp && cd ~/esp
+git clone -b v5.4.1 --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf && ./install.sh esp32s3
+source export.sh
+```
+
+### 2. Clone repositories (as siblings)
+
+```bash
+cd ~/projects  # or your preferred directory
+git clone -b esp-idf-support https://github.com/privkeyio/secp256k1-frost
+git clone https://github.com/privkeyio/keep-esp32
+git clone https://github.com/privkeyio/keep
+```
+
+Your directory structure should look like:
+```
+~/projects/
+├── secp256k1-frost/   # FROST crypto library
+├── keep-esp32/        # This repo (ESP32 firmware)
+└── keep/              # Keep CLI and core library
+```
+
+### 3. Build Keep CLI
+
+```bash
+cd ~/projects/keep
+cargo build --release -p keep-cli
+# Binary at: ./target/release/keep
+```
+
+### 4. Python dependencies (for testing)
+
+```bash
+pip install pyserial
+```
+
+## Build & Flash
+
+```bash
+cd ~/projects/keep-esp32
+source ~/esp/esp-idf/export.sh
+idf.py build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
 ## Quick Start
 
 ```bash
-# 1. Install Keep CLI
-cargo install keep-cli
+# Test connection
+~/projects/keep/target/release/keep frost hardware ping --device /dev/ttyUSB0
 
-# 2. Flash device (see Build below), then test connection
-keep frost hardware ping --device /dev/ttyUSB0
+# List shares on device
+~/projects/keep/target/release/keep frost hardware list --device /dev/ttyUSB0
 
-# 3. Import a FROST share to device
-keep frost hardware import --device /dev/ttyUSB0 --group mygroup --share 1
+# Import a FROST share
+~/projects/keep/target/release/keep frost hardware import \
+  --device /dev/ttyUSB0 \
+  --group mygroup \
+  --share 1
 
-# 4. Sign (CLI coordinates with other signers via relay)
-keep frost network sign --group mygroup --message <hash> --hardware /dev/ttyUSB0
+# Sign (CLI coordinates with other signers via relay)
+~/projects/keep/target/release/keep frost network sign \
+  --group mygroup \
+  --message <hash> \
+  --hardware /dev/ttyUSB0
 ```
+
+Or add to PATH: `export PATH="$PATH:~/projects/keep/target/release"`
 
 ## Features
 
@@ -37,60 +102,41 @@ keep frost network sign --group mygroup --message <hash> --hardware /dev/ttyUSB0
 | `frost_commit` | Round 1: Generate nonce commitment |
 | `frost_sign` | Round 2: Generate signature share |
 
-## Hardware
-
-- **ESP32-S3** with USB Serial JTAG support
-- 8MB Flash, 8MB PSRAM recommended
-- Tested on ESP32-S3-DevKitC-1-N8R8
-
-## Prerequisites
-
-```bash
-# ESP-IDF v5.4.1
-cd ~/esp && git clone -b v5.4.1 --recursive https://github.com/espressif/esp-idf.git
-cd esp-idf && ./install.sh esp32s3 && source export.sh
-
-# Dependency (sibling directory to this repo)
-cd /path/to/parent/directory
-git clone -b esp-idf-support https://github.com/privkeyio/secp256k1-frost
-git clone https://github.com/privkeyio/keep-esp32
-```
-
-## Build
-
-```bash
-source ~/esp/esp-idf/export.sh
-idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor
-```
-
-## Usage
-
-Use [Keep CLI](https://github.com/privkeyio/keep) to interact with the device:
-
-```bash
-keep frost hardware ping --device /dev/ttyUSB0
-keep frost hardware import --device /dev/ttyUSB0 --group <group> --share <n>
-keep frost hardware list --device /dev/ttyUSB0
-keep frost hardware delete --device /dev/ttyUSB0 --group <group>
-```
-
-See JSON-RPC API section above for low-level protocol details.
-
 ## Testing
 
+### RPC Test Suite (requires device)
+
 ```bash
-# Full RPC test suite (8 tests)
 python3 scripts/test_all_rpc.py
+```
 
-# Monitor serial output
-python3 scripts/monitor_serial.py
+### Hardware Tests (requires device)
 
-# Hardware tests
+```bash
 python3 test/hardware/test_hardware.py
+```
 
-# Native tests (FROST crypto)
-cd test/native && mkdir -p build && cd build && cmake .. && make && ./test_frost
+### Monitor Serial Output
+
+```bash
+python3 scripts/monitor_serial.py
+```
+
+### Native Tests (FROST crypto, no device needed)
+
+Requires secp256k1-frost to be built first:
+
+```bash
+# Build secp256k1-frost
+cd ~/projects/secp256k1-frost
+mkdir -p build && cd build
+cmake .. && make
+
+# Run native tests
+cd ~/projects/keep-esp32/test/native
+mkdir -p build && cd build
+cmake .. && make
+./test_frost
 ```
 
 ## License
