@@ -264,7 +264,12 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
             }
         }
     }
-    s->session.participant_count = (uint8_t)(s->session.commitment_count + 1);
+    uint8_t total_participants = s->session.commitment_count + 1;
+    if (total_participants < s->frost_state.threshold) {
+        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough commitments for threshold");
+        return;
+    }
+    s->session.participant_count = total_participants;
     s->session.state = SESSION_AWAITING_SHARES;
 
     uint8_t sig_share[36];

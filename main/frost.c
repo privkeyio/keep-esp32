@@ -211,11 +211,12 @@ int frost_sign_share(frost_state_t *state, session_t *session,
                      const uint8_t *msg_hash, size_t hash_len,
                      uint8_t *sig_share_out, size_t *sig_share_len) {
     if (!session_has_all_commitments(session)) return -1;
+    if (session->commitment_count >= MAX_PARTICIPANTS) return -3;
 
     secp256k1_frost_nonce nonce;
     nonce.used = 0;
-    memcpy(nonce.hiding, session->our_nonce, 32);
-    memcpy(nonce.binding, session->our_nonce + 32, 32);
+    memcpy(nonce.hiding, session->our_nonce, SCALAR_LEN);
+    memcpy(nonce.binding, session->our_nonce + SCALAR_LEN, SCALAR_LEN);
     deserialize_commitment(session->our_commitment, &nonce.commitments);
 
     secp256k1_frost_nonce_commitment commits[MAX_PARTICIPANTS];
@@ -251,6 +252,8 @@ int frost_aggregate(frost_state_t *state, session_t *session,
                     const uint8_t *msg_hash, size_t hash_len,
                     uint8_t *signature_out) {
     if (!session_has_all_shares(session)) return -1;
+    if (session->commitment_count > MAX_PARTICIPANTS) return -3;
+    if (session->sig_share_count > MAX_PARTICIPANTS) return -3;
 
     secp256k1_frost_nonce_commitment commits[MAX_PARTICIPANTS];
     for (int i = 0; i < session->commitment_count; i++) {

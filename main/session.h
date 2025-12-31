@@ -47,21 +47,21 @@ typedef struct {
     session_state_t state;
     uint32_t created_at;
 
-    uint8_t commitments[MAX_PARTICIPANTS][128];
+    uint8_t commitments[MAX_PARTICIPANTS][COMMITMENT_LEN];
     size_t commitment_lens[MAX_PARTICIPANTS];
     uint16_t commitment_indices[MAX_PARTICIPANTS];
     uint8_t commitment_count;
 
-    uint8_t sig_shares[MAX_PARTICIPANTS][64];
+    uint8_t sig_shares[MAX_PARTICIPANTS][SIGNATURE_LEN];
     size_t sig_share_lens[MAX_PARTICIPANTS];
     uint16_t sig_share_indices[MAX_PARTICIPANTS];
     uint8_t sig_share_count;
 
-    uint8_t our_nonce[64];
-    uint8_t our_commitment[128];
+    uint8_t our_nonce[SIGNATURE_LEN];
+    uint8_t our_commitment[COMMITMENT_LEN];
     size_t our_commitment_len;
 
-    uint8_t final_signature[64];
+    uint8_t final_signature[SIGNATURE_LEN];
     bool has_signature;
 } session_t;
 
