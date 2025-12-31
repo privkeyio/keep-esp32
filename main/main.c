@@ -27,7 +27,7 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
     size_t buf_size = sizeof(result);
     size_t offset = 0;
 
-    int ret = snprintf(result, buf_size, "{\"groups\":[");
+    int ret = snprintf(result, buf_size, "{\"shares\":[");
     if (ret < 0 || (size_t)ret >= buf_size) {
         protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer error");
         return;

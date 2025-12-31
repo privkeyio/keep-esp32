@@ -1,6 +1,16 @@
 #include "session.h"
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include "crypto_asm.h"
+#define secure_zero(buf, len) secure_memzero(buf, len)
+#else
+static void secure_zero(void *buf, size_t len) {
+    volatile uint8_t *p = buf;
+    while (len--) *p++ = 0;
+}
+#endif
+
 #ifndef ESP_PLATFORM
 #include <time.h>
 static uint32_t now_ms(void) {
@@ -25,6 +35,10 @@ void session_init(session_t *s, const kfp_sign_request_t *req, uint16_t threshol
     s->participant_count = req->participant_count;
     s->state = SESSION_AWAITING_COMMITMENTS;
     s->created_at = now_ms();
+}
+
+void session_destroy(session_t *s) {
+    secure_zero(s, sizeof(session_t));
 }
 
 session_state_t session_state(session_t *s) {

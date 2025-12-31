@@ -71,14 +71,11 @@ python3 scripts/test_all_rpc.py
 # Monitor serial output
 python3 scripts/monitor_serial.py
 
-# Hardware RPC tests (assertion-based)
-python3 tests/test_rpc.py
+# Hardware tests
+python3 test/hardware/test_hardware.py
 
 # Native tests (FROST crypto)
-cd tests && make -f Makefile.test test
-
-# QEMU integration tests
-python3 tests/test_qemu.py
+cd test/native && mkdir -p build && cd build && cmake .. && make && ./test_frost
 ```
 
 ## License

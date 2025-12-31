@@ -20,11 +20,15 @@ set_target_properties(test_frost PROPERTIES
     INSTALL_RPATH ${SECP_DIR}/build/src
 )
 
-add_executable(test_protocol test_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c)
-target_include_directories(test_protocol PRIVATE
-    ${CJSON_DIR}
-    ${MAIN_DIR}
-)
-target_compile_definitions(test_protocol PRIVATE
-    NATIVE_TEST=1
-)
+if(EXISTS ${CJSON_DIR}/cJSON.c)
+    add_executable(test_protocol test_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c)
+    target_include_directories(test_protocol PRIVATE
+        ${CJSON_DIR}
+        ${MAIN_DIR}
+    )
+    target_compile_definitions(test_protocol PRIVATE
+        NATIVE_TEST=1
+    )
+else()
+    message(STATUS "Skipping test_protocol (cJSON not found)")
+endif()
