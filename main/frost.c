@@ -48,8 +48,30 @@ static void secure_zero(void *buf, size_t len) {
 }
 #else
 #include "esp_random.h"
+#include "esp_log.h"
 #include "mbedtls/platform_util.h"
-static void fill_random(uint8_t *buf, size_t len) { esp_fill_random(buf, len); }
+static int fill_random_checked(uint8_t *buf, size_t len) {
+    esp_fill_random(buf, len);
+    uint32_t zeros = 0, ones = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (buf[i] == 0x00) zeros++;
+        if (buf[i] == 0xFF) ones++;
+    }
+    if (zeros > len / 2 || ones > len / 2) {
+        ESP_LOGE("frost", "RNG health check failed");
+        return -1;
+    }
+    return 0;
+}
+static void fill_random(uint8_t *buf, size_t len) {
+    if (fill_random_checked(buf, len) != 0) {
+        esp_fill_random(buf, len);
+        if (fill_random_checked(buf, len) != 0) {
+            ESP_LOGE("frost", "RNG failure - aborting");
+            abort();
+        }
+    }
+}
 #define secure_zero(buf, len) mbedtls_platform_zeroize(buf, len)
 #endif
 
