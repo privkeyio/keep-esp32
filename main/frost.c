@@ -218,7 +218,7 @@ int frost_sign_share(frost_state_t *state, session_t *session,
     memcpy(nonce.binding, session->our_nonce + 32, 32);
     deserialize_commitment(session->our_commitment, &nonce.commitments);
 
-    secp256k1_frost_nonce_commitment commits[KFP_MAX_PARTICIPANTS];
+    secp256k1_frost_nonce_commitment commits[MAX_PARTICIPANTS];
     deserialize_commitment(session->our_commitment, &commits[0]);
     for (int i = 0; i < session->commitment_count; i++) {
         deserialize_commitment(session->commitments[i], &commits[i + 1]);
@@ -252,17 +252,17 @@ int frost_aggregate(frost_state_t *state, session_t *session,
                     uint8_t *signature_out) {
     if (!session_has_all_shares(session)) return -1;
 
-    secp256k1_frost_nonce_commitment commits[KFP_MAX_PARTICIPANTS];
+    secp256k1_frost_nonce_commitment commits[MAX_PARTICIPANTS];
     for (int i = 0; i < session->commitment_count; i++) {
         deserialize_commitment(session->commitments[i], &commits[i]);
     }
 
-    secp256k1_frost_signature_share shares[KFP_MAX_PARTICIPANTS];
+    secp256k1_frost_signature_share shares[MAX_PARTICIPANTS];
     for (int i = 0; i < session->sig_share_count; i++) {
         deserialize_sig_share(session->sig_shares[i], &shares[i]);
     }
 
-    secp256k1_frost_pubkey pubkeys[KFP_MAX_PARTICIPANTS];
+    secp256k1_frost_pubkey pubkeys[MAX_PARTICIPANTS];
     for (int i = 0; i < session->commitment_count; i++) {
         secp256k1_frost_pubkey_from_keypair(&pubkeys[i], state->keypair);
         pubkeys[i].index = commits[i].index;

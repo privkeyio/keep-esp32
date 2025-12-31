@@ -4,13 +4,14 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "kfp.h"
 
 #define PROTOCOL_MAX_MESSAGE_LEN 1024
 #define PROTOCOL_MAX_GROUP_LEN 64
 #define PROTOCOL_MAX_HEX_LEN 512
 #define PROTOCOL_VERSION "0.1.0"
-#define MAX_COMMITMENTS_SIZE ((KFP_MAX_PARTICIPANTS - 1) * 264 + 1)
+#define PROTOCOL_MAX_PARTICIPANTS 16
+#define PROTOCOL_COMMITMENT_HEX_LEN 264
+#define MAX_COMMITMENTS_SIZE ((PROTOCOL_MAX_PARTICIPANTS - 1) * PROTOCOL_COMMITMENT_HEX_LEN + 1)
 
 #define PROTOCOL_ERR_PARSE       -32700
 #define PROTOCOL_ERR_INTERNAL    -32603
@@ -46,7 +47,7 @@ typedef struct {
     bool success;
     int error_code;
     char error_msg[128];
-    char result[PROTOCOL_MAX_HEX_LEN + 1];
+    char result[512];
 } rpc_response_t;
 
 int protocol_parse_request(const char *json, rpc_request_t *req);
