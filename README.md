@@ -2,6 +2,14 @@
 
 ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com/privkeyio/keep).
 
+## Quick Start (Web Flasher)
+
+Flash firmware directly from your browser - no tools required:
+
+**https://privkeyio.github.io/keep-esp32/**
+
+Requires Chrome or Edge. After flashing, use the [Keep CLI](https://github.com/privkeyio/keep) to interact with your device.
+
 ## Hardware
 
 - **ESP32-S3** with USB Serial JTAG support
