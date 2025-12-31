@@ -8,13 +8,19 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
+#include "esp_random.h"
 static uint32_t get_time_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
+static void generate_random_bytes(uint8_t *buf, size_t len) { esp_fill_random(buf, len); }
 #else
 #include <time.h>
+#include <stdlib.h>
 static uint32_t get_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+static void generate_random_bytes(uint8_t *buf, size_t len) {
+    for (size_t i = 0; i < len; i++) buf[i] = (uint8_t)rand();
 }
 #endif
 
@@ -33,7 +39,7 @@ static void secure_zero(void *buf, size_t len) {
 
 typedef struct {
     bool active;
-    uint8_t session_id[32];
+    uint8_t session_id[SESSION_ID_LEN];
     session_t session;
     frost_state_t frost_state;
     char group[STORAGE_GROUP_LEN + 1];
@@ -69,7 +75,7 @@ static void bytes_to_hex(const uint8_t *bytes, size_t len, char *out) {
 
 static signing_session_t *find_session(const uint8_t *session_id) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
-        if (sessions[i].active && ct_compare(sessions[i].session_id, session_id, 32) == 0) {
+        if (sessions[i].active && ct_compare(sessions[i].session_id, session_id, SESSION_ID_LEN) == 0) {
             return &sessions[i];
         }
     }
@@ -81,7 +87,7 @@ static signing_session_t *alloc_session(const uint8_t *session_id) {
         if (!sessions[i].active) {
             memset(&sessions[i], 0, sizeof(signing_session_t));
             sessions[i].active = true;
-            memcpy(sessions[i].session_id, session_id, 32);
+            memcpy(sessions[i].session_id, session_id, SESSION_ID_LEN);
             return &sessions[i];
         }
     }
@@ -148,32 +154,20 @@ void frost_get_pubkey(const char *group, rpc_response_t *resp) {
     frost_free(&state);
 }
 
-void frost_commit(const char *group, const char *session_id_hex, const char *message_hex, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != 64) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
-        return;
-    }
-    if (strlen(message_hex) != 64) {
+void frost_commit(const char *group, const char *message_hex, rpc_response_t *resp) {
+    if (strlen(message_hex) != SESSION_ID_HEX_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "message must be 32 bytes");
         return;
     }
 
-    uint8_t session_id[32];
-    if (hex_to_bytes(session_id_hex, session_id, 32) != 32) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
-        return;
-    }
-
-    uint8_t message[32];
-    if (hex_to_bytes(message_hex, message, 32) != 32) {
+    uint8_t message[SESSION_ID_LEN];
+    if (hex_to_bytes(message_hex, message, SESSION_ID_LEN) != SESSION_ID_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid message hex");
         return;
     }
 
-    if (find_session(session_id) != NULL) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already exists");
-        return;
-    }
+    uint8_t session_id[SESSION_ID_LEN];
+    generate_random_bytes(session_id, SESSION_ID_LEN);
 
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
@@ -190,18 +184,18 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     strncpy(s->group, group, STORAGE_GROUP_LEN);
     s->group[STORAGE_GROUP_LEN] = '\0';
 
-    kfp_sign_request_t req;
+    sign_request_t req;
     memset(&req, 0, sizeof(req));
-    memcpy(req.session_id, session_id, 32);
-    memcpy(req.message, message, 32);
-    req.message_len = 32;
+    memcpy(req.session_id, session_id, SESSION_ID_LEN);
+    memcpy(req.message, message, SESSION_ID_LEN);
+    req.message_len = SESSION_ID_LEN;
     req.participants[0] = s->frost_state.share_index;
     req.participant_count = 1;
 
     uint16_t threshold = s->frost_state.threshold > 0 ? s->frost_state.threshold : 2;
     session_init(&s->session, &req, threshold);
 
-    uint8_t commitment[132];
+    uint8_t commitment[COMMITMENT_LEN];
     size_t commitment_len = 0;
     if (frost_create_commitment(&s->frost_state, &s->session, commitment, &commitment_len) != 0) {
         free_session(s);
@@ -209,26 +203,29 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
         return;
     }
 
-    char commitment_hex[265];
+    char commitment_hex[COMMITMENT_HEX_LEN + 1];
     bytes_to_hex(commitment, commitment_len, commitment_hex);
 
-    char result[384];
+    char session_id_hex[SESSION_ID_HEX_LEN + 1];
+    bytes_to_hex(session_id, SESSION_ID_LEN, session_id_hex);
+
+    char result[512];
     snprintf(result, sizeof(result),
-             "{\"commitment\":\"%s\",\"index\":%d}",
-             commitment_hex, s->frost_state.share_index);
+             "{\"session_id\":\"%s\",\"commitment\":\"%s\",\"index\":%d}",
+             session_id_hex, commitment_hex, s->frost_state.share_index);
     protocol_success(resp, resp->id, result);
 
     ESP_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
 }
 
 void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != 64) {
+    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
-    uint8_t session_id[32];
-    if (hex_to_bytes(session_id_hex, session_id, 32) != 32) {
+    uint8_t session_id[SESSION_ID_LEN];
+    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
@@ -245,23 +242,23 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     }
 
     size_t commits_hex_len = strlen(commitments_hex);
-    size_t max_commits_hex = (size_t)(KFP_MAX_PARTICIPANTS - 1) * 264;
-    if (commits_hex_len > 0 && commits_hex_len <= max_commits_hex && commits_hex_len % 264 == 0) {
-        int num_commits = (int)(commits_hex_len / 264);
+    size_t max_commits_hex = (size_t)(MAX_PARTICIPANTS - 1) * COMMITMENT_HEX_LEN;
+    if (commits_hex_len > 0 && commits_hex_len <= max_commits_hex && commits_hex_len % COMMITMENT_HEX_LEN == 0) {
+        int num_commits = (int)(commits_hex_len / COMMITMENT_HEX_LEN);
         for (int i = 0; i < num_commits; i++) {
-            uint8_t commit_bytes[132];
-            char commit_chunk[265];
-            memcpy(commit_chunk, commitments_hex + i * 264, 264);
-            commit_chunk[264] = '\0';
-            if (hex_to_bytes(commit_chunk, commit_bytes, 132) == 132) {
+            uint8_t commit_bytes[COMMITMENT_LEN];
+            char commit_chunk[COMMITMENT_HEX_LEN + 1];
+            memcpy(commit_chunk, commitments_hex + i * COMMITMENT_HEX_LEN, COMMITMENT_HEX_LEN);
+            commit_chunk[COMMITMENT_HEX_LEN] = '\0';
+            if (hex_to_bytes(commit_chunk, commit_bytes, COMMITMENT_LEN) == COMMITMENT_LEN) {
                 int idx = s->session.commitment_count;
-                if (idx >= KFP_MAX_PARTICIPANTS) {
+                if (idx >= MAX_PARTICIPANTS) {
                     break;
                 }
                 uint16_t commit_index = (uint16_t)commit_bytes[0] |
                                         ((uint16_t)commit_bytes[1] << 8);
-                memcpy(s->session.commitments[idx], commit_bytes, 132);
-                s->session.commitment_lens[idx] = 132;
+                memcpy(s->session.commitments[idx], commit_bytes, COMMITMENT_LEN);
+                s->session.commitment_lens[idx] = COMMITMENT_LEN;
                 s->session.commitment_indices[idx] = commit_index;
                 s->session.commitment_count++;
             }
@@ -280,7 +277,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     }
 
     int share_idx = s->session.sig_share_count;
-    if (share_idx < KFP_MAX_PARTICIPANTS) {
+    if (share_idx < MAX_PARTICIPANTS) {
         memcpy(s->session.sig_shares[share_idx], sig_share, sig_share_len);
         s->session.sig_share_lens[share_idx] = sig_share_len;
         s->session.sig_share_indices[share_idx] = s->frost_state.share_index;
@@ -313,13 +310,13 @@ void frost_signer_cleanup_stale(void) {
 }
 
 void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != 64) {
+    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
-    uint8_t session_id[32];
-    if (hex_to_bytes(session_id_hex, session_id, 32) != 32) {
+    uint8_t session_id[SESSION_ID_LEN];
+    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
@@ -349,7 +346,7 @@ void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint
     }
 
     int idx = s->session.sig_share_count;
-    if (idx >= KFP_MAX_PARTICIPANTS) {
+    if (idx >= MAX_PARTICIPANTS) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Too many signature shares");
         return;
     }
@@ -365,13 +362,13 @@ void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint
 }
 
 void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != 64) {
+    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
-    uint8_t session_id[32];
-    if (hex_to_bytes(session_id_hex, session_id, 32) != 32) {
+    uint8_t session_id[SESSION_ID_LEN];
+    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
@@ -387,22 +384,22 @@ void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
         return;
     }
 
-    uint8_t signature[64];
+    uint8_t signature[SIGNATURE_LEN];
     if (frost_aggregate(&s->frost_state, &s->session, s->session.message, s->session.message_len, signature) != 0) {
         free_session(s);
         protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Aggregation failed");
         return;
     }
 
-    char sig_hex[129];
-    bytes_to_hex(signature, 64, sig_hex);
+    char sig_hex[SIGNATURE_LEN * 2 + 1];
+    bytes_to_hex(signature, SIGNATURE_LEN, sig_hex);
 
     char result[192];
     snprintf(result, sizeof(result), "{\"signature\":\"%s\"}", sig_hex);
     protocol_success(resp, resp->id, result);
 
     s->session.state = SESSION_COMPLETE;
-    memcpy(s->session.final_signature, signature, 64);
+    memcpy(s->session.final_signature, signature, SIGNATURE_LEN);
     s->session.has_signature = true;
 
     ESP_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
