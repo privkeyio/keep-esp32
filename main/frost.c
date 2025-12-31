@@ -49,21 +49,52 @@ static void secure_zero(void *buf, size_t len) {
 #else
 #include "esp_random.h"
 #include "esp_log.h"
-#include "mbedtls/platform_util.h"
-static int fill_random_checked(uint8_t *buf, size_t len) {
-    esp_fill_random(buf, len);
+#include "crypto_asm.h"
+static int fill_random_checked(const uint8_t *buf, size_t len) {
+    if (len < 8) return 0;
+
     uint32_t zeros = 0, ones = 0;
+    uint32_t bit_count = 0;
+    uint32_t transitions = 0;
+    uint8_t prev_bit = buf[0] & 1;
+
     for (size_t i = 0; i < len; i++) {
-        if (buf[i] == 0x00) zeros++;
-        if (buf[i] == 0xFF) ones++;
+        uint8_t b = buf[i];
+        if (b == 0x00) zeros++;
+        if (b == 0xFF) ones++;
+        bit_count += __builtin_popcount(b);
+        for (int j = (i == 0 ? 1 : 0); j < 8; j++) {
+            uint8_t curr_bit = (b >> j) & 1;
+            transitions += curr_bit ^ prev_bit;
+            prev_bit = curr_bit;
+        }
     }
+
     if (zeros > len / 2 || ones > len / 2) {
-        ESP_LOGE("frost", "RNG health check failed");
+        ESP_LOGE("frost", "RNG health check failed: extreme byte values");
         return -1;
     }
+
+    uint32_t total_bits = len * 8;
+    uint32_t expected_bits = total_bits / 2;
+    uint32_t bit_tolerance = expected_bits / 4;
+    if (bit_count < expected_bits - bit_tolerance || bit_count > expected_bits + bit_tolerance) {
+        ESP_LOGE("frost", "RNG monobit test failed");
+        return -1;
+    }
+
+    uint32_t expected_trans = (total_bits - 1) / 2;
+    uint32_t trans_tolerance = expected_trans / 4;
+    if (transitions < expected_trans - trans_tolerance || transitions > expected_trans + trans_tolerance) {
+        ESP_LOGE("frost", "RNG bit-transition test failed");
+        return -1;
+    }
+
     return 0;
 }
+
 static void fill_random(uint8_t *buf, size_t len) {
+    esp_fill_random(buf, len);
     if (fill_random_checked(buf, len) != 0) {
         esp_fill_random(buf, len);
         if (fill_random_checked(buf, len) != 0) {
@@ -72,7 +103,7 @@ static void fill_random(uint8_t *buf, size_t len) {
         }
     }
 }
-#define secure_zero(buf, len) mbedtls_platform_zeroize(buf, len)
+#define secure_zero(buf, len) secure_memzero(buf, len)
 #endif
 
 #define KEYPAIR_SERIALIZED_LEN 102

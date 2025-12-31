@@ -19,8 +19,8 @@ static uint32_t get_time_ms(void) {
 #endif
 
 #ifdef ESP_PLATFORM
-#include "mbedtls/platform_util.h"
-#define secure_zero(buf, len) mbedtls_platform_zeroize(buf, len)
+#include "crypto_asm.h"
+#define secure_zero(buf, len) secure_memzero(buf, len)
 #else
 static void secure_zero(void *buf, size_t len) {
     volatile uint8_t *p = buf;
@@ -69,7 +69,7 @@ static void bytes_to_hex(const uint8_t *bytes, size_t len, char *out) {
 
 static signing_session_t *find_session(const uint8_t *session_id) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
-        if (sessions[i].active && memcmp(sessions[i].session_id, session_id, 32) == 0) {
+        if (sessions[i].active && ct_compare(sessions[i].session_id, session_id, 32) == 0) {
             return &sessions[i];
         }
     }
@@ -91,6 +91,7 @@ static signing_session_t *alloc_session(const uint8_t *session_id) {
 static void free_session(signing_session_t *s) {
     if (s) {
         frost_free(&s->frost_state);
+        session_destroy(&s->session);
         secure_zero(s, sizeof(signing_session_t));
     }
 }
