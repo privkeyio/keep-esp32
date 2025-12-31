@@ -71,33 +71,36 @@ def test_frost_commit(ser):
     print("\n[5] Testing frost_commit...")
     params = {
         "group": "test_group",
-        "session_id": "00" * 32,
         "message": "00" * 32
     }
     resp = send_request(ser, "frost_commit", params)
     if resp and "result" in resp:
-        print(f"    PASS: commitment received")
-        return resp['result']
+        result = resp['result']
+        if "session_id" in result:
+            print(f"    PASS: session_id generated, commitment received")
+            return result
+        print(f"    FAIL: no session_id in response")
+        return None
     print(f"    FAIL: {resp}")
     return None
 
-def test_frost_sign(ser, commitment):
+def test_frost_sign(ser, commit_result):
     print("\n[6] Testing frost_sign...")
-    if not commitment:
+    if not commit_result:
         print("    SKIP: No commitment from previous step")
         return False
 
     params = {
         "group": "test_group",
-        "session_id": "00" * 32,
-        "commitments": "00" * 132
+        "session_id": commit_result.get("session_id", "00" * 32),
+        "commitments": ""
     }
     resp = send_request(ser, "frost_sign", params)
     if resp and "result" in resp:
         print(f"    PASS: signature share received")
         return True
     if resp and "error" in resp:
-        print(f"    Expected error (invalid commitments): {resp['error']['message']}")
+        print(f"    Expected error (no other commitments): {resp['error']['message']}")
         return True
     print(f"    FAIL: {resp}")
     return False

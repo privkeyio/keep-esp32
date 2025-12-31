@@ -25,9 +25,9 @@ static uint32_t now_ms(void) {
 }
 #endif
 
-void session_init(session_t *s, const kfp_sign_request_t *req, uint16_t threshold) {
+void session_init(session_t *s, const sign_request_t *req, uint16_t threshold) {
     memset(s, 0, sizeof(*s));
-    memcpy(s->session_id, req->session_id, 32);
+    memcpy(s->session_id, req->session_id, SESSION_ID_LEN);
     memcpy(s->message, req->message, req->message_len);
     s->message_len = req->message_len;
     s->threshold = threshold;

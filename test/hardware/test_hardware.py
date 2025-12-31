@@ -102,7 +102,6 @@ def test_frost_commit(ser):
 
     test_group = "npub1commit"
     test_share = generate_test_share()
-    session_id = "a" * 64
     message = "b" * 64
 
     send_receive(ser, {
@@ -112,11 +111,12 @@ def test_frost_commit(ser):
 
     resp = send_receive(ser, {
         "id": 21, "method": "frost_commit",
-        "params": {"group": test_group, "session_id": session_id, "message": message}
+        "params": {"group": test_group, "message": message}
     })
     assert resp is not None, "no response"
     assert "result" in resp, f"commit failed: {resp}"
     assert "commitment" in resp["result"], "no commitment in result"
+    assert "session_id" in resp["result"], "no session_id in result"
 
     send_receive(ser, {
         "id": 22, "method": "delete_share",
@@ -131,7 +131,6 @@ def test_frost_sign(ser):
 
     test_group = "npub1sign"
     test_share = generate_test_share()
-    session_id = "c" * 64
     message = "d" * 64
 
     send_receive(ser, {
@@ -139,25 +138,33 @@ def test_frost_sign(ser):
         "params": {"group": test_group, "share": test_share}
     })
 
-    send_receive(ser, {
+    # frost_commit generates session_id on device
+    commit_resp = send_receive(ser, {
         "id": 31, "method": "frost_commit",
-        "params": {"group": test_group, "session_id": session_id, "message": message}
+        "params": {"group": test_group, "message": message}
     })
+    assert commit_resp is not None, "no commit response"
+    assert "result" in commit_resp, f"commit failed: {commit_resp}"
+    session_id = commit_resp["result"]["session_id"]
 
     resp = send_receive(ser, {
         "id": 32, "method": "frost_sign",
         "params": {"group": test_group, "session_id": session_id, "commitments": ""}
     })
     assert resp is not None, "no response"
-    assert "result" in resp, f"sign failed: {resp}"
-    assert "signature_share" in resp["result"], "no signature_share in result"
+    # With empty commitments, we expect threshold error (need 2-of-3)
+    if "error" in resp:
+        assert "threshold" in resp["error"]["message"].lower(), f"unexpected error: {resp}"
+        print(f"  PASS (expected threshold error)")
+    else:
+        assert "signature_share" in resp["result"], "no signature_share in result"
+        print(f"  PASS")
 
     send_receive(ser, {
         "id": 33, "method": "delete_share",
         "params": {"group": test_group}
     })
 
-    print(f"  PASS")
     return True
 
 def main():
