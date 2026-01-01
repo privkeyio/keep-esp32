@@ -26,8 +26,8 @@ cd ~/projects  # or your preferred directory
 git clone -b esp-idf-support https://github.com/privkeyio/secp256k1-frost
 git clone https://github.com/privkeyio/keep-esp32
 git clone https://github.com/privkeyio/keep
-git clone https://github.com/vnukov/noscrypt
-git clone https://github.com/vnukov/libnostr-c
+git clone -b esp-idf-support https://github.com/privkeyio/noscrypt
+git clone https://github.com/privkeyio/libnostr-c
 ```
 
 Your directory structure should look like:
