@@ -26,6 +26,8 @@ cd ~/projects  # or your preferred directory
 git clone -b esp-idf-support https://github.com/privkeyio/secp256k1-frost
 git clone https://github.com/privkeyio/keep-esp32
 git clone https://github.com/privkeyio/keep
+git clone https://github.com/vnukov/noscrypt
+git clone https://github.com/vnukov/libnostr-c
 ```
 
 Your directory structure should look like:
@@ -33,7 +35,9 @@ Your directory structure should look like:
 ~/projects/
 ├── secp256k1-frost/   # FROST crypto library
 ├── keep-esp32/        # This repo (ESP32 firmware)
-└── keep/              # Keep CLI and core library
+├── keep/              # Keep CLI and core library
+├── noscrypt/          # NIP-44 crypto (symlinked in components/)
+└── libnostr-c/        # Nostr client library (symlinked in components/)
 ```
 
 ### 3. Build Keep CLI
@@ -89,6 +93,22 @@ Or add to PATH: `export PATH="$PATH:~/projects/keep/target/release"`
 - **Air-Gapped**: No network - USB serial JSON-RPC only
 - **Secure Storage**: Direct partition-backed share storage
 - **Multi-Group**: Store up to 8 signing shares for different groups
+- **Nostr Coordination**: NIP-44 encrypted event protocol for DKG and signing
+
+## Nostr FROST Protocol
+
+The device implements the FROST coordination protocol over Nostr:
+
+| Component | Status |
+|-----------|--------|
+| Event kinds 21101-21106 | ✓ Implemented |
+| DKG Round 1/2 | ✓ Implemented |
+| Sign request/response | ✓ Implemented |
+| NIP-44 encryption | ✓ Via libnostr-c/noscrypt |
+| Relay connectivity | ✓ Via keep-cli bridge |
+| Hardware RPC protocol | ✓ Tested with keep-cli |
+
+The ESP32 operates as an air-gapped hardware signer. Network coordination happens through keep-cli which bridges serial RPC to Nostr relays (e.g., wss://nos.lol).
 
 ## JSON-RPC API
 
