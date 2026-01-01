@@ -19,7 +19,7 @@ static int consecutive_errors = 0;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
     char result[64];
-    snprintf(result, sizeof(result), "{\"pong\":true,\"version\":\"%s\"}", VERSION);
+    snprintf(result, sizeof(result), "{\"version\":\"%s\"}", VERSION);
     protocol_success(resp, req->id, result);
 }
 
@@ -87,7 +87,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
             frost_get_pubkey(req->group, resp);
             break;
         case RPC_METHOD_FROST_COMMIT:
-            frost_commit(req->group, req->message, resp);
+            frost_commit(req->group, req->session_id, req->message, resp);
             break;
         case RPC_METHOD_FROST_SIGN:
             frost_sign(req->group, req->session_id, req->commitments, resp);
