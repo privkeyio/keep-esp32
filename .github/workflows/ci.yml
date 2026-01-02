@@ -21,6 +21,18 @@ jobs:
           ref: esp-idf-support
           path: secp256k1-frost
 
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/libnostr-c
+          ref: v0.1.2
+          path: libnostr-c
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/noscrypt
+          ref: esp-idf-support
+          path: noscrypt
+
       - uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.4.1

@@ -29,6 +29,12 @@ typedef enum {
     RPC_METHOD_IMPORT_SHARE,
     RPC_METHOD_DELETE_SHARE,
     RPC_METHOD_LIST_SHARES,
+    RPC_METHOD_DKG_INIT,
+    RPC_METHOD_DKG_ROUND1,
+    RPC_METHOD_DKG_ROUND1_PEER,
+    RPC_METHOD_DKG_ROUND2,
+    RPC_METHOD_DKG_RECEIVE_SHARE,
+    RPC_METHOD_DKG_FINALIZE,
     RPC_METHOD_UNKNOWN
 } rpc_method_t;
 
@@ -40,6 +46,11 @@ typedef struct {
     char share[PROTOCOL_MAX_HEX_LEN + 1];
     char session_id[65];
     char commitments[MAX_COMMITMENTS_SIZE];
+    uint8_t threshold;
+    uint8_t participant_count;
+    uint8_t our_index;
+    uint8_t peer_index;
+    char dkg_data[2048];
 } rpc_request_t;
 
 typedef struct {
@@ -47,7 +58,7 @@ typedef struct {
     bool success;
     int error_code;
     char error_msg[128];
-    char result[512];
+    char result[2048];
 } rpc_response_t;
 
 int protocol_parse_request(const char *json, rpc_request_t *req);

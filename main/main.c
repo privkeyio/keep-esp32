@@ -9,6 +9,7 @@
 #include "serial.h"
 #include "storage.h"
 #include "frost_signer.h"
+#include "frost_dkg.h"
 
 #define TAG "main"
 #define VERSION "0.1.0"
@@ -19,7 +20,7 @@ static int consecutive_errors = 0;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
     char result[64];
-    snprintf(result, sizeof(result), "{\"pong\":true,\"version\":\"%s\"}", VERSION);
+    snprintf(result, sizeof(result), "{\"version\":\"%s\"}", VERSION);
     protocol_success(resp, req->id, result);
 }
 
@@ -87,7 +88,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
             frost_get_pubkey(req->group, resp);
             break;
         case RPC_METHOD_FROST_COMMIT:
-            frost_commit(req->group, req->message, resp);
+            frost_commit(req->group, req->session_id, req->message, resp);
             break;
         case RPC_METHOD_FROST_SIGN:
             frost_sign(req->group, req->session_id, req->commitments, resp);
@@ -100,6 +101,24 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
             break;
         case RPC_METHOD_LIST_SHARES:
             handle_list_shares(req, resp);
+            break;
+        case RPC_METHOD_DKG_INIT:
+            dkg_init(req, resp);
+            break;
+        case RPC_METHOD_DKG_ROUND1:
+            dkg_round1(req, resp);
+            break;
+        case RPC_METHOD_DKG_ROUND1_PEER:
+            dkg_round1_peer(req, resp);
+            break;
+        case RPC_METHOD_DKG_ROUND2:
+            dkg_round2(req, resp);
+            break;
+        case RPC_METHOD_DKG_RECEIVE_SHARE:
+            dkg_receive_share(req, resp);
+            break;
+        case RPC_METHOD_DKG_FINALIZE:
+            dkg_finalize(req, resp);
             break;
         default:
             protocol_error(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");

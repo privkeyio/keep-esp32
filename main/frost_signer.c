@@ -57,6 +57,19 @@ static void secure_zero(void *buf, size_t len) {
 #define TAG "frost_signer"
 #define MAX_SESSIONS 4
 
+#ifdef FROST_SIGNER_QUIET_LOGS
+#define FROST_LOGI(tag, ...) do {} while(0)
+#define FROST_LOGW(tag, ...) do {} while(0)
+#else
+#ifdef ESP_PLATFORM
+#define FROST_LOGI(tag, ...) ESP_LOGI(tag, __VA_ARGS__)
+#define FROST_LOGW(tag, ...) ESP_LOGW(tag, __VA_ARGS__)
+#else
+#define FROST_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
+#define FROST_LOGW(tag, fmt, ...) printf("[%s] WARN: " fmt "\n", tag, ##__VA_ARGS__)
+#endif
+#endif
+
 typedef struct {
     bool active;
     uint8_t session_id[SESSION_ID_LEN];
@@ -144,7 +157,7 @@ int frost_signer_init(void) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
         sessions[i].active = false;
     }
-    ESP_LOGI(TAG, "FROST signer ready");
+    FROST_LOGI(TAG, "FROST signer ready");
     return 0;
 }
 
@@ -174,7 +187,18 @@ void frost_get_pubkey(const char *group, rpc_response_t *resp) {
     frost_free(&state);
 }
 
-void frost_commit(const char *group, const char *message_hex, rpc_response_t *resp) {
+void frost_commit(const char *group, const char *session_id_hex, const char *message_hex, rpc_response_t *resp) {
+    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
+        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
+        return;
+    }
+
+    uint8_t session_id[SESSION_ID_LEN];
+    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
+        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+        return;
+    }
+
     if (strlen(message_hex) != SESSION_ID_HEX_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "message must be 32 bytes");
         return;
@@ -185,9 +209,6 @@ void frost_commit(const char *group, const char *message_hex, rpc_response_t *re
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid message hex");
         return;
     }
-
-    uint8_t session_id[SESSION_ID_LEN];
-    generate_random_bytes(session_id, SESSION_ID_LEN);
 
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
@@ -226,16 +247,13 @@ void frost_commit(const char *group, const char *message_hex, rpc_response_t *re
     char commitment_hex[COMMITMENT_HEX_LEN + 1];
     bytes_to_hex(commitment, commitment_len, commitment_hex);
 
-    char session_id_hex[SESSION_ID_HEX_LEN + 1];
-    bytes_to_hex(session_id, SESSION_ID_LEN, session_id_hex);
-
     char result[512];
     snprintf(result, sizeof(result),
-             "{\"session_id\":\"%s\",\"commitment\":\"%s\",\"index\":%d}",
-             session_id_hex, commitment_hex, s->frost_state.share_index);
+             "{\"commitment\":\"%s\",\"index\":%d}",
+             commitment_hex, s->frost_state.share_index);
     protocol_success(resp, resp->id, result);
 
-    ESP_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
+    FROST_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
 }
 
 void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex, rpc_response_t *resp) {
@@ -318,7 +336,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
              sig_share_hex, s->frost_state.share_index);
     protocol_success(resp, resp->id, result);
 
-    ESP_LOGI(TAG, "Created signature share for session %.16s...", session_id_hex);
+    FROST_LOGI(TAG, "Created signature share for session %.16s...", session_id_hex);
 }
 
 void frost_signer_cleanup_stale(void) {
@@ -327,7 +345,7 @@ void frost_signer_cleanup_stale(void) {
         if (sessions[i].active) {
             uint32_t elapsed = now - sessions[i].session.created_at;
             if (elapsed > SESSION_TIMEOUT_MS) {
-                ESP_LOGW(TAG, "Cleaning up stale session");
+                FROST_LOGW(TAG, "Cleaning up stale session");
                 free_session(&sessions[i]);
             }
         }
@@ -427,7 +445,7 @@ void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
     memcpy(s->session.final_signature, signature, SIGNATURE_LEN);
     s->session.has_signature = true;
 
-    ESP_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
+    FROST_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
 
     free_session(s);
 }

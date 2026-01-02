@@ -11,6 +11,12 @@ static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "import_share") == 0) return RPC_METHOD_IMPORT_SHARE;
     if (strcmp(method, "delete_share") == 0) return RPC_METHOD_DELETE_SHARE;
     if (strcmp(method, "list_shares") == 0) return RPC_METHOD_LIST_SHARES;
+    if (strcmp(method, "dkg_init") == 0) return RPC_METHOD_DKG_INIT;
+    if (strcmp(method, "dkg_round1") == 0) return RPC_METHOD_DKG_ROUND1;
+    if (strcmp(method, "dkg_round1_peer") == 0) return RPC_METHOD_DKG_ROUND1_PEER;
+    if (strcmp(method, "dkg_round2") == 0) return RPC_METHOD_DKG_ROUND2;
+    if (strcmp(method, "dkg_receive_share") == 0) return RPC_METHOD_DKG_RECEIVE_SHARE;
+    if (strcmp(method, "dkg_finalize") == 0) return RPC_METHOD_DKG_FINALIZE;
     return RPC_METHOD_UNKNOWN;
 }
 
@@ -56,6 +62,42 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         cJSON *commitments = cJSON_GetObjectItem(params, "commitments");
         if (commitments && cJSON_IsString(commitments)) {
             snprintf(req->commitments, sizeof(req->commitments), "%s", commitments->valuestring);
+        }
+        cJSON *threshold = cJSON_GetObjectItem(params, "threshold");
+        if (threshold && cJSON_IsNumber(threshold)) {
+            if (threshold->valueint < 0 || threshold->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_PARAMS;
+            }
+            req->threshold = (uint8_t)threshold->valueint;
+        }
+        cJSON *participant_count = cJSON_GetObjectItem(params, "participant_count");
+        if (participant_count && cJSON_IsNumber(participant_count)) {
+            if (participant_count->valueint < 0 || participant_count->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_PARAMS;
+            }
+            req->participant_count = (uint8_t)participant_count->valueint;
+        }
+        cJSON *our_index = cJSON_GetObjectItem(params, "our_index");
+        if (our_index && cJSON_IsNumber(our_index)) {
+            if (our_index->valueint < 0 || our_index->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_PARAMS;
+            }
+            req->our_index = (uint8_t)our_index->valueint;
+        }
+        cJSON *peer_index = cJSON_GetObjectItem(params, "peer_index");
+        if (peer_index && cJSON_IsNumber(peer_index)) {
+            if (peer_index->valueint < 0 || peer_index->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_PARAMS;
+            }
+            req->peer_index = (uint8_t)peer_index->valueint;
+        }
+        cJSON *dkg_data = cJSON_GetObjectItem(params, "dkg_data");
+        if (dkg_data && cJSON_IsString(dkg_data)) {
+            snprintf(req->dkg_data, sizeof(req->dkg_data), "%s", dkg_data->valuestring);
         }
     }
 
