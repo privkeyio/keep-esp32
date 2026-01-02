@@ -66,26 +66,45 @@ idf.py -p /dev/ttyUSB0 flash monitor
 ## Quick Start
 
 ```bash
-# Test connection
-~/projects/keep/target/release/keep frost hardware ping --device /dev/ttyUSB0
+# Add keep to PATH for convenience
+export PATH="$PATH:~/projects/keep/target/release"
 
-# List shares on device
-~/projects/keep/target/release/keep frost hardware list --device /dev/ttyUSB0
+# Test device connection
+keep frost hardware ping --device /dev/ttyUSB0
 
-# Import a FROST share
-~/projects/keep/target/release/keep frost hardware import \
-  --device /dev/ttyUSB0 \
+# List shares stored on device
+keep frost hardware list --device /dev/ttyUSB0
+```
+
+### Import a Share (from local keep storage)
+
+First, generate and split a keyset using the keep CLI:
+
+```bash
+# Generate a 2-of-3 threshold keyset (interactive, creates password-protected storage)
+keep frost generate --threshold 2 --shares 3 --name mygroup
+
+# View your shares
+keep frost list
+
+# Export share #1 to hardware device
+keep frost hardware import --device /dev/ttyUSB0 --group mygroup --share 1
+```
+
+### Sign with Hardware (threshold signing)
+
+Threshold signing requires multiple participants. The CLI coordinates via Nostr relay:
+
+```bash
+# Start signing session (waits for other signers on relay)
+keep frost network sign \
   --group mygroup \
-  --share 1
-
-# Sign (CLI coordinates with other signers via relay)
-~/projects/keep/target/release/keep frost network sign \
-  --group mygroup \
-  --message <hash> \
+  --message $(echo -n "hello" | sha256sum | cut -d' ' -f1) \
+  --relay wss://nos.lol \
   --hardware /dev/ttyUSB0
 ```
 
-Or add to PATH: `export PATH="$PATH:~/projects/keep/target/release"`
+For single-device testing, see [test/hardware/](test/hardware/) for scripts that simulate multiple signers.
 
 ## Features
 
@@ -110,6 +129,41 @@ The device implements the FROST coordination protocol over Nostr:
 
 The ESP32 operates as an air-gapped hardware signer. Network coordination happens through keep-cli which bridges serial RPC to Nostr relays (e.g., wss://nos.lol).
 
+## Distributed Key Generation (DKG)
+
+Generate threshold keys without any single party knowing the full private key. Each participant runs the command on their own device:
+
+```bash
+# Participant 1
+keep frost network dkg \
+  --group mygroup \
+  --threshold 2 \
+  --participants 3 \
+  --index 1 \
+  --relay wss://nos.lol \
+  --hardware /dev/ttyUSB0
+
+# Participant 2 (on second device)
+keep frost network dkg \
+  --group mygroup \
+  --threshold 2 \
+  --participants 3 \
+  --index 2 \
+  --relay wss://nos.lol \
+  --hardware /dev/ttyUSB0
+
+# Participant 3 (on third device)
+keep frost network dkg \
+  --group mygroup \
+  --threshold 2 \
+  --participants 3 \
+  --index 3 \
+  --relay wss://nos.lol \
+  --hardware /dev/ttyUSB0
+```
+
+All participants must start within 5 minutes. On success, each device stores its share and displays the group public key.
+
 ## JSON-RPC API
 
 | Method | Description |
@@ -121,6 +175,12 @@ The ESP32 operates as an air-gapped hardware signer. Network coordination happen
 | `get_share_pubkey` | Get public key for stored share |
 | `frost_commit` | Round 1: Generate nonce commitment |
 | `frost_sign` | Round 2: Generate signature share |
+| `dkg_init` | Initialize DKG session |
+| `dkg_round1` | Generate commitment and ZK proof |
+| `dkg_round1_peer` | Receive and validate peer commitment |
+| `dkg_round2` | Generate shares for all participants |
+| `dkg_receive_share` | Receive encrypted share from peer |
+| `dkg_finalize` | Derive final share and store |
 
 ## Testing
 

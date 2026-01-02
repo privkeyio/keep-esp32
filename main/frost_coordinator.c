@@ -15,6 +15,26 @@
 #define ESP_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGE(tag, fmt, ...) printf("[%s] ERROR: " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGW(tag, fmt, ...) printf("[%s] WARN: " fmt "\n", tag, ##__VA_ARGS__)
+
+static int secure_random_fill(uint8_t *buf, size_t len) {
+    FILE *fp = fopen("/dev/urandom", "r");
+    if (!fp) {
+        fprintf(stderr, "FATAL: Cannot open /dev/urandom\n");
+        return -1;
+    }
+    size_t total = 0;
+    while (total < len) {
+        size_t n = fread(buf + total, 1, len - total, fp);
+        if (n == 0) {
+            fclose(fp);
+            fprintf(stderr, "FATAL: Failed to read from /dev/urandom\n");
+            return -1;
+        }
+        total += n;
+    }
+    fclose(fp);
+    return 0;
+}
 #endif
 
 #include <string.h>
@@ -82,16 +102,16 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                     msg[data->data_len] = '\0';
 
                     cJSON *arr = cJSON_Parse(msg);
-                    if (arr && cJSON_IsArray(arr)) {
+                    if (arr && cJSON_IsArray(arr) && cJSON_GetArraySize(arr) >= 1) {
                         cJSON *type = cJSON_GetArrayItem(arr, 0);
                         if (type && cJSON_IsString(type)) {
-                            if (strcmp(type->valuestring, "EVENT") == 0) {
+                            if (strcmp(type->valuestring, "EVENT") == 0 && cJSON_GetArraySize(arr) >= 3) {
                                 cJSON *event = cJSON_GetArrayItem(arr, 2);
-                                if (event) {
-                                    char *event_str = cJSON_PrintUnformatted(event);
-                                    if (event_str) {
-                                        cJSON *kind = cJSON_GetObjectItem(event, "kind");
-                                        if (kind && cJSON_IsNumber(kind)) {
+                                if (event && cJSON_IsObject(event)) {
+                                    cJSON *kind = cJSON_GetObjectItem(event, "kind");
+                                    if (kind && cJSON_IsNumber(kind)) {
+                                        char *event_str = cJSON_PrintUnformatted(event);
+                                        if (event_str) {
                                             int k = kind->valueint;
                                             if (k == FROST_KIND_SIGN_REQUEST && g_ctx.callbacks.on_sign_request) {
                                                 frost_sign_request_t req;
@@ -108,16 +128,18 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                                                 }
                                             } else if (k == FROST_KIND_DKG_ROUND1 && g_ctx.callbacks.on_dkg_round1) {
                                                 frost_dkg_round1_t r1;
-                                                if (frost_parse_dkg_round1_event(event_str, &g_ctx.current_group, &r1) == 0) {
+                                                if (frost_parse_dkg_round1_event(event_str, &g_ctx.current_group, g_ctx.privkey, &r1) == 0) {
                                                     g_ctx.callbacks.on_dkg_round1(&r1, g_ctx.callbacks.user_ctx);
                                                 }
                                             }
+                                            free(event_str);
                                         }
-                                        free(event_str);
                                     }
                                 }
                             }
                         }
+                        cJSON_Delete(arr);
+                    } else if (arr) {
                         cJSON_Delete(arr);
                     }
                     free(msg);
@@ -166,7 +188,11 @@ int frost_coordinator_init(const uint8_t privkey[32]) {
 #ifdef ESP_PLATFORM
     esp_fill_random(entropy, sizeof(entropy));
 #else
-    for (size_t i = 0; i < sizeof(entropy); i++) entropy[i] = (uint8_t)rand();
+    if (secure_random_fill(entropy, sizeof(entropy)) != 0) {
+        ESP_LOGE(TAG, "Failed to get entropy from /dev/urandom");
+        free(g_ctx.nc_ctx);
+        return -3;
+    }
 #endif
 
     if (NCInitContext(g_ctx.nc_ctx, entropy) != NC_SUCCESS) {
@@ -175,7 +201,7 @@ int frost_coordinator_init(const uint8_t privkey[32]) {
 #ifdef ESP_PLATFORM
         vSemaphoreDelete(g_ctx.mutex);
 #endif
-        return -3;
+        return -4;
     }
     secure_memzero(entropy, sizeof(entropy));
 

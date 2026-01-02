@@ -12,6 +12,19 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_random.h"
+#else
+static int secure_random_fill(uint8_t *buf, size_t len) {
+    FILE *fp = fopen("/dev/urandom", "r");
+    if (!fp) return -1;
+    size_t total = 0;
+    while (total < len) {
+        size_t n = fread(buf + total, 1, len - total, fp);
+        if (n == 0) { fclose(fp); return -1; }
+        total += n;
+    }
+    fclose(fp);
+    return 0;
+}
 #endif
 
 static int hex_digit(char c) {
@@ -192,16 +205,17 @@ static int parse_tags(cJSON *tags, frost_group_t *group) {
             }
         } else if (strcmp(name, "p") == 0) {
             int tag_size = cJSON_GetArraySize(tag);
-            if (tag_size >= 2 && group->participant_count < MAX_GROUP_PARTICIPANTS) {
-                frost_participant_t *p = &group->participants[group->participant_count - 1];
-                if (group->participant_count > 0) {
-                    for (int j = 0; j < MAX_GROUP_PARTICIPANTS; j++) {
-                        if (group->participants[j].index == 0) {
-                            p = &group->participants[j];
-                            break;
-                        }
+            if (tag_size >= 2) {
+                frost_participant_t *p = NULL;
+                for (int j = 0; j < MAX_GROUP_PARTICIPANTS; j++) {
+                    if (group->participants[j].index == 0) {
+                        p = &group->participants[j];
+                        break;
                     }
                 }
+                if (!p) continue;
+
+                memset(p, 0, sizeof(*p));
                 hex_to_bytes(val, p->npub, 32);
                 if (tag_size >= 3) {
                     cJSON *relay = cJSON_GetArrayItem(tag, 2);
@@ -216,6 +230,10 @@ static int parse_tags(cJSON *tags, frost_group_t *group) {
                         p->index = (uint8_t)atoi(idx->valuestring);
                     }
                 }
+                if (p->index == 0) {
+                    p->index = group->participant_count + 1;
+                }
+                group->participant_count++;
             }
         } else if (strcmp(name, "notification_pubkey") == 0) {
             hex_to_bytes(val, group->notification_pubkey, 32);
@@ -391,21 +409,66 @@ int frost_parse_sign_request(const char *event_json,
         }
     }
 
+    uint8_t sender_pubkey[32] = {0};
+    cJSON *pubkey = cJSON_GetObjectItem(root, "pubkey");
+    if (pubkey && cJSON_IsString(pubkey)) {
+        hex_to_bytes(pubkey->valuestring, sender_pubkey, 32);
+    }
+
     cJSON *content = cJSON_GetObjectItem(root, "content");
     if (content && cJSON_IsString(content)) {
         const char *enc = content->valuestring;
         size_t enc_len = strlen(enc);
         if (enc_len > 0) {
-            request->payload = malloc(enc_len + 1);
-            if (request->payload) {
-                memcpy(request->payload, enc, enc_len + 1);
-                request->payload_len = enc_len;
+            char *decrypted = nip44_decrypt_content(enc, our_privkey, sender_pubkey);
+            if (decrypted) {
+                cJSON *inner = cJSON_Parse(decrypted);
+                if (inner) {
+                    cJSON *payload_hex = cJSON_GetObjectItem(inner, "payload");
+                    if (payload_hex && cJSON_IsString(payload_hex)) {
+                        size_t hex_len = strlen(payload_hex->valuestring);
+                        request->payload = malloc(hex_len / 2 + 1);
+                        if (request->payload) {
+                            int decoded = hex_to_bytes(payload_hex->valuestring, request->payload, hex_len / 2 + 1);
+                            if (decoded > 0) {
+                                request->payload_len = (size_t)decoded;
+                            } else {
+                                free(request->payload);
+                                request->payload = NULL;
+                            }
+                        }
+                    }
+                    cJSON *nonce_idx = cJSON_GetObjectItem(inner, "nonce_index");
+                    if (nonce_idx && cJSON_IsNumber(nonce_idx)) {
+                        request->nonce_index = (uint32_t)nonce_idx->valueint;
+                    }
+                    cJSON_Delete(inner);
+                }
+                free(decrypted);
+            } else {
+                cJSON *inner = cJSON_Parse(enc);
+                if (inner) {
+                    cJSON *payload_hex = cJSON_GetObjectItem(inner, "payload");
+                    if (payload_hex && cJSON_IsString(payload_hex)) {
+                        size_t hex_len = strlen(payload_hex->valuestring);
+                        request->payload = malloc(hex_len / 2 + 1);
+                        if (request->payload) {
+                            int decoded = hex_to_bytes(payload_hex->valuestring, request->payload, hex_len / 2 + 1);
+                            if (decoded > 0) {
+                                request->payload_len = (size_t)decoded;
+                            } else {
+                                free(request->payload);
+                                request->payload = NULL;
+                            }
+                        }
+                    }
+                    cJSON_Delete(inner);
+                }
             }
         }
     }
 
     (void)group;
-    (void)our_privkey;
 
     cJSON_Delete(root);
     return 0;
@@ -467,11 +530,44 @@ int frost_create_sign_request(const frost_group_t *group,
         cJSON_AddItemToArray(tags, ph_tag);
     }
 
-    cJSON_AddStringToObject(root, "content", "");
+    cJSON *content_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(content_obj, "message_type", msg_type_str);
+    cJSON_AddStringToObject(content_obj, "request_id", rid_hex);
+    if (request->payload && request->payload_len > 0) {
+        char *payload_hex = malloc(request->payload_len * 2 + 1);
+        if (payload_hex) {
+            bytes_to_hex(request->payload, request->payload_len, payload_hex);
+            cJSON_AddStringToObject(content_obj, "payload", payload_hex);
+            free(payload_hex);
+        }
+    }
+    cJSON_AddNumberToObject(content_obj, "nonce_index", request->nonce_index);
+
+    char *content_str = cJSON_PrintUnformatted(content_obj);
+    cJSON_Delete(content_obj);
+
+    if (!content_str) {
+        cJSON_Delete(root);
+        return -3;
+    }
+
+    if (group->participant_count > 0) {
+        char *encrypted = nip44_encrypt_content(content_str, privkey, group->coordinator_npub);
+        free(content_str);
+        if (!encrypted) {
+            cJSON_Delete(root);
+            return -4;
+        }
+        cJSON_AddStringToObject(root, "content", encrypted);
+        free(encrypted);
+    } else {
+        cJSON_AddStringToObject(root, "content", content_str);
+        free(content_str);
+    }
 
     if (sign_event_json(root, privkey) != 0) {
         cJSON_Delete(root);
-        return -2;
+        return -5;
     }
 
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
@@ -544,16 +640,23 @@ int frost_create_sign_response(const frost_group_t *group,
 
     char *content_str = cJSON_PrintUnformatted(content_obj);
     cJSON_Delete(content_obj);
-    if (content_str) {
-        cJSON_AddStringToObject(root, "content", content_str);
-        free(content_str);
-    } else {
-        cJSON_AddStringToObject(root, "content", "{}");
+    if (!content_str) {
+        cJSON_Delete(root);
+        return -3;
     }
+
+    char *encrypted = nip44_encrypt_content(content_str, privkey, group->coordinator_npub);
+    free(content_str);
+    if (!encrypted) {
+        cJSON_Delete(root);
+        return -4;
+    }
+    cJSON_AddStringToObject(root, "content", encrypted);
+    free(encrypted);
 
     if (sign_event_json(root, privkey) != 0) {
         cJSON_Delete(root);
-        return -2;
+        return -5;
     }
 
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
@@ -608,9 +711,19 @@ int frost_parse_sign_response(const char *event_json,
         }
     }
 
+    uint8_t sender_pubkey[32] = {0};
+    cJSON *pubkey_obj = cJSON_GetObjectItem(root, "pubkey");
+    if (pubkey_obj && cJSON_IsString(pubkey_obj)) {
+        hex_to_bytes(pubkey_obj->valuestring, sender_pubkey, 32);
+    }
+
     cJSON *content = cJSON_GetObjectItem(root, "content");
     if (content && cJSON_IsString(content)) {
-        cJSON *inner = cJSON_Parse(content->valuestring);
+        const char *content_str = content->valuestring;
+        char *decrypted = nip44_decrypt_content(content_str, our_privkey, sender_pubkey);
+        const char *to_parse = decrypted ? decrypted : content_str;
+
+        cJSON *inner = cJSON_Parse(to_parse);
         if (inner) {
             cJSON *psig = cJSON_GetObjectItem(inner, "partial_signature");
             if (psig && cJSON_IsString(psig)) {
@@ -626,10 +739,10 @@ int frost_parse_sign_response(const char *event_json,
             }
             cJSON_Delete(inner);
         }
+        free(decrypted);
     }
 
     (void)group;
-    (void)our_privkey;
 
     cJSON_Delete(root);
     return 0;
@@ -688,16 +801,23 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
 
     char *content_str = cJSON_PrintUnformatted(content_obj);
     cJSON_Delete(content_obj);
-    if (content_str) {
-        cJSON_AddStringToObject(root, "content", content_str);
-        free(content_str);
-    } else {
-        cJSON_AddStringToObject(root, "content", "{}");
+    if (!content_str) {
+        cJSON_Delete(root);
+        return -3;
     }
+
+    char *encrypted = nip44_encrypt_content(content_str, privkey, group->coordinator_npub);
+    free(content_str);
+    if (!encrypted) {
+        cJSON_Delete(root);
+        return -4;
+    }
+    cJSON_AddStringToObject(root, "content", encrypted);
+    free(encrypted);
 
     if (sign_event_json(root, privkey) != 0) {
         cJSON_Delete(root);
-        return -2;
+        return -5;
     }
 
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
@@ -707,6 +827,7 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
 
 int frost_parse_dkg_round1_event(const char *event_json,
                                   const frost_group_t *group,
+                                  const uint8_t *our_privkey,
                                   frost_dkg_round1_t *round1) {
     memset(round1, 0, sizeof(*round1));
 
@@ -747,9 +868,19 @@ int frost_parse_dkg_round1_event(const char *event_json,
         }
     }
 
+    uint8_t sender_pubkey[32] = {0};
+    cJSON *pubkey_obj = cJSON_GetObjectItem(root, "pubkey");
+    if (pubkey_obj && cJSON_IsString(pubkey_obj)) {
+        hex_to_bytes(pubkey_obj->valuestring, sender_pubkey, 32);
+    }
+
     cJSON *content = cJSON_GetObjectItem(root, "content");
     if (content && cJSON_IsString(content)) {
-        cJSON *inner = cJSON_Parse(content->valuestring);
+        const char *content_str = content->valuestring;
+        char *decrypted = nip44_decrypt_content(content_str, our_privkey, sender_pubkey);
+        const char *to_parse = decrypted ? decrypted : content_str;
+
+        cJSON *inner = cJSON_Parse(to_parse);
         if (inner) {
             cJSON *num_coeff = cJSON_GetObjectItem(inner, "num_coefficients");
             if (num_coeff && cJSON_IsNumber(num_coeff)) {
@@ -775,6 +906,7 @@ int frost_parse_dkg_round1_event(const char *event_json,
             }
             cJSON_Delete(inner);
         }
+        free(decrypted);
     }
 
     (void)group;
@@ -998,6 +1130,7 @@ int frost_dkg_finalize(const frost_group_t *group,
 
     if (ret == 1) {
         memcpy(our_share, keypair->secret, 32);
+        secure_memzero(keypair->secret, 32);
         uint8_t pubkey33[33], group33[33];
         secp256k1_frost_pubkey_save(pubkey33, group33, &keypair->public_keys);
         memcpy(group_pubkey, group33, 33);
@@ -1036,14 +1169,7 @@ int frost_sign_partial(const frost_group_t *group,
     if (request->message_type == FROST_MSG_TYPE_RAW && request->payload_len == 32) {
         memcpy(msg_hash, request->payload, 32);
     } else {
-#ifdef ESP_PLATFORM
         mbedtls_sha256(request->payload, request->payload_len, msg_hash, 0);
-#else
-        SHA256_CTX sha_ctx;
-        SHA256_Init(&sha_ctx);
-        SHA256_Update(&sha_ctx, request->payload, request->payload_len);
-        SHA256_Final(msg_hash, &sha_ctx);
-#endif
     }
 
     secp256k1_frost_keypair *kp = secp256k1_frost_keypair_create(our_index);
@@ -1060,9 +1186,11 @@ int frost_sign_partial(const frost_group_t *group,
     esp_fill_random(binding_seed, 32);
     esp_fill_random(hiding_seed, 32);
 #else
-    for (int i = 0; i < 32; i++) {
-        binding_seed[i] = (uint8_t)rand();
-        hiding_seed[i] = (uint8_t)rand();
+    if (secure_random_fill(binding_seed, 32) != 0 || secure_random_fill(hiding_seed, 32) != 0) {
+        secp256k1_frost_keypair_destroy(kp);
+        response->status = FROST_SIGN_STATUS_REJECTED;
+        strncpy(response->rejection_reason, "Failed to get secure random", sizeof(response->rejection_reason) - 1);
+        return -4;
     }
 #endif
 

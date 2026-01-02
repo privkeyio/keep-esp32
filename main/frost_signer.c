@@ -57,11 +57,17 @@ static void secure_zero(void *buf, size_t len) {
 #define TAG "frost_signer"
 #define MAX_SESSIONS 4
 
+#ifdef FROST_SIGNER_QUIET_LOGS
+#define FROST_LOGI(tag, ...) do {} while(0)
+#define FROST_LOGW(tag, ...) do {} while(0)
+#else
 #ifdef ESP_PLATFORM
-#undef ESP_LOGI
-#undef ESP_LOGW
-#define ESP_LOGI(tag, ...) do {} while(0)
-#define ESP_LOGW(tag, ...) do {} while(0)
+#define FROST_LOGI(tag, ...) ESP_LOGI(tag, __VA_ARGS__)
+#define FROST_LOGW(tag, ...) ESP_LOGW(tag, __VA_ARGS__)
+#else
+#define FROST_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
+#define FROST_LOGW(tag, fmt, ...) printf("[%s] WARN: " fmt "\n", tag, ##__VA_ARGS__)
+#endif
 #endif
 
 typedef struct {
@@ -151,7 +157,7 @@ int frost_signer_init(void) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
         sessions[i].active = false;
     }
-    ESP_LOGI(TAG, "FROST signer ready");
+    FROST_LOGI(TAG, "FROST signer ready");
     return 0;
 }
 
@@ -247,7 +253,7 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
              commitment_hex, s->frost_state.share_index);
     protocol_success(resp, resp->id, result);
 
-    ESP_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
+    FROST_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
 }
 
 void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex, rpc_response_t *resp) {
@@ -330,7 +336,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
              sig_share_hex, s->frost_state.share_index);
     protocol_success(resp, resp->id, result);
 
-    ESP_LOGI(TAG, "Created signature share for session %.16s...", session_id_hex);
+    FROST_LOGI(TAG, "Created signature share for session %.16s...", session_id_hex);
 }
 
 void frost_signer_cleanup_stale(void) {
@@ -339,7 +345,7 @@ void frost_signer_cleanup_stale(void) {
         if (sessions[i].active) {
             uint32_t elapsed = now - sessions[i].session.created_at;
             if (elapsed > SESSION_TIMEOUT_MS) {
-                ESP_LOGW(TAG, "Cleaning up stale session");
+                FROST_LOGW(TAG, "Cleaning up stale session");
                 free_session(&sessions[i]);
             }
         }
@@ -439,7 +445,7 @@ void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
     memcpy(s->session.final_signature, signature, SIGNATURE_LEN);
     s->session.has_signature = true;
 
-    ESP_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
+    FROST_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
 
     free_session(s);
 }

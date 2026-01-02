@@ -17,7 +17,7 @@
 #define NOSTR_P2P_KIND_EPHEMERAL  29001
 
 #define MAX_GROUP_PARTICIPANTS 16
-#define MAX_THRESHOLD 8
+#define MAX_THRESHOLD MAX_GROUP_PARTICIPANTS
 #define GROUP_ID_LEN 32
 #define MAX_RELAYS 4
 #define RELAY_URL_LEN 128
@@ -115,6 +115,7 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
                                    char *event_json, size_t max_len);
 int frost_parse_dkg_round1_event(const char *event_json,
                                   const frost_group_t *group,
+                                  const uint8_t *our_privkey,
                                   frost_dkg_round1_t *round1);
 
 int frost_create_dkg_round2_event(const frost_group_t *group,
