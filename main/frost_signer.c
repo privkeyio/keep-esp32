@@ -2,6 +2,7 @@
 #include "storage.h"
 #include "frost.h"
 #include "session.h"
+#include "policy.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
@@ -127,6 +128,23 @@ static signing_session_t *alloc_session(const uint8_t *session_id) {
     return NULL;
 }
 
+static int verify_policy_bundle(void) {
+    if (!policy_has_bundle()) {
+        return 0;
+    }
+
+    policy_bundle_t bundle;
+    int ret = policy_load_bundle(&bundle);
+    if (ret != 0) {
+        secure_zero(&bundle, sizeof(bundle));
+        return ret;
+    }
+
+    ret = policy_verify_signature(&bundle);
+    secure_zero(&bundle, sizeof(bundle));
+    return ret;
+}
+
 static void free_session(signing_session_t *s) {
     if (s) {
         frost_free(&s->frost_state);
@@ -226,6 +244,12 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     uint8_t message[SESSION_ID_LEN];
     if (hex_to_bytes(message_hex, message, SESSION_ID_LEN) != SESSION_ID_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid message hex");
+        return;
+    }
+
+    int policy_ret = verify_policy_bundle();
+    if (policy_ret != 0) {
+        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
         return;
     }
 

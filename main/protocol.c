@@ -21,6 +21,8 @@ static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "dkg_finalize") == 0) return RPC_METHOD_DKG_FINALIZE;
     if (strcmp(method, "bitcoin_parse") == 0) return RPC_METHOD_BITCOIN_PARSE;
     if (strcmp(method, "bitcoin_sign") == 0) return RPC_METHOD_BITCOIN_SIGN;
+    if (strcmp(method, "policy_update") == 0) return RPC_METHOD_POLICY_UPDATE;
+    if (strcmp(method, "policy_get") == 0) return RPC_METHOD_POLICY_GET;
     return RPC_METHOD_UNKNOWN;
 }
 
@@ -119,6 +121,10 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         cJSON *input_idx = cJSON_GetObjectItem(params, "input_idx");
         if (input_idx && cJSON_IsNumber(input_idx) && input_idx->valueint >= 0) {
             req->input_idx = (size_t)input_idx->valueint;
+        }
+        cJSON *policy_bundle = cJSON_GetObjectItem(params, "bundle");
+        if (policy_bundle && cJSON_IsString(policy_bundle)) {
+            snprintf(req->policy_bundle, sizeof(req->policy_bundle), "%s", policy_bundle->valuestring);
         }
     }
 

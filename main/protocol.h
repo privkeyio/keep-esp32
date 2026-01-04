@@ -39,6 +39,8 @@ typedef enum {
     RPC_METHOD_DKG_FINALIZE,
     RPC_METHOD_BITCOIN_PARSE,
     RPC_METHOD_BITCOIN_SIGN,
+    RPC_METHOD_POLICY_UPDATE,
+    RPC_METHOD_POLICY_GET,
     RPC_METHOD_UNKNOWN
 } rpc_method_t;
 
@@ -57,6 +59,7 @@ typedef struct {
     char dkg_data[2048];
     char *psbt;
     size_t input_idx;
+    char policy_bundle[5120];
 } rpc_request_t;
 
 typedef struct {

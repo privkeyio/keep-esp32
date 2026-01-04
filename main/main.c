@@ -11,6 +11,7 @@
 #include "frost_signer.h"
 #include "frost_dkg.h"
 #include "psbt.h"
+#include "policy.h"
 
 #define TAG "main"
 #define VERSION "0.1.2"
@@ -187,6 +188,12 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         case RPC_METHOD_BITCOIN_SIGN:
             handle_bitcoin_sign(req, resp);
             break;
+        case RPC_METHOD_POLICY_UPDATE:
+            policy_handle_update(req, resp);
+            break;
+        case RPC_METHOD_POLICY_GET:
+            policy_handle_get(req, resp);
+            break;
         default:
             protocol_error(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
     }
@@ -200,6 +207,10 @@ void app_main(void) {
 
     if (storage_init() != 0) {
         ESP_LOGW(TAG, "Storage init failed, continuing without storage");
+    }
+
+    if (policy_init() != 0) {
+        ESP_LOGW(TAG, "Policy init failed, continuing without policy");
     }
 
     frost_signer_init();
