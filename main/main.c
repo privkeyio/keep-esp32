@@ -116,6 +116,22 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
         return;
     }
 
+    psbt_summary_t summary;
+    if (psbt_parse(req->psbt, &summary) != 0) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Failed to parse PSBT");
+        return;
+    }
+
+    int policy_ret = policy_evaluate(summary.total_out_sats, summary.fee_sats);
+    if (policy_ret == POLICY_ERR_DENIED) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Policy denied");
+        return;
+    }
+    if (policy_ret != 0) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Policy evaluation failed");
+        return;
+    }
+
     uint8_t sighash[32];
     if (psbt_get_sighash(req->psbt, req->input_idx, sighash) != 0) {
         protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");

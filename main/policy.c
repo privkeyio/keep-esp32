@@ -2,6 +2,7 @@
 #include "esp_partition.h"
 #include "esp_log.h"
 #include "crypto_asm.h"
+#include "cJSON.h"
 #include <secp256k1.h>
 #include <secp256k1_schnorrsig.h>
 #include <secp256k1_extrakeys.h>
@@ -212,8 +213,6 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
-    (void)req;
-
     if (!policy_has_bundle()) {
         protocol_success(resp, req->id, "{\"has_policy\":false}");
         return;
@@ -247,4 +246,64 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     protocol_success(resp, req->id, result);
+}
+
+int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats) {
+    if (!policy_has_bundle()) {
+        return 0;
+    }
+
+    policy_bundle_t bundle;
+    int ret = policy_load_bundle(&bundle);
+    if (ret != 0) {
+        secure_memzero(&bundle, sizeof(bundle));
+        return ret;
+    }
+
+    ret = policy_verify_signature(&bundle);
+    if (ret != 0) {
+        secure_memzero(&bundle, sizeof(bundle));
+        return ret;
+    }
+
+    if (bundle.rules_len == 0 || bundle.rules_len > POLICY_MAX_RULES_LEN) {
+        secure_memzero(&bundle, sizeof(bundle));
+        return 0;
+    }
+
+    char rules_str[POLICY_MAX_RULES_LEN + 1];
+    memcpy(rules_str, bundle.rules, bundle.rules_len);
+    rules_str[bundle.rules_len] = '\0';
+    secure_memzero(&bundle, sizeof(bundle));
+
+    cJSON *rules = cJSON_Parse(rules_str);
+    secure_memzero(rules_str, sizeof(rules_str));
+    if (!rules) {
+        return 0;
+    }
+
+    cJSON *max_amount = cJSON_GetObjectItem(rules, "max_amount");
+    if (max_amount && cJSON_IsNumber(max_amount)) {
+        uint64_t limit = (uint64_t)max_amount->valuedouble;
+        if (total_out_sats > limit) {
+            ESP_LOGW(TAG, "Policy denied: amount %llu exceeds max %llu",
+                     (unsigned long long)total_out_sats, (unsigned long long)limit);
+            cJSON_Delete(rules);
+            return POLICY_ERR_DENIED;
+        }
+    }
+
+    cJSON *max_fee = cJSON_GetObjectItem(rules, "max_fee");
+    if (max_fee && cJSON_IsNumber(max_fee)) {
+        uint64_t limit = (uint64_t)max_fee->valuedouble;
+        if (fee_sats > limit) {
+            ESP_LOGW(TAG, "Policy denied: fee %llu exceeds max %llu",
+                     (unsigned long long)fee_sats, (unsigned long long)limit);
+            cJSON_Delete(rules);
+            return POLICY_ERR_DENIED;
+        }
+    }
+
+    cJSON_Delete(rules);
+    return 0;
 }

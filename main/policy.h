@@ -19,6 +19,7 @@
 #define POLICY_ERR_VERSION -4
 #define POLICY_ERR_NO_BUNDLE -5
 #define POLICY_ERR_HASH_MISMATCH -6
+#define POLICY_ERR_DENIED -7
 
 typedef struct {
     uint8_t version;
@@ -40,5 +41,7 @@ int policy_check_hash(const policy_bundle_t *bundle, const uint8_t expected_hash
 
 void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp);
 void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp);
+
+int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats);
 
 #endif
