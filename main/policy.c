@@ -17,6 +17,7 @@ static bool initialized = false;
 static uint8_t sector_buf[SECTOR_SIZE];
 
 _Static_assert(sizeof(policy_bundle_t) <= POLICY_SLOT_SIZE, "policy_bundle_t exceeds slot size");
+_Static_assert(sizeof(policy_bundle_t) <= SECTOR_SIZE, "policy_bundle_t exceeds sector size");
 
 int policy_init(void) {
     if (initialized) return 0;
@@ -47,6 +48,7 @@ int policy_save_bundle(const policy_bundle_t *bundle) {
     }
 
     memcpy(sector_buf, bundle, sizeof(policy_bundle_t));
+    secure_memzero(sector_buf + sizeof(policy_bundle_t), SECTOR_SIZE - sizeof(policy_bundle_t));
 
     err = esp_partition_erase_range(policy_partition, 0, SECTOR_SIZE);
     if (err != ESP_OK) {
