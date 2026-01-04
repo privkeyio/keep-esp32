@@ -77,6 +77,8 @@ typedef struct {
     session_t session;
     frost_state_t frost_state;
     char group[STORAGE_GROUP_LEN + 1];
+    bool has_policy;
+    uint8_t policy_hash[32];
 } signing_session_t;
 
 static signing_session_t sessions[MAX_SESSIONS];
@@ -128,7 +130,10 @@ static signing_session_t *alloc_session(const uint8_t *session_id) {
     return NULL;
 }
 
-static int verify_policy_bundle(void) {
+static int capture_policy_snapshot(bool *has_policy, uint8_t policy_hash[32]) {
+    *has_policy = false;
+    memset(policy_hash, 0, 32);
+
     if (!policy_has_bundle()) {
         return 0;
     }
@@ -141,8 +146,39 @@ static int verify_policy_bundle(void) {
     }
 
     ret = policy_verify_signature(&bundle);
+    if (ret != 0) {
+        secure_zero(&bundle, sizeof(bundle));
+        return ret;
+    }
+
+    *has_policy = true;
+    memcpy(policy_hash, bundle.policy_hash, 32);
     secure_zero(&bundle, sizeof(bundle));
-    return ret;
+    return 0;
+}
+
+static int verify_policy_unchanged(bool has_policy, const uint8_t policy_hash[32]) {
+    bool current_has_policy = false;
+    uint8_t current_hash[32];
+
+    int ret = capture_policy_snapshot(&current_has_policy, current_hash);
+    if (ret != 0) {
+        secure_zero(current_hash, sizeof(current_hash));
+        return ret;
+    }
+
+    if (has_policy != current_has_policy) {
+        secure_zero(current_hash, sizeof(current_hash));
+        return -1;
+    }
+
+    if (has_policy && ct_compare(policy_hash, current_hash, 32) != 0) {
+        secure_zero(current_hash, sizeof(current_hash));
+        return -1;
+    }
+
+    secure_zero(current_hash, sizeof(current_hash));
+    return 0;
 }
 
 static void free_session(signing_session_t *s) {
@@ -247,17 +283,25 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
         return;
     }
 
-    int policy_ret = verify_policy_bundle();
+    bool has_policy = false;
+    uint8_t policy_hash[32];
+    int policy_ret = capture_policy_snapshot(&has_policy, policy_hash);
     if (policy_ret != 0) {
+        secure_zero(policy_hash, sizeof(policy_hash));
         protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
         return;
     }
 
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
+        secure_zero(policy_hash, sizeof(policy_hash));
         protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "No free session slots");
         return;
     }
+
+    s->has_policy = has_policy;
+    memcpy(s->policy_hash, policy_hash, 32);
+    secure_zero(policy_hash, sizeof(policy_hash));
 
     if (load_frost_state(&s->frost_state, group) != 0) {
         free_session(s);
@@ -319,6 +363,12 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
 
     if (strcmp(s->group, group) != 0) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Group mismatch");
+        return;
+    }
+
+    if (verify_policy_unchanged(s->has_policy, s->policy_hash) != 0) {
+        free_session(s);
+        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during session");
         return;
     }
 

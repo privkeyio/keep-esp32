@@ -231,12 +231,18 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     char warden_pubkey_hex[65];
     bytes_to_hex(bundle.warden_pubkey, POLICY_PUBKEY_LEN, warden_pubkey_hex);
 
-    char result[256];
-    snprintf(result, sizeof(result),
+    char result[512];
+    int written = snprintf(result, sizeof(result),
              "{\"has_policy\":true,\"version\":%d,\"policy_hash\":\"%s\",\"warden_pubkey\":\"%s\",\"rules_len\":%lu,\"created_at\":%llu}",
              bundle.version, policy_hash_hex, warden_pubkey_hex,
              (unsigned long)bundle.rules_len, (unsigned long long)bundle.created_at);
 
     secure_memzero(&bundle, sizeof(bundle));
+
+    if (written < 0 || (size_t)written >= sizeof(result)) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Response buffer overflow");
+        return;
+    }
+
     protocol_success(resp, req->id, result);
 }
