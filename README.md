@@ -2,6 +2,13 @@
 
 ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com/privkeyio/keep).
 
+## Quick Start
+
+Download from [Releases](https://github.com/privkeyio/keep-esp32/releases) and flash:
+```bash
+esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 keep-merged.bin
+```
+
 ## Hardware
 
 - **ESP32-S3** with USB Serial JTAG support
