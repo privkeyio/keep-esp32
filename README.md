@@ -173,6 +173,7 @@ All participants must start within 5 minutes. On success, each device stores its
 | `import_share` | Import FROST share for a group |
 | `delete_share` | Remove share from storage |
 | `get_share_pubkey` | Get public key for stored share |
+| `get_share_info` | Get share metadata (pubkey, index, threshold, participants) |
 | `frost_commit` | Round 1: Generate nonce commitment |
 | `frost_sign` | Round 2: Generate signature share |
 | `dkg_init` | Initialize DKG session |

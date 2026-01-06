@@ -132,6 +132,7 @@ int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_le
 
     state->share_index = (uint16_t)index;
     state->threshold = (uint16_t)threshold;
+    state->participants = (uint16_t)max_participants;
 
     secp256k1_frost_keypair *kp = secp256k1_frost_keypair_create(index);
     if (!kp) {

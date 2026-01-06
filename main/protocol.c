@@ -6,6 +6,7 @@
 static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "ping") == 0) return RPC_METHOD_PING;
     if (strcmp(method, "get_share_pubkey") == 0) return RPC_METHOD_GET_SHARE_PUBKEY;
+    if (strcmp(method, "get_share_info") == 0) return RPC_METHOD_GET_SHARE_INFO;
     if (strcmp(method, "frost_commit") == 0) return RPC_METHOD_FROST_COMMIT;
     if (strcmp(method, "frost_sign") == 0) return RPC_METHOD_FROST_SIGN;
     if (strcmp(method, "import_share") == 0) return RPC_METHOD_IMPORT_SHARE;

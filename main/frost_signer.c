@@ -187,6 +187,25 @@ void frost_get_pubkey(const char *group, rpc_response_t *resp) {
     frost_free(&state);
 }
 
+void frost_get_share_info(const char *group, rpc_response_t *resp) {
+    frost_state_t state;
+    if (load_frost_state(&state, group) != 0) {
+        protocol_error(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+        return;
+    }
+
+    char pubkey_hex[67];
+    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex);
+
+    char result[192];
+    snprintf(result, sizeof(result),
+             "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d}",
+             pubkey_hex, state.share_index, state.threshold, state.participants);
+    protocol_success(resp, resp->id, result);
+
+    frost_free(&state);
+}
+
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex, rpc_response_t *resp) {
     if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
         protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");

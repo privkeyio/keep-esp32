@@ -4,7 +4,7 @@ import time
 import json
 import sys
 
-DEVICE = '/dev/ttyUSB0'
+DEVICE = '/dev/ttyACM0'
 BAUD = 115200
 
 def send_request(ser, method, params=None, req_id=1):
@@ -71,15 +71,16 @@ def test_frost_commit(ser):
     print("\n[5] Testing frost_commit...")
     params = {
         "group": "test_group",
+        "session_id": "aa" * 32,
         "message": "00" * 32
     }
     resp = send_request(ser, "frost_commit", params)
     if resp and "result" in resp:
         result = resp['result']
-        if "session_id" in result:
-            print(f"    PASS: session_id generated, commitment received")
+        if "commitment" in result:
+            print(f"    PASS: commitment received, index={result.get('index')}")
             return result
-        print(f"    FAIL: no session_id in response")
+        print("    FAIL: no commitment in response")
         return None
     print(f"    FAIL: {resp}")
     return None
@@ -92,7 +93,7 @@ def test_frost_sign(ser, commit_result):
 
     params = {
         "group": "test_group",
-        "session_id": commit_result.get("session_id", "00" * 32),
+        "session_id": "aa" * 32,
         "commitments": ""
     }
     resp = send_request(ser, "frost_sign", params)
