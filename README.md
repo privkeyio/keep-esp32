@@ -60,7 +60,7 @@ pip install pyserial
 cd ~/projects/keep-esp32
 source ~/esp/esp-idf/export.sh
 idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor
+idf.py -p /dev/ttyACM0 flash monitor
 ```
 
 ## Quick Start
@@ -69,11 +69,11 @@ idf.py -p /dev/ttyUSB0 flash monitor
 # Add keep to PATH for convenience
 export PATH="$PATH:~/projects/keep/target/release"
 
-# Test device connection
-keep frost hardware ping --device /dev/ttyUSB0
+# Test device connection (USB CDC)
+keep frost hardware ping --device /dev/ttyACM0
 
 # List shares stored on device
-keep frost hardware list --device /dev/ttyUSB0
+keep frost hardware list --device /dev/ttyACM0
 ```
 
 ### Import a Share (from local keep storage)
@@ -88,7 +88,7 @@ keep frost generate --threshold 2 --shares 3 --name mygroup
 keep frost list
 
 # Export share #1 to hardware device
-keep frost hardware import --device /dev/ttyUSB0 --group mygroup --share 1
+keep frost hardware import --device /dev/ttyACM0 --group mygroup --share 1
 ```
 
 ### Sign with Hardware (threshold signing)
@@ -101,7 +101,7 @@ keep frost network sign \
   --group mygroup \
   --message $(echo -n "hello" | sha256sum | cut -d' ' -f1) \
   --relay wss://nos.lol \
-  --hardware /dev/ttyUSB0
+  --hardware /dev/ttyACM0
 ```
 
 For single-device testing, see [test/hardware/](test/hardware/) for scripts that simulate multiple signers.
@@ -141,7 +141,7 @@ keep frost network dkg \
   --participants 3 \
   --index 1 \
   --relay wss://nos.lol \
-  --hardware /dev/ttyUSB0
+  --hardware /dev/ttyACM0
 
 # Participant 2 (on second device)
 keep frost network dkg \
@@ -150,7 +150,7 @@ keep frost network dkg \
   --participants 3 \
   --index 2 \
   --relay wss://nos.lol \
-  --hardware /dev/ttyUSB0
+  --hardware /dev/ttyACM0
 
 # Participant 3 (on third device)
 keep frost network dkg \
@@ -159,7 +159,7 @@ keep frost network dkg \
   --participants 3 \
   --index 3 \
   --relay wss://nos.lol \
-  --hardware /dev/ttyUSB0
+  --hardware /dev/ttyACM0
 ```
 
 All participants must start within 5 minutes. On success, each device stores its share and displays the group public key.
