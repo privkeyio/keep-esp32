@@ -48,7 +48,7 @@ jobs:
       - name: Package release
         run: |
           mkdir -p release
-          sudo cp keep-esp32/build/frost-participant.bin release/
+          sudo cp keep-esp32/build/keep.bin release/
           sudo cp keep-esp32/build/bootloader/bootloader.bin release/
           sudo cp keep-esp32/build/partition_table/partition-table.bin release/
           sudo cp keep-esp32/build/ota_data_initial.bin release/
@@ -60,11 +60,11 @@ jobs:
             --flash-mode dio \
             --flash-freq 80m \
             --flash-size 8MB \
-            -o frost-participant-merged.bin \
+            -o keep-merged.bin \
             0x0 bootloader.bin \
             0x8000 partition-table.bin \
             0xd000 ota_data_initial.bin \
-            0x10000 frost-participant.bin
+            0x10000 keep.bin
           tar -czvf ../keep-esp32-firmware-${{ github.ref_name }}.tar.gz *
 
       - name: Upload artifact
@@ -96,7 +96,7 @@ jobs:
             ### Quick Flash (Merged Binary)
             Flash the merged binary directly at address 0x0:
             ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 frost-participant-merged.bin
+            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 keep-merged.bin
             ```
 
             ### Individual Binaries
@@ -107,7 +107,7 @@ jobs:
               0x0 bootloader.bin \
               0x8000 partition-table.bin \
               0xd000 ota_data_initial.bin \
-              0x10000 frost-participant.bin
+              0x10000 keep.bin
             ```
 
             Replace `/dev/ttyUSB0` with your device's serial port (e.g., `COM3` on Windows, `/dev/tty.usbserial-*` on macOS).
