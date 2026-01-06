@@ -87,6 +87,9 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         case RPC_METHOD_GET_SHARE_PUBKEY:
             frost_get_pubkey(req->group, resp);
             break;
+        case RPC_METHOD_GET_SHARE_INFO:
+            frost_get_share_info(req->group, resp);
+            break;
         case RPC_METHOD_FROST_COMMIT:
             frost_commit(req->group, req->session_id, req->message, resp);
             break;

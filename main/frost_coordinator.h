@@ -21,11 +21,15 @@ typedef enum {
 typedef void (*frost_sign_request_cb)(const frost_sign_request_t *request, void *ctx);
 typedef void (*frost_sign_response_cb)(const frost_sign_response_t *response, void *ctx);
 typedef void (*frost_dkg_round1_cb)(const frost_dkg_round1_t *round1, void *ctx);
+typedef void (*frost_dkg_round2_cb)(const frost_dkg_round2_t *round2, void *ctx);
+typedef void (*frost_nip46_request_cb)(const nip46_request_t *request, void *ctx);
 
 typedef struct {
     frost_sign_request_cb on_sign_request;
     frost_sign_response_cb on_sign_response;
     frost_dkg_round1_cb on_dkg_round1;
+    frost_dkg_round2_cb on_dkg_round2;
+    frost_nip46_request_cb on_nip46_request;
     void *user_ctx;
 } frost_coordinator_callbacks_t;
 

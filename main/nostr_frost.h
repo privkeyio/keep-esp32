@@ -97,6 +97,20 @@ typedef struct {
     char rejection_reason[128];
 } frost_sign_response_t;
 
+typedef struct {
+    char id[64];
+    char method[32];
+    char *params;
+    size_t params_len;
+    uint8_t sender_pubkey[32];
+} nip46_request_t;
+
+typedef struct {
+    char id[64];
+    char *result;
+    char *error;
+} nip46_response_t;
+
 int frost_parse_group_event(const char *event_json, frost_group_t *group);
 int frost_create_group_event(const frost_group_t *group,
                               const uint8_t *privkey,
@@ -123,6 +137,10 @@ int frost_create_dkg_round2_event(const frost_group_t *group,
                                    const uint8_t *our_privkey,
                                    const uint8_t *recipient_pubkey,
                                    char *event_json, size_t max_len);
+int frost_parse_dkg_round2_event(const char *event_json,
+                                  const frost_group_t *group,
+                                  const uint8_t *our_privkey,
+                                  frost_dkg_round2_t *round2);
 int frost_dkg_finalize(const frost_group_t *group,
                         const frost_dkg_round1_t *all_round1,
                         size_t round1_count,
@@ -156,5 +174,14 @@ int frost_parse_sign_response(const char *event_json,
                                frost_sign_response_t *response);
 
 void frost_sign_request_free(frost_sign_request_t *request);
+
+int frost_parse_nip46_event(const char *event_json,
+                             const uint8_t *our_privkey,
+                             nip46_request_t *request);
+int frost_create_nip46_response(const nip46_response_t *response,
+                                 const uint8_t *our_privkey,
+                                 const uint8_t *recipient_pubkey,
+                                 char *event_json, size_t max_len);
+void frost_nip46_request_free(nip46_request_t *request);
 
 #endif

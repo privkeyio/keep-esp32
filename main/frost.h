@@ -11,6 +11,7 @@ typedef struct {
     void *keypair;
     uint16_t share_index;
     uint16_t threshold;
+    uint16_t participants;
     uint8_t group_pubkey[33];
 } frost_state_t;
 

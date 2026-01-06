@@ -12,7 +12,7 @@ import json
 import time
 import sys
 
-DEVICE = "/dev/ttyUSB0"
+DEVICE = "/dev/ttyACM0"
 BAUD = 115200
 TIMEOUT = 5
 

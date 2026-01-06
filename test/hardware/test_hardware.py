@@ -5,7 +5,7 @@ import time
 import sys
 import os
 
-DEVICE = os.environ.get("DEVICE", "/dev/ttyUSB0")
+DEVICE = os.environ.get("DEVICE", "/dev/ttyACM0")
 BAUD = int(os.environ.get("BAUD", "115200"))
 TIMEOUT = int(os.environ.get("TIMEOUT", "5"))
 

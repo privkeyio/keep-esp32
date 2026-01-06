@@ -20,7 +20,7 @@ import sys
 import subprocess
 import secrets
 
-DEVICE = "/dev/ttyUSB0"
+DEVICE = "/dev/ttyACM0"
 RELAY = "wss://nos.lol"
 GROUP = f"dkg_test_{secrets.token_hex(4)}"
 
@@ -171,9 +171,9 @@ Phase 5.5 DKG Protocol Implementation: VERIFIED
     print("=" * 60)
     print("For full multi-party DKG, run the command on 3 devices simultaneously:")
     print(f"""
-  Device 1: keep frost network dkg -g {GROUP} -t 2 -n 3 -i 1 -r {RELAY} --hardware /dev/ttyUSB0
-  Device 2: keep frost network dkg -g {GROUP} -t 2 -n 3 -i 2 -r {RELAY} --hardware /dev/ttyUSB0
-  Device 3: keep frost network dkg -g {GROUP} -t 2 -n 3 -i 3 -r {RELAY} --hardware /dev/ttyUSB0
+  Device 1: keep frost network dkg -g {GROUP} -t 2 -n 3 -i 1 -r {RELAY} --hardware /dev/ttyACM0
+  Device 2: keep frost network dkg -g {GROUP} -t 2 -n 3 -i 2 -r {RELAY} --hardware /dev/ttyACM0
+  Device 3: keep frost network dkg -g {GROUP} -t 2 -n 3 -i 3 -r {RELAY} --hardware /dev/ttyACM0
 """)
     print("=" * 60)
 

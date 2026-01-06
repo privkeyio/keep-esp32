@@ -4,7 +4,7 @@ import sys
 import time
 
 parser = argparse.ArgumentParser(description='Serial monitor')
-parser.add_argument('--device', default='/dev/ttyUSB0', help='Serial device path')
+parser.add_argument('--device', default='/dev/ttyACM0', help='Serial device path')
 args = parser.parse_args()
 
 try:
