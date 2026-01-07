@@ -2,12 +2,51 @@
 
 ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com/privkeyio/keep).
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Hardware](#hardware)
+- [Prerequisites](#prerequisites)
+- [Build & Flash](#build--flash)
+- [Usage](#usage)
+- [Bitcoin PSBT Signing](#bitcoin-psbt-signing)
+- [Distributed Key Generation (DKG)](#distributed-key-generation-dkg)
+- [Features](#features)
+- [JSON-RPC API](#json-rpc-api)
+- [Testing](#testing)
+- [License](#license)
+
+---
+
 ## Quick Start
 
-Download from [Releases](https://github.com/privkeyio/keep-esp32/releases) and flash:
+### 1. Install esptool
+
+```bash
+pip install esptool
+```
+
+### 2. Download and Flash
+
+Download the latest `keep-merged.bin` from [Releases](https://github.com/privkeyio/keep-esp32/releases):
+
 ```bash
 esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 keep-merged.bin
 ```
+
+### 3. Install Keep CLI
+
+```bash
+cargo install --git https://github.com/privkeyio/keep keep-cli
+```
+
+### 4. Test Connection
+
+```bash
+keep frost hardware ping --device /dev/ttyACM0
+```
+
+---
 
 ## Hardware
 
@@ -15,7 +54,11 @@ esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 keep-merged.bin
 - 8MB Flash, 8MB PSRAM recommended
 - Tested on ESP32-S3-DevKitC-1-N8R8
 
+---
+
 ## Prerequisites
+
+For building from source:
 
 ### 1. ESP-IDF v5.4+
 
@@ -33,6 +76,7 @@ cd ~/projects  # or your preferred directory
 git clone -b esp-idf-support https://github.com/privkeyio/secp256k1-frost
 git clone https://github.com/privkeyio/keep-esp32
 git clone https://github.com/privkeyio/keep
+git clone https://github.com/ElementsProject/libwally-core
 git clone -b esp-idf-support https://github.com/privkeyio/noscrypt
 git clone https://github.com/privkeyio/libnostr-c
 ```
@@ -43,6 +87,7 @@ Your directory structure should look like:
 ├── secp256k1-frost/   # FROST crypto library
 ├── keep-esp32/        # This repo (ESP32 firmware)
 ├── keep/              # Keep CLI and core library
+├── libwally-core/     # Bitcoin primitives (PSBT, sighash)
 ├── noscrypt/          # NIP-44 crypto (symlinked in components/)
 └── libnostr-c/        # Nostr client library (symlinked in components/)
 ```
@@ -61,6 +106,8 @@ cargo build --release -p keep-cli
 pip install pyserial
 ```
 
+---
+
 ## Build & Flash
 
 ```bash
@@ -70,7 +117,9 @@ idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-## Quick Start
+---
+
+## Usage
 
 ```bash
 # Add keep to PATH for convenience
@@ -83,12 +132,12 @@ keep frost hardware ping --device /dev/ttyACM0
 keep frost hardware list --device /dev/ttyACM0
 ```
 
-### Import a Share (from local keep storage)
+### Import a Share
 
 First, generate and split a keyset using the keep CLI:
 
 ```bash
-# Generate a 2-of-3 threshold keyset (interactive, creates password-protected storage)
+# Generate a 2-of-3 threshold keyset
 keep frost generate --threshold 2 --shares 3 --name mygroup
 
 # View your shares
@@ -98,7 +147,7 @@ keep frost list
 keep frost hardware import --device /dev/ttyACM0 --group mygroup --share 1
 ```
 
-### Sign with Hardware (threshold signing)
+### Sign with Hardware
 
 Threshold signing requires multiple participants. The CLI coordinates via Nostr relay:
 
@@ -108,33 +157,53 @@ keep frost network sign \
   --group mygroup \
   --message $(echo -n "hello" | sha256sum | cut -d' ' -f1) \
   --relay wss://nos.lol \
-  --hardware /dev/ttyACM0
+  --hardware /dev/ttyACM0 \
+  --threshold 2 \
+  --participants 3
 ```
 
-For single-device testing, see [test/hardware/](test/hardware/) for scripts that simulate multiple signers.
+---
 
-## Features
+## Bitcoin PSBT Signing
 
-- **FROST Threshold Signatures**: Two-round Schnorr threshold signing (secp256k1)
-- **Air-Gapped**: No network - USB serial JSON-RPC only
-- **Secure Storage**: Direct partition-backed share storage
-- **Multi-Group**: Store up to 8 signing shares for different groups
-- **Nostr Coordination**: NIP-44 encrypted event protocol for DKG and signing
+The device supports Bitcoin PSBT (BIP-174) parsing and Taproot sighash extraction for threshold signing.
 
-## Nostr FROST Protocol
+### Flow
 
-The device implements the FROST coordination protocol over Nostr:
+```text
+CLI parses PSBT → Device extracts sighash → FROST signing → CLI adds signature → Signed PSBT
+```
 
-| Component | Status |
-|-----------|--------|
-| Event kinds 21101-21106 | ✓ Implemented |
-| DKG Round 1/2 | ✓ Implemented |
-| Sign request/response | ✓ Implemented |
-| NIP-44 encryption | ✓ Via libnostr-c/noscrypt |
-| Relay connectivity | ✓ Via keep-cli bridge |
-| Hardware RPC protocol | ✓ Tested with keep-cli |
+### RPC Methods
 
-The ESP32 operates as an air-gapped hardware signer. Network coordination happens through keep-cli which bridges serial RPC to Nostr relays (e.g., wss://nos.lol).
+| Method | Description |
+|--------|-------------|
+| `bitcoin_parse` | Parse PSBT, return summary (inputs, outputs, amounts, fees) |
+| `bitcoin_sign` | Extract Taproot sighash for a specific input |
+
+### Example
+
+```bash
+# Parse PSBT on device (via JSON-RPC)
+{"id":1,"method":"bitcoin_parse","params":{"psbt":"cHNidP8BAF4..."}}
+# Response: {"id":1,"result":{"inputs":1,"outputs":2,"total_in_sats":100000,"fee_sats":1000}}
+
+# Get sighash for FROST signing
+{"id":2,"method":"bitcoin_sign","params":{"psbt":"cHNidP8BAF4...","input_idx":0}}
+# Response: {"id":2,"result":{"input_idx":0,"sighash":"abc123..."}}
+```
+
+### Signing Flow
+
+1. **CLI** parses PSBT and sends to device for verification
+2. **Device** extracts Taproot sighash via `bitcoin_sign`
+3. **CLI** coordinates FROST signing with `frost_commit` / `frost_sign`
+4. **CLI** aggregates signature shares from all participants
+5. **CLI** adds final Schnorr signature to PSBT
+
+The device never sees the full private key - only its threshold share participates in signing.
+
+---
 
 ## Distributed Key Generation (DKG)
 
@@ -171,7 +240,22 @@ keep frost network dkg \
 
 All participants must start within 5 minutes. On success, each device stores its share and displays the group public key.
 
+---
+
+## Features
+
+- **FROST Threshold Signatures**: Two-round Schnorr threshold signing (secp256k1)
+- **Bitcoin PSBT**: Parse PSBTs and compute Taproot sighashes (BIP-174, BIP-341)
+- **Air-Gapped**: No network - USB serial JSON-RPC only
+- **Secure Storage**: Direct partition-backed share storage (persists across firmware updates)
+- **Multi-Group**: Store up to 8 signing shares for different groups
+- **Nostr Coordination**: NIP-44 encrypted event protocol for DKG and signing
+
+---
+
 ## JSON-RPC API
+
+### Core Methods
 
 | Method | Description |
 |--------|-------------|
@@ -181,14 +265,33 @@ All participants must start within 5 minutes. On success, each device stores its
 | `delete_share` | Remove share from storage |
 | `get_share_pubkey` | Get public key for stored share |
 | `get_share_info` | Get share metadata (pubkey, index, threshold, participants) |
+
+### FROST Signing
+
+| Method | Description |
+|--------|-------------|
 | `frost_commit` | Round 1: Generate nonce commitment |
 | `frost_sign` | Round 2: Generate signature share |
+
+### DKG (Distributed Key Generation)
+
+| Method | Description |
+|--------|-------------|
 | `dkg_init` | Initialize DKG session |
 | `dkg_round1` | Generate commitment and ZK proof |
 | `dkg_round1_peer` | Receive and validate peer commitment |
 | `dkg_round2` | Generate shares for all participants |
 | `dkg_receive_share` | Receive encrypted share from peer |
 | `dkg_finalize` | Derive final share and store |
+
+### Bitcoin
+
+| Method | Description |
+|--------|-------------|
+| `bitcoin_parse` | Parse PSBT, return summary |
+| `bitcoin_sign` | Extract sighash for input |
+
+---
 
 ## Testing
 
@@ -226,6 +329,8 @@ mkdir -p build && cd build
 cmake .. && make
 ./test_frost
 ```
+
+---
 
 ## License
 

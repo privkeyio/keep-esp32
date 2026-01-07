@@ -90,6 +90,7 @@ int storage_save_share(const char *group, const char *share_hex) {
     int free_slot = -1;
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
+        memset(&slot, 0xFF, sizeof(slot));
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK) continue;
         if (strcmp(slot.group, group) == 0) {

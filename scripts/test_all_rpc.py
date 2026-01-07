@@ -124,6 +124,33 @@ def test_error_handling(ser):
     print(f"    FAIL: {resp}")
     return False
 
+def test_bitcoin_parse(ser):
+    print("\n[9] Testing bitcoin_parse...")
+    # Minimal valid Taproot PSBT with 1 input, 1 output
+    psbt = "cHNidP8BAF4CAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/////AVDDAAAAAAAAIlEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEBK6CGAQAAAAAAIlEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    resp = send_request(ser, "bitcoin_parse", {"psbt": psbt})
+    if resp and "result" in resp:
+        result = resp['result']
+        if result.get('inputs') == 1 and result.get('outputs') == 1:
+            print(f"    PASS: inputs={result['inputs']}, outputs={result['outputs']}, fee={result.get('fee_sats')}")
+            return True
+    print(f"    FAIL: {resp}")
+    return False
+
+def test_bitcoin_sign(ser):
+    print("\n[10] Testing bitcoin_sign (sighash extraction)...")
+    # Same PSBT as above
+    psbt = "cHNidP8BAF4CAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/////AVDDAAAAAAAAIlEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEBK6CGAQAAAAAAIlEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    resp = send_request(ser, "bitcoin_sign", {"psbt": psbt, "input_idx": 0})
+    if resp and "result" in resp:
+        result = resp['result']
+        sighash = result.get('sighash', '')
+        if len(sighash) == 64:  # 32 bytes hex = 64 chars
+            print(f"    PASS: sighash={sighash[:16]}...")
+            return True
+    print(f"    FAIL: {resp}")
+    return False
+
 def main():
     print("ESP32-S3 FROST Signer - RPC Test Suite")
     print("=" * 50)
@@ -147,6 +174,8 @@ def main():
     results.append(("frost_sign", test_frost_sign(ser, commitment)))
     results.append(("delete_share", test_delete_share(ser)))
     results.append(("error_handling", test_error_handling(ser)))
+    results.append(("bitcoin_parse", test_bitcoin_parse(ser)))
+    results.append(("bitcoin_sign", test_bitcoin_sign(ser)))
 
     ser.close()
 

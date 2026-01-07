@@ -2,6 +2,7 @@
 #include "cJSON.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "ping") == 0) return RPC_METHOD_PING;
@@ -18,6 +19,8 @@ static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "dkg_round2") == 0) return RPC_METHOD_DKG_ROUND2;
     if (strcmp(method, "dkg_receive_share") == 0) return RPC_METHOD_DKG_RECEIVE_SHARE;
     if (strcmp(method, "dkg_finalize") == 0) return RPC_METHOD_DKG_FINALIZE;
+    if (strcmp(method, "bitcoin_parse") == 0) return RPC_METHOD_BITCOIN_PARSE;
+    if (strcmp(method, "bitcoin_sign") == 0) return RPC_METHOD_BITCOIN_SIGN;
     return RPC_METHOD_UNKNOWN;
 }
 
@@ -100,10 +103,34 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (dkg_data && cJSON_IsString(dkg_data)) {
             snprintf(req->dkg_data, sizeof(req->dkg_data), "%s", dkg_data->valuestring);
         }
+        cJSON *psbt = cJSON_GetObjectItem(params, "psbt");
+        if (psbt && cJSON_IsString(psbt)) {
+            size_t len = strlen(psbt->valuestring);
+            if (len >= PROTOCOL_MAX_PSBT_LEN) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_PARAMS;
+            }
+            req->psbt = strdup(psbt->valuestring);
+            if (!req->psbt) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_INTERNAL;
+            }
+        }
+        cJSON *input_idx = cJSON_GetObjectItem(params, "input_idx");
+        if (input_idx && cJSON_IsNumber(input_idx) && input_idx->valueint >= 0) {
+            req->input_idx = (size_t)input_idx->valueint;
+        }
     }
 
     cJSON_Delete(root);
     return 0;
+}
+
+void protocol_free_request(rpc_request_t *req) {
+    if (req && req->psbt) {
+        free(req->psbt);
+        req->psbt = NULL;
+    }
 }
 
 int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) {

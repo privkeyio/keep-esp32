@@ -362,7 +362,8 @@ void frost_signer_cleanup_stale(void) {
     uint32_t now = get_time_ms();
     for (int i = 0; i < MAX_SESSIONS; i++) {
         if (sessions[i].active) {
-            uint32_t elapsed = now - sessions[i].session.created_at;
+            uint32_t created = sessions[i].session.created_at;
+            uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
             if (elapsed > SESSION_TIMEOUT_MS) {
                 FROST_LOGW(TAG, "Cleaning up stale session");
                 free_session(&sessions[i]);

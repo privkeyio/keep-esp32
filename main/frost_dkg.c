@@ -185,15 +185,16 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     if (!coeffs_end) { free(data); protocol_error(resp, req->id, -1, "Parse error"); return; }
     *coeffs_end = '\0';
 
+    size_t coeffs_len = strlen(coeffs_start);
     size_t coeff_offset = 0;
     for (uint8_t i = 0; i < peer->num_coefficients; i++) {
-        if (coeff_offset + 128 > strlen(coeffs_start) + 1) break;
+        if (coeff_offset + 128 > coeffs_len) break;
         char coeff_hex[129];
         strncpy(coeff_hex, coeffs_start + coeff_offset, 128);
         coeff_hex[128] = '\0';
         hex_to_bytes(coeff_hex, peer->coefficient_commitments[i], 64);
         coeff_offset += 128;
-        if (coeffs_start[coeff_offset] == ',') coeff_offset++;
+        if (coeff_offset < coeffs_len && coeffs_start[coeff_offset] == ',') coeff_offset++;
     }
 
     char *zkp_r_start = zkp_r_str + 8;

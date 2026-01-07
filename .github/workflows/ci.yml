@@ -33,6 +33,12 @@ jobs:
           ref: esp-idf-support
           path: noscrypt
 
+      - uses: actions/checkout@v4
+        with:
+          repository: ElementsProject/libwally-core
+          ref: release_1.5.1
+          path: libwally-core
+
       - uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.4.1

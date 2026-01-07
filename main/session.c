@@ -43,7 +43,10 @@ void session_destroy(session_t *s) {
 
 session_state_t session_state(session_t *s) {
     if (s->state != SESSION_COMPLETE && s->state != SESSION_FAILED) {
-        if (now_ms() - s->created_at > SESSION_TIMEOUT_MS) {
+        uint32_t now = now_ms();
+        uint32_t created = s->created_at;
+        uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
+        if (elapsed > SESSION_TIMEOUT_MS) {
             s->state = SESSION_EXPIRED;
         }
     }
@@ -97,9 +100,11 @@ int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_
 }
 
 bool session_has_all_commitments(session_t *s) {
+    if (s->participant_count == 0) return false;
     return s->commitment_count >= s->participant_count - 1;
 }
 
 bool session_has_all_shares(session_t *s) {
+    if (s->participant_count == 0) return false;
     return s->sig_share_count >= s->participant_count - 1;
 }

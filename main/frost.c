@@ -253,8 +253,8 @@ int frost_aggregate(frost_state_t *state, session_t *session,
                     const uint8_t *msg_hash, size_t hash_len,
                     uint8_t *signature_out) {
     if (!session_has_all_shares(session)) return -1;
-    if (session->commitment_count > MAX_PARTICIPANTS) return -3;
-    if (session->sig_share_count > MAX_PARTICIPANTS) return -3;
+    if (session->commitment_count >= MAX_PARTICIPANTS) return -3;
+    if (session->sig_share_count >= MAX_PARTICIPANTS) return -3;
 
     secp256k1_frost_nonce_commitment commits[MAX_PARTICIPANTS];
     for (int i = 0; i < session->commitment_count; i++) {

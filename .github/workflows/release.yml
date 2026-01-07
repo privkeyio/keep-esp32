@@ -35,6 +35,12 @@ jobs:
           ref: esp-idf-support
           path: noscrypt
 
+      - uses: actions/checkout@v4
+        with:
+          repository: ElementsProject/libwally-core
+          ref: release_1.5.1
+          path: libwally-core
+
       - name: Build ESP32-S3 firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
