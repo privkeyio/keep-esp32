@@ -151,6 +151,39 @@ def test_bitcoin_sign(ser):
     print(f"    FAIL: {resp}")
     return False
 
+def test_policy_get(ser):
+    print("\n[11] Testing policy_get...")
+    resp = send_request(ser, "policy_get")
+    if resp and "result" in resp:
+        result = resp['result']
+        if "has_policy" in result:
+            print(f"    PASS: has_policy={result['has_policy']}")
+            return True
+    print(f"    FAIL: {resp}")
+    return False
+
+def test_policy_update_errors(ser):
+    print("\n[12] Testing policy_update (error handling)...")
+    # Test missing bundle
+    resp = send_request(ser, "policy_update", {})
+    if not (resp and "error" in resp and "Missing" in resp["error"]["message"]):
+        print(f"    FAIL: Expected missing bundle error, got {resp}")
+        return False
+    # Test invalid length
+    resp = send_request(ser, "policy_update", {"bundle": "deadbeef"})
+    if not (resp and "error" in resp and "Invalid bundle length" in resp["error"]["message"]):
+        print(f"    FAIL: Expected invalid length error, got {resp}")
+        return False
+    # Test invalid signature (correct length, bad sig)
+    # Bundle: 1 + 32 + 32 + 4 + 2048 + 8 + 64 = 2189 bytes = 4378 hex
+    fake_bundle = "01" + "00" * 2188
+    resp = send_request(ser, "policy_update", {"bundle": fake_bundle})
+    if not (resp and "error" in resp and "Invalid signature" in resp["error"]["message"]):
+        print(f"    FAIL: Expected invalid signature error, got {resp}")
+        return False
+    print("    PASS: All error cases handled correctly")
+    return True
+
 def main():
     print("ESP32-S3 FROST Signer - RPC Test Suite")
     print("=" * 50)
@@ -176,6 +209,8 @@ def main():
     results.append(("error_handling", test_error_handling(ser)))
     results.append(("bitcoin_parse", test_bitcoin_parse(ser)))
     results.append(("bitcoin_sign", test_bitcoin_sign(ser)))
+    results.append(("policy_get", test_policy_get(ser)))
+    results.append(("policy_update_errors", test_policy_update_errors(ser)))
 
     ser.close()
 

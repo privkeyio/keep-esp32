@@ -10,6 +10,7 @@ ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com
 - [Build & Flash](#build--flash)
 - [Usage](#usage)
 - [Bitcoin PSBT Signing](#bitcoin-psbt-signing)
+- [Policy Enforcement](#policy-enforcement)
 - [Distributed Key Generation (DKG)](#distributed-key-generation-dkg)
 - [Features](#features)
 - [JSON-RPC API](#json-rpc-api)
@@ -205,6 +206,57 @@ The device never sees the full private key - only its threshold share participat
 
 ---
 
+## Policy Enforcement
+
+The device supports [Warden](https://github.com/privkeyio/warden) policy bundles for transaction authorization. Policies define spending rules (whitelists, limits, etc.) that are enforced before signing.
+
+### How It Works
+
+1. **Warden** creates and signs a policy bundle with Schnorr signature
+2. **Policy bundle** is synced to device via `policy_update` RPC over USB
+3. **Device** verifies signature and stores bundle in flash
+4. **Before signing**, device evaluates transaction against policy rules
+
+### RPC Methods
+
+```bash
+# Check current policy status
+{"id":1,"method":"policy_get"}
+# Response: {"id":1,"result":{"has_policy":true,"version":1,"warden_pubkey":"...","policy_hash":"..."}}
+
+# Upload signed policy bundle (hex-encoded)
+{"id":2,"method":"policy_update","params":{"bundle":"01..."}}
+# Response: {"id":2,"result":{"ok":true}}
+```
+
+### Supported Rules
+
+| Rule | Type | Description |
+|------|------|-------------|
+| `max_amount` | integer | Maximum total output amount in sats |
+| `max_fee` | integer | Maximum transaction fee in sats |
+
+Example policy rules JSON:
+```json
+{"max_amount": 1000000, "max_fee": 10000}
+```
+
+### Policy Bundle Format
+
+| Field | Size | Description |
+|-------|------|-------------|
+| version | 1 byte | Bundle format version |
+| warden_pubkey | 32 bytes | Warden's x-only public key |
+| policy_hash | 32 bytes | SHA256 of policy rules |
+| rules_len | 4 bytes | Length of rules data |
+| rules | 2048 bytes | Policy rules (JSON) |
+| created_at | 8 bytes | Unix timestamp |
+| signature | 64 bytes | Schnorr signature over bundle |
+
+See [Warden documentation](https://github.com/privkeyio/warden) for policy creation and management.
+
+---
+
 ## Distributed Key Generation (DKG)
 
 Generate threshold keys without any single party knowing the full private key. Each participant runs the command on their own device:
@@ -246,6 +298,7 @@ All participants must start within 5 minutes. On success, each device stores its
 
 - **FROST Threshold Signatures**: Two-round Schnorr threshold signing (secp256k1)
 - **Bitcoin PSBT**: Parse PSBTs and compute Taproot sighashes (BIP-174, BIP-341)
+- **Policy Enforcement**: Warden-signed policy bundles with Schnorr signature verification
 - **Air-Gapped**: No network - USB serial JSON-RPC only
 - **Secure Storage**: Direct partition-backed share storage (persists across firmware updates)
 - **Multi-Group**: Store up to 8 signing shares for different groups
@@ -290,6 +343,13 @@ All participants must start within 5 minutes. On success, each device stores its
 |--------|-------------|
 | `bitcoin_parse` | Parse PSBT, return summary |
 | `bitcoin_sign` | Extract sighash for input |
+
+### Policy
+
+| Method | Description |
+|--------|-------------|
+| `policy_update` | Store signed policy bundle from Warden |
+| `policy_get` | Get current policy bundle metadata |
 
 ---
 
