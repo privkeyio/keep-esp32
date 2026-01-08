@@ -2,6 +2,7 @@
 #include "nostr_frost.h"
 #include "storage.h"
 #include "crypto_asm.h"
+#include "hex_utils.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,24 +32,6 @@ typedef struct {
 } dkg_session_t;
 
 static dkg_session_t g_session;
-
-static int hex_to_bytes(const char *hex, uint8_t *out, size_t out_len) {
-    size_t hex_len = strlen(hex);
-    if (hex_len % 2 != 0 || hex_len / 2 > out_len) return -1;
-    for (size_t i = 0; i < hex_len / 2; i++) {
-        unsigned int byte;
-        if (sscanf(hex + 2*i, "%2x", &byte) != 1) return -1;
-        out[i] = (uint8_t)byte;
-    }
-    return (int)(hex_len / 2);
-}
-
-static void bytes_to_hex(const uint8_t *bytes, size_t len, char *hex) {
-    for (size_t i = 0; i < len; i++) {
-        sprintf(hex + i*2, "%02x", bytes[i]);
-    }
-    hex[len*2] = '\0';
-}
 
 void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
     if (req->threshold < 2 || req->threshold > DKG_MAX_THRESHOLD) {
