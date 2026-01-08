@@ -1,6 +1,7 @@
 #include "frost_coordinator.h"
 #include "nostr_frost.h"
 #include "crypto_asm.h"
+#include "hex_utils.h"
 #include "cJSON.h"
 #include <noscrypt.h>
 
@@ -69,13 +70,6 @@ typedef struct {
 
 static coordinator_ctx_t g_ctx;
 static bool g_initialized = false;
-
-static void bytes_to_hex(const uint8_t *bytes, size_t len, char *out) {
-    for (size_t i = 0; i < len; i++) {
-        sprintf(out + 2*i, "%02x", bytes[i]);
-    }
-    out[len*2] = '\0';
-}
 
 #ifdef ESP_PLATFORM
 static void websocket_event_handler(void *handler_args, esp_event_base_t base,
