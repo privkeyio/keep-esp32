@@ -1,4 +1,5 @@
 #include "nostr_frost.h"
+#include "random_utils.h"
 #include "crypto_asm.h"
 #include <secp256k1.h>
 #include <secp256k1_frost.h>
@@ -7,26 +8,12 @@
 #include <stdlib.h>
 
 #ifdef ESP_PLATFORM
-#include "esp_random.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 static SemaphoreHandle_t g_secp_mutex = NULL;
 #else
-#include <stdio.h>
 #include <pthread.h>
 static pthread_mutex_t g_secp_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int secure_random_fill(uint8_t *buf, size_t len) {
-    FILE *fp = fopen("/dev/urandom", "r");
-    if (!fp) return -1;
-    size_t total = 0;
-    while (total < len) {
-        size_t n = fread(buf + total, 1, len - total, fp);
-        if (n == 0) { fclose(fp); return -1; }
-        total += n;
-    }
-    fclose(fp);
-    return 0;
-}
 #endif
 
 static secp256k1_context *g_secp_ctx = NULL;
@@ -237,10 +224,6 @@ int frost_sign_partial(const frost_group_t *group,
     memcpy(kp->secret, our_share, 32);
 
     uint8_t binding_seed[32], hiding_seed[32];
-#ifdef ESP_PLATFORM
-    esp_fill_random(binding_seed, 32);
-    esp_fill_random(hiding_seed, 32);
-#else
     if (secure_random_fill(binding_seed, 32) != 0 || secure_random_fill(hiding_seed, 32) != 0) {
         secure_memzero(kp->secret, 32);
         secp256k1_frost_keypair_destroy(kp);
@@ -248,7 +231,6 @@ int frost_sign_partial(const frost_group_t *group,
         strncpy(response->rejection_reason, "Failed to get secure random", sizeof(response->rejection_reason) - 1);
         return -4;
     }
-#endif
 
     secp256k1_frost_nonce *nonce = secp256k1_frost_nonce_create(ctx, kp, binding_seed, hiding_seed);
     secure_memzero(binding_seed, 32);

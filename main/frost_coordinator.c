@@ -2,13 +2,15 @@
 #include "nostr_frost.h"
 #include "crypto_asm.h"
 #include "hex_utils.h"
+#include "random_utils.h"
 #include "cJSON.h"
 #include <noscrypt.h>
+#include <string.h>
+#include <stdlib.h>
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
 #include "esp_websocket_client.h"
-#include "esp_random.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #else
@@ -16,30 +18,7 @@
 #define ESP_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGE(tag, fmt, ...) printf("[%s] ERROR: " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGW(tag, fmt, ...) printf("[%s] WARN: " fmt "\n", tag, ##__VA_ARGS__)
-
-static int secure_random_fill(uint8_t *buf, size_t len) {
-    FILE *fp = fopen("/dev/urandom", "r");
-    if (!fp) {
-        fprintf(stderr, "FATAL: Cannot open /dev/urandom\n");
-        return -1;
-    }
-    size_t total = 0;
-    while (total < len) {
-        size_t n = fread(buf + total, 1, len - total, fp);
-        if (n == 0) {
-            fclose(fp);
-            fprintf(stderr, "FATAL: Failed to read from /dev/urandom\n");
-            return -1;
-        }
-        total += n;
-    }
-    fclose(fp);
-    return 0;
-}
 #endif
-
-#include <string.h>
-#include <stdlib.h>
 
 #define TAG "frost_coord"
 
@@ -190,15 +169,14 @@ int frost_coordinator_init(const uint8_t privkey[32]) {
     }
 
     uint8_t entropy[NC_CONTEXT_ENTROPY_SIZE];
-#ifdef ESP_PLATFORM
-    esp_fill_random(entropy, sizeof(entropy));
-#else
     if (secure_random_fill(entropy, sizeof(entropy)) != 0) {
-        ESP_LOGE(TAG, "Failed to get entropy from /dev/urandom");
+        ESP_LOGE(TAG, "Failed to get secure random");
         free(g_ctx.nc_ctx);
+#ifdef ESP_PLATFORM
+        vSemaphoreDelete(g_ctx.mutex);
+#endif
         return -3;
     }
-#endif
 
     if (NCInitContext(g_ctx.nc_ctx, entropy) != NC_SUCCESS) {
         ESP_LOGE(TAG, "Failed to init noscrypt context");
