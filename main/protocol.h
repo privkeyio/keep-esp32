@@ -5,10 +5,11 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define PROTOCOL_MAX_MESSAGE_LEN 1024
+#define PROTOCOL_MAX_MESSAGE_LEN 16384
 #define PROTOCOL_MAX_GROUP_LEN 64
 #define PROTOCOL_MAX_HEX_LEN 512
-#define PROTOCOL_VERSION "0.1.1"
+#define PROTOCOL_MAX_PSBT_LEN 8192
+#define PROTOCOL_VERSION "0.1.2"
 #define PROTOCOL_MAX_PARTICIPANTS 16
 #define PROTOCOL_COMMITMENT_HEX_LEN 264
 #define MAX_COMMITMENTS_SIZE ((PROTOCOL_MAX_PARTICIPANTS - 1) * PROTOCOL_COMMITMENT_HEX_LEN + 1)
@@ -36,6 +37,8 @@ typedef enum {
     RPC_METHOD_DKG_ROUND2,
     RPC_METHOD_DKG_RECEIVE_SHARE,
     RPC_METHOD_DKG_FINALIZE,
+    RPC_METHOD_BITCOIN_PARSE,
+    RPC_METHOD_BITCOIN_SIGN,
     RPC_METHOD_UNKNOWN
 } rpc_method_t;
 
@@ -52,6 +55,8 @@ typedef struct {
     uint8_t our_index;
     uint8_t peer_index;
     char dkg_data[2048];
+    char *psbt;
+    size_t input_idx;
 } rpc_request_t;
 
 typedef struct {
@@ -59,10 +64,11 @@ typedef struct {
     bool success;
     int error_code;
     char error_msg[128];
-    char result[2048];
+    char result[PROTOCOL_MAX_PSBT_LEN + 256];
 } rpc_response_t;
 
 int protocol_parse_request(const char *json, rpc_request_t *req);
+void protocol_free_request(rpc_request_t *req);
 int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len);
 void protocol_success(rpc_response_t *resp, int id, const char *result);
 void protocol_error(rpc_response_t *resp, int id, int code, const char *message);

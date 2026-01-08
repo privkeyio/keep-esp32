@@ -13,6 +13,7 @@ static void test_parse_ping(void) {
     assert(result == 0);
     assert(req.id == 1);
     assert(req.method == RPC_METHOD_PING);
+    protocol_free_request(&req);
 
     printf("PASS: parse ping\n");
 }
@@ -27,6 +28,7 @@ static void test_parse_frost_sign(void) {
     assert(req.method == RPC_METHOD_FROST_SIGN);
     assert(strcmp(req.group, "npub1abc") == 0);
     assert(strcmp(req.message, "deadbeef") == 0);
+    protocol_free_request(&req);
 
     printf("PASS: parse frost_sign\n");
 }
@@ -41,6 +43,7 @@ static void test_parse_import_share(void) {
     assert(req.method == RPC_METHOD_IMPORT_SHARE);
     assert(strcmp(req.group, "npub1xyz") == 0);
     assert(strcmp(req.share, "aabbcc") == 0);
+    protocol_free_request(&req);
 
     printf("PASS: parse import_share\n");
 }
@@ -113,6 +116,7 @@ static void test_all_methods(void) {
         int result = protocol_parse_request(cases[i].json, &req);
         assert(result == 0);
         assert(req.method == cases[i].expected);
+        protocol_free_request(&req);
     }
 
     printf("PASS: all method types\n");

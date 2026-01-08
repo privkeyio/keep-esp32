@@ -10,13 +10,15 @@
 #include "storage.h"
 #include "frost_signer.h"
 #include "frost_dkg.h"
+#include "psbt.h"
 
 #define TAG "main"
-#define VERSION "0.1.1"
+#define VERSION "0.1.2"
 #define RATE_LIMIT_THRESHOLD 5
 #define RATE_LIMIT_DELAY_MS 1000
 
 static int consecutive_errors = 0;
+static bool psbt_initialized = false;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
     char result[64];
@@ -74,6 +76,62 @@ static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) 
     }
 }
 
+static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp) {
+    if (!psbt_initialized) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
+        return;
+    }
+    if (!req->psbt) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
+        return;
+    }
+
+    psbt_summary_t summary;
+    int ret = psbt_parse(req->psbt, &summary);
+    if (ret != 0) {
+        char err_msg[64];
+        snprintf(err_msg, sizeof(err_msg), "PSBT parse error: %d", ret);
+        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, err_msg);
+        return;
+    }
+
+    char result[256];
+    snprintf(result, sizeof(result),
+             "{\"inputs\":%zu,\"outputs\":%zu,\"total_in_sats\":%llu,\"total_out_sats\":%llu,\"fee_sats\":%llu}",
+             summary.input_count, summary.output_count,
+             (unsigned long long)summary.total_in_sats,
+             (unsigned long long)summary.total_out_sats,
+             (unsigned long long)summary.fee_sats);
+    protocol_success(resp, req->id, result);
+}
+
+static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) {
+    if (!psbt_initialized) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
+        return;
+    }
+    if (!req->psbt) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
+        return;
+    }
+
+    uint8_t sighash[32];
+    if (psbt_get_sighash(req->psbt, req->input_idx, sighash) != 0) {
+        protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");
+        return;
+    }
+
+    char hex[65];
+    for (int i = 0; i < 32; i++) {
+        snprintf(hex + i * 2, 3, "%02x", sighash[i]);
+    }
+    hex[64] = '\0';
+
+    char result[128];
+    snprintf(result, sizeof(result), "{\"input_idx\":%zu,\"sighash\":\"%s\"}", req->input_idx, hex);
+    protocol_success(resp, req->id, result);
+}
+
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
 
@@ -123,6 +181,12 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         case RPC_METHOD_DKG_FINALIZE:
             dkg_finalize(req, resp);
             break;
+        case RPC_METHOD_BITCOIN_PARSE:
+            handle_bitcoin_parse(req, resp);
+            break;
+        case RPC_METHOD_BITCOIN_SIGN:
+            handle_bitcoin_sign(req, resp);
+            break;
         default:
             protocol_error(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
     }
@@ -139,6 +203,14 @@ void app_main(void) {
     }
 
     frost_signer_init();
+
+    int psbt_ret = psbt_init();
+    if (psbt_ret != 0) {
+        ESP_LOGW(TAG, "PSBT init failed: %d", psbt_ret);
+    } else {
+        psbt_initialized = true;
+        ESP_LOGI(TAG, "PSBT support initialized");
+    }
 
     if (serial_init() != 0) {
         ESP_LOGE(TAG, "Serial init failed, restarting");
@@ -161,6 +233,7 @@ void app_main(void) {
             memset(&resp, 0, sizeof(resp));
             if (protocol_parse_request(line_buf, &req) == 0) {
                 handle_request(&req, &resp);
+                protocol_free_request(&req);
             } else {
                 protocol_error(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
             }
