@@ -1,9 +1,9 @@
 #include "storage.h"
+#include "hex_utils.h"
 #include "esp_partition.h"
 #include "esp_log.h"
 #include "crypto_asm.h"
 #include <string.h>
-#include <stdio.h>
 #include <ctype.h>
 
 #define TAG "storage"
@@ -24,26 +24,6 @@ static bool initialized = false;
 static uint8_t sector_buf[SECTOR_SIZE];
 static share_slot_t work_slot;
 
-static int hex_digit(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
-
-static int hex_to_bytes(const char *hex, unsigned char *out, size_t out_len) {
-    size_t hex_len = strlen(hex);
-    if (hex_len % 2 != 0 || hex_len / 2 > out_len) return -1;
-
-    for (size_t i = 0; i < hex_len / 2; i++) {
-        int hi = hex_digit(hex[2 * i]);
-        int lo = hex_digit(hex[2 * i + 1]);
-        if (hi < 0 || lo < 0) return -1;
-        out[i] = (unsigned char)((hi << 4) | lo);
-    }
-    return hex_len / 2;
-}
-
 static int validate_group_name(const char *group) {
     size_t len = strnlen(group, STORAGE_GROUP_LEN + 1);
     if (len == 0 || len > STORAGE_GROUP_LEN) return 0;
@@ -52,13 +32,6 @@ static int validate_group_name(const char *group) {
         if (!isalnum(c) && c != '_' && c != '-') return 0;
     }
     return 1;
-}
-
-static void bytes_to_hex(const unsigned char *bytes, size_t len, char *out) {
-    for (size_t i = 0; i < len; i++) {
-        sprintf(out + 2 * i, "%02x", bytes[i]);
-    }
-    out[len * 2] = '\0';
 }
 
 int storage_init(void) {
