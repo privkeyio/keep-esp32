@@ -205,12 +205,14 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
         return;
     }
 
-    peer->num_coefficients = (uint8_t)atoi(num_coeff_str + 18);
-    if (peer->num_coefficients > MAX_THRESHOLD) {
+    char *endptr;
+    long num_coeff_tmp = strtol(num_coeff_str + 18, &endptr, 10);
+    if (endptr == num_coeff_str + 18 || num_coeff_tmp <= 0 || num_coeff_tmp > MAX_THRESHOLD) {
         free(data);
-        PROTOCOL_ERROR(resp, req->id, -1, "Too many coefficients");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid num_coefficients");
         return;
     }
+    peer->num_coefficients = (uint8_t)num_coeff_tmp;
 
     char *coeffs_start = coeffs_str + 26;
     char *coeffs_end = strchr(coeffs_start, '"');

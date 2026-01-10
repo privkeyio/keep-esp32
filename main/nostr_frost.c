@@ -151,9 +151,17 @@ static int parse_tags(cJSON *tags, frost_group_t *group) {
         if (strcmp(name, "d") == 0) {
             hex_to_bytes(val, group->group_id, GROUP_ID_LEN);
         } else if (strcmp(name, "threshold") == 0) {
-            group->threshold = (uint8_t)atoi(val);
+            char *endptr;
+            long tmp = strtol(val, &endptr, 10);
+            if (endptr != val && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                group->threshold = (uint8_t)tmp;
+            }
         } else if (strcmp(name, "participants") == 0) {
-            group->participant_count = (uint8_t)atoi(val);
+            char *endptr;
+            long tmp = strtol(val, &endptr, 10);
+            if (endptr != val && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                group->participant_count = (uint8_t)tmp;
+            }
         } else if (strcmp(name, "relay") == 0) {
             if (group->relay_count < MAX_RELAYS) {
                 strncpy(group->relays[group->relay_count], val, RELAY_URL_LEN - 1);
@@ -184,7 +192,11 @@ static int parse_tags(cJSON *tags, frost_group_t *group) {
                 if (tag_size >= 4) {
                     cJSON *idx = cJSON_GetArrayItem(tag, 3);
                     if (cJSON_IsString(idx)) {
-                        p->index = (uint8_t)atoi(idx->valuestring);
+                        char *endptr;
+                        long tmp = strtol(idx->valuestring, &endptr, 10);
+                        if (endptr != idx->valuestring && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                            p->index = (uint8_t)tmp;
+                        }
                     }
                 }
                 if (p->index == 0) {

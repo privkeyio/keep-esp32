@@ -332,7 +332,11 @@ int frost_parse_sign_response(const char *event_json,
             if (strcmp(name, "request_id") == 0) {
                 hex_to_bytes(val, response->request_id, 32);
             } else if (strcmp(name, "participant_index") == 0) {
-                response->participant_index = (uint8_t)atoi(val);
+                char *endptr;
+                long tmp = strtol(val, &endptr, 10);
+                if (endptr != val && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                    response->participant_index = (uint8_t)tmp;
+                }
             } else if (strcmp(name, "status") == 0) {
                 if (strcmp(val, "signed") == 0) {
                     response->status = FROST_SIGN_STATUS_SIGNED;
