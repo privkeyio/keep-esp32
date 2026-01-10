@@ -191,7 +191,7 @@
       if (dialog && !dialog.dataset.patched) {
         dialog.dataset.patched = 'true';
         const check = setInterval(() => {
-          const btn = dialog.shadowRoot?.querySelector('ew-filled-button[slot="primaryAction"]');
+          const btn = dialog.shadowRoot?.querySelector('ew-text-button');
           if (btn?.textContent?.trim() === 'Next') {
             const text = dialog.shadowRoot?.textContent || '';
             if (text.includes('Installation complete')) {
