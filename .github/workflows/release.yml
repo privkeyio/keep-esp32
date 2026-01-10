@@ -84,11 +84,11 @@ jobs:
         run: |
           mkdir -p pages
           cp keep-esp32/docs/index.html pages/
-          sed 's/"version": "[^"]*"/"version": "${{ github.ref_name }}"/' keep-esp32/docs/manifest.json > pages/manifest.json
+          jq --arg v "${{ github.ref_name }}" '.version = $v' keep-esp32/docs/manifest.json > pages/manifest.json
           cp release/keep-merged.bin pages/
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: pages
 
