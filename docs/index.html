@@ -197,13 +197,13 @@
             if (text.includes('Installation complete')) {
               clearInterval(check);
               btn.textContent = 'Done';
-              btn.onclick = (e) => {
+              btn.addEventListener('click', (e) => {
                 e.preventDefault();
-                e.stopPropagation();
+                e.stopImmediatePropagation();
                 dialog.remove();
                 document.body.style.overflow = '';
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-              };
+              }, true);
             }
           }
         }, 300);
