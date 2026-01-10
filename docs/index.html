@@ -185,6 +185,30 @@
       installer.setAttribute('manifest', manifestUrl);
       requestAnimationFrame(() => installer.shadowRoot?.querySelector('button')?.click());
     });
+
+    new MutationObserver(() => {
+      const dialog = document.querySelector('ewt-install-dialog');
+      if (dialog && !dialog.dataset.patched) {
+        dialog.dataset.patched = 'true';
+        const check = setInterval(() => {
+          const btn = dialog.shadowRoot?.querySelector('ew-filled-button[slot="primaryAction"]');
+          if (btn?.textContent?.trim() === 'Next') {
+            const text = dialog.shadowRoot?.textContent || '';
+            if (text.includes('Installation complete')) {
+              clearInterval(check);
+              btn.textContent = 'Done';
+              btn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dialog.remove();
+                document.body.style.overflow = '';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              };
+            }
+          }
+        }, 300);
+      }
+    }).observe(document.body, { childList: true });
   </script>
 </body>
 </html>
