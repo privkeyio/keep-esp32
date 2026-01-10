@@ -133,7 +133,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="after-flashing">
     <h2>After Flashing</h2>
     <p>Use the <a href="https://github.com/privkeyio/keep">Keep CLI</a> to interact with your device:</p>
     <code>keep frost hardware ping --device &lt;PORT&gt;</code>
@@ -156,8 +156,17 @@
     const fileLabel = document.getElementById('file-label');
     const flashBtn = document.getElementById('flash-custom');
     const installer = document.getElementById('custom-installer');
+    const mainInstaller = document.querySelector('esp-web-install-button[manifest]');
     let blobUrl = null;
     let manifestUrl = null;
+
+    function onInstallFinished(e) {
+      if (e.detail?.state === 'finished') {
+        document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+    mainInstaller?.addEventListener('state-changed', onInstallFinished);
+    installer.addEventListener('state-changed', onInstallFinished);
 
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
