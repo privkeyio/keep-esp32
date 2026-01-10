@@ -25,7 +25,7 @@ ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com
 
 Flash firmware directly from your browser - no tools required:
 
-**https://privkeyio.github.io/keep-esp32/**
+**[Open Web Flasher](https://privkeyio.github.io/keep-esp32/)**
 
 Requires Chrome or Edge.
 

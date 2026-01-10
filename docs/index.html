@@ -50,6 +50,10 @@
     esp-web-install-button::part(button):hover {
       background: #2ea043;
     }
+    esp-web-install-button::part(button):focus-visible {
+      outline: 2px solid #58a6ff;
+      outline-offset: 2px;
+    }
     .warning {
       background: #0d1117;
       border-left: 3px solid #d29922;
@@ -84,7 +88,7 @@
   <div class="card">
     <h2>After Flashing</h2>
     <p>Use the <a href="https://github.com/privkeyio/keep">Keep CLI</a> to interact with your device:</p>
-    <code>keep frost hardware ping --device /dev/ttyUSB0</code>
+    <code>keep frost hardware ping --device /dev/ttyACM0</code>
   </div>
 
   <div class="footer">
@@ -92,6 +96,6 @@
     Hardware: ESP32-S3 with 8MB Flash
   </div>
 
-  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module" crossorigin="anonymous"></script>
 </body>
 </html>
