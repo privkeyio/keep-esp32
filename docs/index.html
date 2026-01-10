@@ -160,34 +160,24 @@
     let blobUrl = null;
     let manifestUrl = null;
 
-    let installSuccess = false;
-
-    function onStateChanged(e) {
-      if (e.detail?.state === 'finished') {
-        installSuccess = true;
-        setTimeout(() => {
-          const dialog = document.querySelector('ewt-install-dialog');
-          if (dialog) {
-            dialog.remove();
-            document.body.style.overflow = '';
+    const observer = new MutationObserver(() => {
+      const dialog = document.querySelector('ewt-install-dialog');
+      if (dialog && !dialog.dataset.watching) {
+        dialog.dataset.watching = 'true';
+        const checkComplete = setInterval(() => {
+          const text = dialog.shadowRoot?.textContent || '';
+          if (text.includes('Installation complete')) {
+            clearInterval(checkComplete);
+            setTimeout(() => {
+              dialog.remove();
+              document.body.style.overflow = '';
+              document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
+            }, 2500);
           }
-          document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
-          installSuccess = false;
-        }, 2500);
+        }, 500);
       }
-    }
-
-    function onDialogClosed() {
-      if (installSuccess) {
-        document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
-        installSuccess = false;
-      }
-    }
-
-    mainInstaller?.addEventListener('state-changed', onStateChanged);
-    installer.addEventListener('state-changed', onStateChanged);
-    mainInstaller?.addEventListener('closed', onDialogClosed);
-    installer.addEventListener('closed', onDialogClosed);
+    });
+    observer.observe(document.body, { childList: true });
 
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
