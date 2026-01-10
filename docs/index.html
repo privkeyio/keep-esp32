@@ -168,17 +168,15 @@
       flashBtn.disabled = false;
     });
 
-    flashBtn.addEventListener('click', async () => {
+    flashBtn.addEventListener('click', () => {
       if (!blobUrl) return;
       if (manifestUrl) URL.revokeObjectURL(manifestUrl);
       const manifest = {
         name: 'Custom Firmware',
         builds: [{ chipFamily: 'ESP32-S3', parts: [{ path: blobUrl, offset: 0 }] }]
       };
-      const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-      manifestUrl = URL.createObjectURL(manifestBlob);
+      manifestUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
       installer.setAttribute('manifest', manifestUrl);
-      await customElements.whenDefined('esp-web-install-button');
       requestAnimationFrame(() => installer.shadowRoot?.querySelector('button')?.click());
     });
   </script>
