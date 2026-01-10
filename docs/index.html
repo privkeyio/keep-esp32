@@ -160,13 +160,29 @@
     let blobUrl = null;
     let manifestUrl = null;
 
-    function onInstallFinished(e) {
+    let installSuccess = false;
+
+    function onStateChanged(e) {
       if (e.detail?.state === 'finished') {
-        document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
+        installSuccess = true;
+        setTimeout(() => {
+          const dialog = document.querySelector('ewt-install-dialog');
+          dialog?.shadowRoot?.querySelector('ew-dialog')?.close();
+        }, 2000);
       }
     }
-    mainInstaller?.addEventListener('state-changed', onInstallFinished);
-    installer.addEventListener('state-changed', onInstallFinished);
+
+    function onDialogClosed() {
+      if (installSuccess) {
+        document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
+        installSuccess = false;
+      }
+    }
+
+    mainInstaller?.addEventListener('state-changed', onStateChanged);
+    installer.addEventListener('state-changed', onStateChanged);
+    mainInstaller?.addEventListener('closed', onDialogClosed);
+    installer.addEventListener('closed', onDialogClosed);
 
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
