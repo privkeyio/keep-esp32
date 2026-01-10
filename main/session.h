@@ -17,6 +17,11 @@
 #define SIGNATURE_LEN 64
 #define SCALAR_LEN 32
 
+#define SESSION_ERR_INVALID_STATE   -1
+#define SESSION_ERR_NOT_PARTICIPANT -2
+#define SESSION_ERR_INVALID_LEN     -3
+#define SESSION_ERR_DUPLICATE       -4
+
 typedef struct {
     uint8_t session_id[SESSION_ID_LEN];
     uint8_t group_pubkey[33];

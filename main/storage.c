@@ -288,3 +288,10 @@ bool storage_has_share(const char *group) {
 
     return false;
 }
+
+void storage_cleanup(void) {
+    secure_memzero(sector_buf, sizeof(sector_buf));
+    secure_memzero(&work_slot, sizeof(work_slot));
+    initialized = false;
+    storage_partition = NULL;
+}

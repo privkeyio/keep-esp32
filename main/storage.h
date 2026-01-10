@@ -19,6 +19,7 @@
 #define STORAGE_ERR_DECRYPT -8
 
 int storage_init(void);
+void storage_cleanup(void);
 int storage_save_share(const char *group, const char *share_hex);
 int storage_load_share(const char *group, char *share_hex, size_t len);
 int storage_delete_share(const char *group);
