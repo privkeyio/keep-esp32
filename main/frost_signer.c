@@ -395,7 +395,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     s->session.participant_count = total_participants;
     s->session.state = SESSION_AWAITING_SHARES;
 
-    uint8_t sig_share[36];
+    uint8_t sig_share[SIG_SHARE_LEN];
     size_t sig_share_len = 0;
     if (frost_sign_share(&s->frost_state, &s->session, s->session.message, s->session.message_len,
                          sig_share, &sig_share_len) != 0) {
@@ -461,7 +461,7 @@ void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint
         return;
     }
 
-    uint8_t share_bytes[36];
+    uint8_t share_bytes[SIG_SHARE_LEN];
     int share_len = hex_to_bytes(sig_share_hex, share_bytes, sizeof(share_bytes));
     if (share_len < 0) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signature share hex");

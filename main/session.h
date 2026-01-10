@@ -14,6 +14,7 @@
 #define SESSION_ID_HEX_LEN 64
 #define COMMITMENT_LEN 132
 #define COMMITMENT_HEX_LEN 264
+#define SIG_SHARE_LEN 36
 #define SIGNATURE_LEN 64
 #define SCALAR_LEN 32
 
@@ -57,7 +58,7 @@ typedef struct {
     uint16_t commitment_indices[MAX_PARTICIPANTS];
     uint8_t commitment_count;
 
-    uint8_t sig_shares[MAX_PARTICIPANTS][SIGNATURE_LEN];
+    uint8_t sig_shares[MAX_PARTICIPANTS][SIG_SHARE_LEN];
     size_t sig_share_lens[MAX_PARTICIPANTS];
     uint16_t sig_share_indices[MAX_PARTICIPANTS];
     uint8_t sig_share_count;
