@@ -167,19 +167,12 @@
         installSuccess = true;
         setTimeout(() => {
           const dialog = document.querySelector('ewt-install-dialog');
-          if (!dialog) return;
-          if (typeof dialog._closeDialog === 'function') {
-            dialog._closeDialog();
-          } else {
-            const closeBtn = dialog.shadowRoot?.querySelector('ew-icon-button');
-            if (closeBtn) {
-              closeBtn.click();
-            } else {
-              dialog.remove();
-              document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
-              installSuccess = false;
-            }
+          if (dialog) {
+            dialog.remove();
+            document.body.style.overflow = '';
           }
+          document.getElementById('after-flashing').scrollIntoView({ behavior: 'smooth' });
+          installSuccess = false;
         }, 2500);
       }
     }
