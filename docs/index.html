@@ -65,6 +65,7 @@
     .footer { margin-top: 2rem; font-size: 0.85rem; color: #8b949e; }
     .hint { font-size: 0.85rem; color: #8b949e; margin-top: 0.75rem; }
     .divider { border-top: 1px solid #30363d; margin: 1.5rem 0; padding-top: 1rem; }
+    .divider .hint { margin-top: 0; }
     .custom-flash { display: flex; gap: 0.5rem; }
     .custom-flash input[type="file"] { display: none; }
     .custom-flash label, .custom-flash button {
@@ -115,7 +116,7 @@
     </esp-web-install-button>
 
     <div class="divider">
-      <p class="hint" style="margin-top: 0;">Or flash a custom firmware file:</p>
+      <p class="hint">Or flash a custom firmware file:</p>
       <div class="custom-flash">
         <label id="file-label">
           <input type="file" id="custom-file" accept=".bin" aria-label="Select firmware file">
@@ -153,6 +154,7 @@
     const flashBtn = document.getElementById('flash-custom');
     const installer = document.getElementById('custom-installer');
     let blobUrl = null;
+    let manifestUrl = null;
 
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -163,15 +165,18 @@
       flashBtn.disabled = false;
     });
 
-    flashBtn.addEventListener('click', () => {
+    flashBtn.addEventListener('click', async () => {
       if (!blobUrl) return;
+      if (manifestUrl) URL.revokeObjectURL(manifestUrl);
       const manifest = {
         name: 'Custom Firmware',
         builds: [{ chipFamily: 'ESP32-S3', parts: [{ path: blobUrl, offset: 0 }] }]
       };
       const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-      installer.setAttribute('manifest', URL.createObjectURL(manifestBlob));
-      requestAnimationFrame(() => installer.shadowRoot.querySelector('button')?.click());
+      manifestUrl = URL.createObjectURL(manifestBlob);
+      installer.setAttribute('manifest', manifestUrl);
+      await customElements.whenDefined('esp-web-install-button');
+      requestAnimationFrame(() => installer.shadowRoot?.querySelector('button')?.click());
     });
   </script>
 </body>
