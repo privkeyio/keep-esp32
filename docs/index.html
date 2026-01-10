@@ -191,20 +191,22 @@
       if (dialog && !dialog.dataset.patched) {
         dialog.dataset.patched = 'true';
         const check = setInterval(() => {
-          const btn = dialog.shadowRoot?.querySelector('ew-text-button');
-          if (btn?.textContent?.trim() === 'Next') {
-            const text = dialog.shadowRoot?.textContent || '';
-            if (text.includes('Installation complete')) {
-              clearInterval(check);
-              btn.textContent = 'Done';
-              btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                dialog.remove();
-                document.body.style.overflow = '';
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }, true);
-            }
+          const text = dialog.shadowRoot?.textContent || '';
+          if (text.includes('Installation complete')) {
+            const btns = dialog.shadowRoot?.querySelectorAll('ew-text-button, ew-filled-button, button');
+            btns?.forEach(btn => {
+              if (btn.textContent?.includes('Next')) {
+                clearInterval(check);
+                btn.textContent = 'Done';
+                btn.replaceWith(btn.cloneNode(true));
+                const newBtn = dialog.shadowRoot?.querySelector('ew-text-button, ew-filled-button, button');
+                newBtn?.addEventListener('click', () => {
+                  dialog.remove();
+                  document.body.style.overflow = '';
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                });
+              }
+            });
           }
         }, 300);
       }
