@@ -186,47 +186,41 @@
       requestAnimationFrame(() => installer.shadowRoot?.querySelector('button')?.click());
     });
 
-    function findInShadow(root, selector) {
-      let found = root.querySelector(selector);
+    function queryShadow(root, selector) {
+      const found = root.querySelector(selector);
       if (found) return found;
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          found = findInShadow(el.shadowRoot, selector);
-          if (found) return found;
+          const result = queryShadow(el.shadowRoot, selector);
+          if (result) return result;
         }
       }
       return null;
     }
 
-    function getTextFromShadow(root) {
-      let text = root.textContent || '';
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) text += getTextFromShadow(el.shadowRoot);
-      }
-      return text;
-    }
-
     new MutationObserver(() => {
       const dialog = document.querySelector('ewt-install-dialog');
-      if (dialog?.shadowRoot && !dialog.dataset.patched) {
-        dialog.dataset.patched = 'true';
-        const check = setInterval(() => {
-          const text = getTextFromShadow(dialog.shadowRoot);
-          if (text.includes('Installation complete')) {
-            const btn = findInShadow(dialog.shadowRoot, 'ew-text-button');
-            if (btn && btn.textContent?.includes('Next')) {
-              clearInterval(check);
-              btn.textContent = 'Done';
-              btn.style.pointerEvents = 'none';
-              btn.parentElement?.addEventListener('click', () => {
-                dialog.remove();
-                document.body.style.overflow = '';
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }, true);
-            }
-          }
-        }, 300);
-      }
+      if (!dialog?.shadowRoot || dialog.dataset.patched) return;
+      dialog.dataset.patched = 'true';
+      const check = setInterval(() => {
+        if (!document.contains(dialog)) {
+          clearInterval(check);
+          return;
+        }
+        const btn = queryShadow(dialog.shadowRoot, 'ew-text-button');
+        if (!btn?.textContent?.includes('Next')) return;
+        const text = queryShadow(dialog.shadowRoot, 'ewt-page-message')?.textContent || '';
+        if (!text.includes('Installation complete')) return;
+        clearInterval(check);
+        btn.textContent = 'Done';
+        const clone = btn.cloneNode(true);
+        clone.addEventListener('click', () => {
+          dialog.remove();
+          document.body.style.overflow = '';
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        btn.replaceWith(clone);
+      }, 300);
     }).observe(document.body, { childList: true });
   </script>
 </body>
