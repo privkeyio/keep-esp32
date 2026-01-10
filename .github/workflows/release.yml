@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p pages
           cp keep-esp32/docs/index.html pages/
-          jq --arg v "${{ github.ref_name }}" '.version = $v' keep-esp32/docs/manifest.json > pages/manifest.json
+          jq --arg v "${GITHUB_REF_NAME#v}" '.version = $v' keep-esp32/docs/manifest.json > pages/manifest.json
           cp release/keep-merged.bin pages/
 
       - name: Upload Pages artifact
