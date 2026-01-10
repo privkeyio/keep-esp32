@@ -64,6 +64,37 @@
     a { color: #58a6ff; }
     .footer { margin-top: 2rem; font-size: 0.85rem; color: #8b949e; }
     .hint { font-size: 0.85rem; color: #8b949e; margin-top: 0.75rem; }
+    .divider { border-top: 1px solid #30363d; margin: 1.5rem 0; padding-top: 1rem; }
+    .custom-flash { display: flex; gap: 0.5rem; }
+    .custom-flash input[type="file"] { display: none; }
+    .custom-flash label, .custom-flash button {
+      padding: 0.6rem 1rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      border: 1px solid #30363d;
+    }
+    .custom-flash label {
+      background: #21262d;
+      color: #c9d1d9;
+      flex: 1;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .custom-flash label:hover { background: #30363d; }
+    .custom-flash button {
+      background: #238636;
+      color: white;
+      border: none;
+    }
+    .custom-flash button:hover:not(:disabled) { background: #2ea043; }
+    .custom-flash button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .custom-flash button:focus-visible, .custom-flash label:focus-within {
+      outline: 2px solid #58a6ff;
+      outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
@@ -82,6 +113,19 @@
     <esp-web-install-button manifest="manifest.json">
       <button slot="activate" aria-label="Install firmware">Install Firmware</button>
     </esp-web-install-button>
+
+    <div class="divider">
+      <p class="hint" style="margin-top: 0;">Or flash a custom firmware file:</p>
+      <div class="custom-flash">
+        <label id="file-label">
+          <input type="file" id="custom-file" accept=".bin" aria-label="Select firmware file">
+          Choose .bin file
+        </label>
+        <button id="flash-custom" disabled aria-label="Flash selected firmware">Flash</button>
+      </div>
+    </div>
+
+    <esp-web-install-button id="custom-installer" style="display: none;"></esp-web-install-button>
 
     <div class="warning">
       Requires Chrome or Edge browser. Not supported on iOS.
@@ -103,5 +147,32 @@
   </div>
 
   <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module" integrity="sha384-GTdfFVaTqjGAB6rkiyDt7OE2P/4tWRRDDzhqSVp5vM5JUTFTvziwyu9AM+ImqOyw" crossorigin="anonymous"></script>
+  <script type="module">
+    const fileInput = document.getElementById('custom-file');
+    const fileLabel = document.getElementById('file-label');
+    const flashBtn = document.getElementById('flash-custom');
+    const installer = document.getElementById('custom-installer');
+    let blobUrl = null;
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      blobUrl = URL.createObjectURL(file);
+      fileLabel.textContent = file.name;
+      flashBtn.disabled = false;
+    });
+
+    flashBtn.addEventListener('click', () => {
+      if (!blobUrl) return;
+      const manifest = {
+        name: 'Custom Firmware',
+        builds: [{ chipFamily: 'ESP32-S3', parts: [{ path: blobUrl, offset: 0 }] }]
+      };
+      const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+      installer.setAttribute('manifest', URL.createObjectURL(manifestBlob));
+      requestAnimationFrame(() => installer.shadowRoot.querySelector('button')?.click());
+    });
+  </script>
 </body>
 </html>
