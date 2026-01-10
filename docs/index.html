@@ -186,27 +186,44 @@
       requestAnimationFrame(() => installer.shadowRoot?.querySelector('button')?.click());
     });
 
+    function findInShadow(root, selector) {
+      let found = root.querySelector(selector);
+      if (found) return found;
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          found = findInShadow(el.shadowRoot, selector);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    function getTextFromShadow(root) {
+      let text = root.textContent || '';
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) text += getTextFromShadow(el.shadowRoot);
+      }
+      return text;
+    }
+
     new MutationObserver(() => {
       const dialog = document.querySelector('ewt-install-dialog');
-      if (dialog && !dialog.dataset.patched) {
+      if (dialog?.shadowRoot && !dialog.dataset.patched) {
         dialog.dataset.patched = 'true';
         const check = setInterval(() => {
-          const text = dialog.shadowRoot?.textContent || '';
+          const text = getTextFromShadow(dialog.shadowRoot);
           if (text.includes('Installation complete')) {
-            const btns = dialog.shadowRoot?.querySelectorAll('ew-text-button, ew-filled-button, button');
-            btns?.forEach(btn => {
-              if (btn.textContent?.includes('Next')) {
-                clearInterval(check);
-                btn.textContent = 'Done';
-                btn.replaceWith(btn.cloneNode(true));
-                const newBtn = dialog.shadowRoot?.querySelector('ew-text-button, ew-filled-button, button');
-                newBtn?.addEventListener('click', () => {
-                  dialog.remove();
-                  document.body.style.overflow = '';
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                });
-              }
-            });
+            const btn = findInShadow(dialog.shadowRoot, 'ew-text-button');
+            if (btn && btn.textContent?.includes('Next')) {
+              clearInterval(check);
+              btn.textContent = 'Done';
+              btn.style.pointerEvents = 'none';
+              btn.parentElement?.addEventListener('click', () => {
+                dialog.remove();
+                document.body.style.overflow = '';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }, true);
+            }
           }
         }, 300);
       }
