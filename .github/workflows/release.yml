@@ -146,4 +146,4 @@ jobs:
               0x10000 keep.bin
             ```
 
-            Replace `/dev/ttyACM0` with your device's serial port (e.g., `COM3` on Windows, `/dev/tty.usbserial-*` on macOS).
+            Replace `/dev/ttyACM0` with your device's serial port (e.g., `COM3` on Windows, `/dev/cu.usbmodem*` on macOS).
