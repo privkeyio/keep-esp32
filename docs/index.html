@@ -37,7 +37,7 @@
       display: block;
       margin: 1.5rem 0;
     }
-    esp-web-install-button::part(button) {
+    esp-web-install-button button[slot="activate"] {
       background: #238636;
       color: white;
       border: none;
@@ -47,10 +47,10 @@
       cursor: pointer;
       width: 100%;
     }
-    esp-web-install-button::part(button):hover {
+    esp-web-install-button button[slot="activate"]:hover {
       background: #2ea043;
     }
-    esp-web-install-button::part(button):focus-visible {
+    esp-web-install-button button[slot="activate"]:focus-visible {
       outline: 2px solid #58a6ff;
       outline-offset: 2px;
     }
@@ -63,6 +63,7 @@
     }
     a { color: #58a6ff; }
     .footer { margin-top: 2rem; font-size: 0.85rem; color: #8b949e; }
+    .hint { font-size: 0.85rem; color: #8b949e; margin-top: 0.75rem; }
   </style>
 </head>
 <body>
@@ -91,7 +92,7 @@
     <h2>After Flashing</h2>
     <p>Use the <a href="https://github.com/privkeyio/keep">Keep CLI</a> to interact with your device:</p>
     <code>keep frost hardware ping --device &lt;PORT&gt;</code>
-    <p style="font-size: 0.85rem; color: #8b949e; margin-top: 0.75rem;">
+    <p class="hint">
       Device path: Linux <code>/dev/ttyACM0</code>, macOS <code>/dev/tty.usbmodem*</code>, Windows <code>COM3</code>
     </p>
   </div>

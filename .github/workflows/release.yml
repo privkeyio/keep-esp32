@@ -56,13 +56,12 @@ jobs:
       - name: Package release
         run: |
           mkdir -p release
-          sudo cp keep-esp32/build/keep.bin release/
-          sudo cp keep-esp32/build/bootloader/bootloader.bin release/
-          sudo cp keep-esp32/build/partition_table/partition-table.bin release/
-          sudo cp keep-esp32/build/ota_data_initial.bin release/
-          sudo cp keep-esp32/build/flash_args release/
+          cp keep-esp32/build/keep.bin release/
+          cp keep-esp32/build/bootloader/bootloader.bin release/
+          cp keep-esp32/build/partition_table/partition-table.bin release/
+          cp keep-esp32/build/ota_data_initial.bin release/
+          cp keep-esp32/build/flash_args release/
           cp keep-esp32/README.md release/
-          sudo chown -R $(id -u):$(id -g) release/
           cd release
           esptool --chip esp32s3 merge-bin \
             --flash-mode dio \
@@ -86,7 +85,7 @@ jobs:
           mkdir -p pages
           cp keep-esp32/docs/index.html pages/
           sed 's/"version": "[^"]*"/"version": "${{ github.ref_name }}"/' keep-esp32/docs/manifest.json > pages/manifest.json
-          cp release/frost-participant-merged.bin pages/
+          cp release/keep-merged.bin pages/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -126,20 +125,20 @@ jobs:
 
             Flash directly from your browser - no tools required:
 
-            **https://privkeyio.github.io/keep-esp32/**
+            **[Open Web Flasher](https://privkeyio.github.io/keep-esp32/)**
 
             ## Manual Flashing
 
             ### Quick Flash (Merged Binary)
             Flash the merged binary directly at address 0x0:
             ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 keep-merged.bin
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 keep-merged.bin
             ```
 
             ### Individual Binaries
             Or flash each binary separately:
             ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash \
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
               --flash-mode dio --flash-freq 80m --flash-size 8MB \
               0x0 bootloader.bin \
               0x8000 partition-table.bin \
@@ -147,4 +146,4 @@ jobs:
               0x10000 keep.bin
             ```
 
-            Replace `/dev/ttyUSB0` with your device's serial port (e.g., `COM3` on Windows, `/dev/tty.usbserial-*` on macOS).
+            Replace `/dev/ttyACM0` with your device's serial port (e.g., `COM3` on Windows, `/dev/tty.usbserial-*` on macOS).
