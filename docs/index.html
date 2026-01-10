@@ -78,7 +78,9 @@
       <li>Wait for flashing to complete</li>
     </ol>
 
-    <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate" aria-label="Install firmware">Install Firmware</button>
+    </esp-web-install-button>
 
     <div class="warning">
       Requires Chrome or Edge browser. Not supported on iOS.
@@ -88,7 +90,10 @@
   <div class="card">
     <h2>After Flashing</h2>
     <p>Use the <a href="https://github.com/privkeyio/keep">Keep CLI</a> to interact with your device:</p>
-    <code>keep frost hardware ping --device /dev/ttyACM0</code>
+    <code>keep frost hardware ping --device &lt;PORT&gt;</code>
+    <p style="font-size: 0.85rem; color: #8b949e; margin-top: 0.75rem;">
+      Device path: Linux <code>/dev/ttyACM0</code>, macOS <code>/dev/tty.usbmodem*</code>, Windows <code>COM3</code>
+    </p>
   </div>
 
   <div class="footer">
@@ -96,6 +101,6 @@
     Hardware: ESP32-S3 with 8MB Flash
   </div>
 
-  <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module" crossorigin="anonymous"></script>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module" integrity="sha384-GTdfFVaTqjGAB6rkiyDt7OE2P/4tWRRDDzhqSVp5vM5JUTFTvziwyu9AM+ImqOyw" crossorigin="anonymous"></script>
 </body>
 </html>
