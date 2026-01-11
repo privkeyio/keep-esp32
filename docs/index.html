@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keep FROST Signer - Web Flasher</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+      line-height: 1.6;
+    }
+    h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+    .subtitle { color: #8b949e; margin-bottom: 2rem; }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    h2 { color: #c9d1d9; font-size: 1.1rem; margin-top: 0; }
+    ol { padding-left: 1.25rem; }
+    li { margin-bottom: 0.5rem; }
+    code {
+      background: #0d1117;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    esp-web-install-button {
+      display: block;
+      margin: 1.5rem 0;
+    }
+    esp-web-install-button button[slot="activate"] {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      width: 100%;
+    }
+    esp-web-install-button button[slot="activate"]:hover {
+      background: #2ea043;
+    }
+    esp-web-install-button button[slot="activate"]:focus-visible {
+      outline: 2px solid #58a6ff;
+      outline-offset: 2px;
+    }
+    .warning {
+      background: #0d1117;
+      border-left: 3px solid #d29922;
+      padding: 0.75rem 1rem;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    a { color: #58a6ff; }
+    .footer { margin-top: 2rem; font-size: 0.85rem; color: #8b949e; }
+    .hint { font-size: 0.85rem; color: #8b949e; margin-top: 0.75rem; }
+    .divider { border-top: 1px solid #30363d; margin: 1.5rem 0; padding-top: 1rem; }
+    .divider .hint { margin-top: 0; }
+    .custom-flash { display: flex; gap: 0.5rem; }
+    .custom-flash input[type="file"] { display: none; }
+    .custom-flash label, .custom-flash button {
+      padding: 0.6rem 1rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      border: 1px solid #30363d;
+    }
+    .custom-flash label {
+      background: #21262d;
+      color: #c9d1d9;
+      flex: 1;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .custom-flash label:hover { background: #30363d; }
+    .custom-flash button {
+      background: #238636;
+      color: white;
+      border: none;
+    }
+    .custom-flash button:hover:not(:disabled) { background: #2ea043; }
+    .custom-flash button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .custom-flash button:focus-visible, .custom-flash label:focus-within {
+      outline: 2px solid #58a6ff;
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Keep FROST Signer</h1>
+  <p class="subtitle">Air-gapped threshold signing for ESP32-S3</p>
+
+  <div class="card">
+    <h2>Flash Firmware</h2>
+    <ol>
+      <li>Connect your ESP32-S3 via USB</li>
+      <li>Click the button below</li>
+      <li>Select your device's serial port</li>
+      <li>Wait for flashing to complete</li>
+    </ol>
+
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate" aria-label="Install firmware">Install Firmware</button>
+    </esp-web-install-button>
+
+    <div class="divider">
+      <p class="hint">Or flash a custom firmware file:</p>
+      <div class="custom-flash">
+        <label id="file-label">
+          <input type="file" id="custom-file" accept=".bin" aria-label="Select firmware file">
+          <span id="file-label-text">Choose .bin file</span>
+        </label>
+        <button id="flash-custom" disabled aria-label="Flash selected firmware">Flash</button>
+      </div>
+    </div>
+
+    <esp-web-install-button id="custom-installer" style="display: none;"></esp-web-install-button>
+
+    <div class="warning">
+      Requires Chrome or Edge browser. Not supported on iOS.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>After Flashing</h2>
+    <p>Use the <a href="https://github.com/privkeyio/keep">Keep CLI</a> to interact with your device:</p>
+    <code>keep frost hardware ping --device &lt;PORT&gt;</code>
+    <p class="hint">
+      Typical ports:<br>
+      Linux <code>/dev/ttyACM0</code><br>
+      macOS <code>/dev/cu.usbmodem*</code><br>
+      Windows <code>COM3</code>
+    </p>
+    <p class="hint">
+      To find your port:<br>
+      Linux <code>ls /dev/ttyACM*</code><br>
+      macOS <code>ls /dev/cu.usbmodem*</code><br>
+      Windows Device Manager → Ports
+    </p>
+  </div>
+
+  <div class="footer">
+    <a href="https://github.com/privkeyio/keep-esp32">GitHub</a> ·
+    Hardware: ESP32-S3 with 8MB Flash
+  </div>
+
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module" integrity="sha384-GTdfFVaTqjGAB6rkiyDt7OE2P/4tWRRDDzhqSVp5vM5JUTFTvziwyu9AM+ImqOyw" crossorigin="anonymous"></script>
+  <script type="module">
+    const fileInput = document.getElementById('custom-file');
+    const fileLabelText = document.getElementById('file-label-text');
+    const flashBtn = document.getElementById('flash-custom');
+    const installer = document.getElementById('custom-installer');
+    let blobUrl = null;
+    let manifestUrl = null;
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (manifestUrl) URL.revokeObjectURL(manifestUrl);
+      manifestUrl = null;
+      blobUrl = URL.createObjectURL(file);
+      fileLabelText.textContent = file.name;
+      flashBtn.disabled = false;
+    });
+
+    flashBtn.addEventListener('click', async () => {
+      if (!blobUrl) return;
+      fileInput.disabled = true;
+      flashBtn.disabled = true;
+      if (manifestUrl) URL.revokeObjectURL(manifestUrl);
+      const manifest = {
+        name: 'Custom Firmware',
+        builds: [{ chipFamily: 'ESP32-S3', parts: [{ path: blobUrl, offset: 0 }] }]
+      };
+      manifestUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
+      installer.setAttribute('manifest', manifestUrl);
+      await customElements.whenDefined('esp-web-install-button');
+      const activateBtn = installer.querySelector('button[slot="activate"]');
+      if (activateBtn) {
+        activateBtn.click();
+      } else {
+        installer.shadowRoot?.querySelector('button')?.click();
+      }
+    });
+
+    function queryShadow(root, selector) {
+      const found = root.querySelector(selector);
+      if (found) return found;
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const result = queryShadow(el.shadowRoot, selector);
+          if (result) return result;
+        }
+      }
+      return null;
+    }
+
+    const POLL_INTERVAL_MS = 300;
+    const POLL_TIMEOUT_MS = 60000;
+
+    const observer = new MutationObserver(() => {
+      const dialog = document.querySelector('ewt-install-dialog');
+      if (!dialog?.shadowRoot || dialog.dataset.patched) return;
+
+      dialog.dataset.patched = 'true';
+      const savedOverflow = document.body.style.overflow;
+
+      let pollInterval = null;
+      let pollTimeout = null;
+
+      function stopPolling() {
+        if (pollInterval) clearInterval(pollInterval);
+        if (pollTimeout) clearTimeout(pollTimeout);
+        pollInterval = null;
+        pollTimeout = null;
+      }
+
+      function restoreBodyOverflow() {
+        document.body.style.overflow = savedOverflow || '';
+      }
+
+      function enableCustomFlash() {
+        fileInput.disabled = false;
+        if (blobUrl) flashBtn.disabled = false;
+      }
+
+      pollTimeout = setTimeout(stopPolling, POLL_TIMEOUT_MS);
+
+      pollInterval = setInterval(() => {
+        if (!document.contains(dialog)) {
+          stopPolling();
+          restoreBodyOverflow();
+          enableCustomFlash();
+          return;
+        }
+
+        const btn = queryShadow(dialog.shadowRoot, 'ew-text-button');
+        const isNextButton = btn?.textContent?.includes('Next');
+        if (!isNextButton) return;
+
+        const messageEl = queryShadow(dialog.shadowRoot, 'ewt-page-message');
+        const isInstallComplete = messageEl?.textContent?.includes('Installation complete');
+        if (!isInstallComplete) return;
+
+        stopPolling();
+
+        btn.textContent = 'Done';
+        const clone = btn.cloneNode(true);
+        clone.addEventListener('click', () => {
+          dialog.remove();
+          restoreBodyOverflow();
+          enableCustomFlash();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        btn.replaceWith(clone);
+      }, POLL_INTERVAL_MS);
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  </script>
+</body>
+</html>

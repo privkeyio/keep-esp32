@@ -21,13 +21,23 @@ ESP32-S3 air-gapped FROST threshold signing device for [Keep](https://github.com
 
 ## Quick Start
 
-### 1. Install esptool
+### Web Flasher (Easiest)
+
+Flash firmware directly from your browser - no tools required:
+
+**[Open Web Flasher](https://privkeyio.github.io/keep-esp32/)**
+
+Requires Chrome or Edge.
+
+### Manual Flash
+
+#### 1. Install esptool
 
 ```bash
 pip install esptool
 ```
 
-### 2. Download and Flash
+#### 2. Download and Flash
 
 Download the latest `keep-merged.bin` from [Releases](https://github.com/privkeyio/keep-esp32/releases):
 
@@ -35,13 +45,13 @@ Download the latest `keep-merged.bin` from [Releases](https://github.com/privkey
 esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 keep-merged.bin
 ```
 
-### 3. Install Keep CLI
+#### 3. Install Keep CLI
 
 ```bash
 cargo install --git https://github.com/privkeyio/keep keep-cli
 ```
 
-### 4. Test Connection
+#### 4. Test Connection
 
 ```bash
 keep frost hardware ping --device /dev/ttyACM0

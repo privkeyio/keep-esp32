@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -79,6 +81,29 @@ jobs:
           name: keep-esp32-firmware
           path: keep-esp32-firmware-*.tar.gz
 
+      - name: Prepare Pages content
+        run: |
+          mkdir -p pages
+          cp keep-esp32/docs/index.html pages/
+          jq --arg v "${GITHUB_REF_NAME#v}" '.version = $v' keep-esp32/docs/manifest.json > pages/manifest.json
+          cp release/keep-merged.bin pages/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+  deploy-pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -97,18 +122,24 @@ jobs:
           files: artifacts/**/*
           generate_release_notes: true
           body: |
-            ## Flashing Instructions
+            ## Web Flasher (Easiest)
+
+            Flash directly from your browser - no tools required:
+
+            **[Open Web Flasher](https://privkeyio.github.io/keep-esp32/)**
+
+            ## Manual Flashing
 
             ### Quick Flash (Merged Binary)
             Flash the merged binary directly at address 0x0:
             ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 keep-merged.bin
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 keep-merged.bin
             ```
 
             ### Individual Binaries
             Or flash each binary separately:
             ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash \
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
               --flash-mode dio --flash-freq 80m --flash-size 8MB \
               0x0 bootloader.bin \
               0x8000 partition-table.bin \
@@ -116,4 +147,4 @@ jobs:
               0x10000 keep.bin
             ```
 
-            Replace `/dev/ttyUSB0` with your device's serial port (e.g., `COM3` on Windows, `/dev/tty.usbserial-*` on macOS).
+            Replace `/dev/ttyACM0` with your device's serial port (e.g., `COM3` on Windows, `/dev/cu.usbmodem*` on macOS).
