@@ -8,9 +8,13 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_mac.h"
+#include "esp_log.h"
 #else
 #include <stdio.h>
+#define ESP_LOGW(tag, ...) fprintf(stderr, "W (%s): ", tag); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n")
 #endif
+
+#define TAG "storage_crypto"
 
 #define DEVICE_ID_SIZE 6
 
@@ -26,14 +30,21 @@ static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {
     if (!fp) return 0;
 
     char buf[13] = {0};
-    if (fread(buf, 1, 12, fp) == 12) {
-        for (int i = 0; i < DEVICE_ID_SIZE; i++) {
-            unsigned int val;
-            sscanf(buf + i * 2, "%2x", &val);
-            device_id[i] = (uint8_t)val;
-        }
-    }
+    size_t bytes_read = fread(buf, 1, 12, fp);
     fclose(fp);
+
+    if (bytes_read < 12) {
+        return 0;
+    }
+
+    for (int i = 0; i < DEVICE_ID_SIZE; i++) {
+        unsigned int val = 0;
+        if (sscanf(buf + i * 2, "%2x", &val) != 1) {
+            memset(device_id, 0x42, DEVICE_ID_SIZE);
+            return 0;
+        }
+        device_id[i] = (uint8_t)val;
+    }
     return 0;
 #endif
 }
@@ -75,6 +86,10 @@ int storage_crypto_init(const char *pin) {
     if (pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
         secure_memzero(device_id, sizeof(device_id));
         return -1;
+    }
+
+    if (!pin || pin_len == 0) {
+        ESP_LOGW(TAG, "No PIN provided - using device-derived key only (not PIN-protected)");
     }
 
     int ret = derive_key(device_id, sizeof(device_id),
