@@ -51,7 +51,7 @@ int sign_event_json(cJSON *event, const uint8_t privkey[32]) {
     }
 
     char pubkey_hex[65];
-    bytes_to_hex(pub.data, 32, pubkey_hex);
+    bytes_to_hex(pub.data, 32, pubkey_hex, sizeof(pubkey_hex));
     cJSON_DeleteItemFromObject(event, "pubkey");
     cJSON_AddStringToObject(event, "pubkey", pubkey_hex);
 
@@ -66,7 +66,7 @@ int sign_event_json(cJSON *event, const uint8_t privkey[32]) {
     }
 
     char id_hex[65];
-    bytes_to_hex(id, 32, id_hex);
+    bytes_to_hex(id, 32, id_hex, sizeof(id_hex));
     cJSON_DeleteItemFromObject(event, "id");
     cJSON_AddStringToObject(event, "id", id_hex);
 
@@ -87,12 +87,12 @@ int sign_event_json(cJSON *event, const uint8_t privkey[32]) {
     secure_wipe(&priv, sizeof(priv));
 
     char sig_hex[129];
-    bytes_to_hex(ev->sig, 64, sig_hex);
+    bytes_to_hex(ev->sig, 64, sig_hex, sizeof(sig_hex));
     cJSON_DeleteItemFromObject(event, "sig");
     cJSON_AddStringToObject(event, "sig", sig_hex);
 
     char new_id_hex[65];
-    bytes_to_hex(ev->id, 32, new_id_hex);
+    bytes_to_hex(ev->id, 32, new_id_hex, sizeof(new_id_hex));
     cJSON_DeleteItemFromObject(event, "id");
     cJSON_AddStringToObject(event, "id", new_id_hex);
 
@@ -235,13 +235,13 @@ int frost_create_group_event(const frost_group_t *group,
     cJSON_AddNumberToObject(root, "kind", FROST_KIND_GROUP);
 
     char pubkey_hex[65];
-    bytes_to_hex(group->coordinator_npub, 32, pubkey_hex);
+    bytes_to_hex(group->coordinator_npub, 32, pubkey_hex, sizeof(pubkey_hex));
     cJSON_AddStringToObject(root, "pubkey", pubkey_hex);
 
     cJSON *tags = cJSON_AddArrayToObject(root, "tags");
 
     char id_hex[65];
-    bytes_to_hex(group->group_id, 32, id_hex);
+    bytes_to_hex(group->group_id, 32, id_hex, sizeof(id_hex));
     cJSON *d_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(d_tag, cJSON_CreateString("d"));
     cJSON_AddItemToArray(d_tag, cJSON_CreateString(id_hex));
@@ -266,7 +266,7 @@ int frost_create_group_event(const frost_group_t *group,
         cJSON *ptag = cJSON_CreateArray();
         cJSON_AddItemToArray(ptag, cJSON_CreateString("p"));
         char npub_hex[65];
-        bytes_to_hex(part->npub, 32, npub_hex);
+        bytes_to_hex(part->npub, 32, npub_hex, sizeof(npub_hex));
         cJSON_AddItemToArray(ptag, cJSON_CreateString(npub_hex));
         cJSON_AddItemToArray(ptag, cJSON_CreateString(part->relay_hint));
         char idx_str[8];
@@ -286,7 +286,7 @@ int frost_create_group_event(const frost_group_t *group,
         cJSON *ntag = cJSON_CreateArray();
         cJSON_AddItemToArray(ntag, cJSON_CreateString("notification_pubkey"));
         char npk_hex[65];
-        bytes_to_hex(group->notification_pubkey, 32, npk_hex);
+        bytes_to_hex(group->notification_pubkey, 32, npk_hex, sizeof(npk_hex));
         cJSON_AddItemToArray(ntag, cJSON_CreateString(npk_hex));
         cJSON_AddItemToArray(tags, ntag);
     }

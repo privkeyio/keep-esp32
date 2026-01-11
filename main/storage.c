@@ -125,7 +125,7 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
                 secure_memzero(&slot, sizeof(slot));
                 return -1;
             }
-            bytes_to_hex(slot.share_data, slot.share_len, share_hex);
+            bytes_to_hex(slot.share_data, slot.share_len, share_hex, len);
             secure_memzero(&slot, sizeof(slot));
             return 0;
         }

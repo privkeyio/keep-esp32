@@ -88,7 +88,7 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
     char coeffs_hex[MAX_THRESHOLD * 129];
     size_t offset = 0;
     for (uint8_t i = 0; i < g_session.our_round1.num_coefficients && i < MAX_THRESHOLD; i++) {
-        bytes_to_hex(g_session.our_round1.coefficient_commitments[i], 64, coeffs_hex + offset);
+        bytes_to_hex(g_session.our_round1.coefficient_commitments[i], 64, coeffs_hex + offset, sizeof(coeffs_hex) - offset);
         offset += 128;
         if (i < g_session.our_round1.num_coefficients - 1) {
             coeffs_hex[offset++] = ',';
@@ -97,8 +97,8 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
     coeffs_hex[offset] = '\0';
 
     char zkp_r_hex[129], zkp_z_hex[65];
-    bytes_to_hex(g_session.our_round1.zkp_r, 64, zkp_r_hex);
-    bytes_to_hex(g_session.our_round1.zkp_z, 32, zkp_z_hex);
+    bytes_to_hex(g_session.our_round1.zkp_r, 64, zkp_r_hex, sizeof(zkp_r_hex));
+    bytes_to_hex(g_session.our_round1.zkp_z, 32, zkp_z_hex, sizeof(zkp_z_hex));
 
     snprintf(result, sizeof(result),
              "{\"participant_index\":%d,\"num_coefficients\":%d,"
@@ -224,7 +224,7 @@ void dkg_round2(const rpc_request_t *req, rpc_response_t *resp) {
         if (i + 1 == g_session.our_index) continue;
 
         char share_hex[65];
-        bytes_to_hex(g_session.secret_shares[i], 32, share_hex);
+        bytes_to_hex(g_session.secret_shares[i], 32, share_hex, sizeof(share_hex));
 
         if (offset > 12) {
             offset += snprintf(result + offset, sizeof(result) - offset, ",");
@@ -321,7 +321,7 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     char share_hex[65];
-    bytes_to_hex(final_share, 32, share_hex);
+    bytes_to_hex(final_share, 32, share_hex, sizeof(share_hex));
 
     if (storage_save_share(g_session.group, share_hex) != 0) {
         protocol_error(resp, req->id, -1, "Failed to store share");
@@ -329,7 +329,7 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     char pubkey_hex[67];
-    bytes_to_hex(group_pubkey, 33, pubkey_hex);
+    bytes_to_hex(group_pubkey, 33, pubkey_hex, sizeof(pubkey_hex));
 
     secure_memzero(final_share, sizeof(final_share));
     secure_memzero(share_hex, sizeof(share_hex));

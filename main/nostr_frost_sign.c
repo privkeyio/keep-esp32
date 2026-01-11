@@ -121,7 +121,7 @@ int frost_create_sign_request(const frost_group_t *group,
     cJSON *tags = cJSON_AddArrayToObject(root, "tags");
 
     char gid_hex[65];
-    bytes_to_hex(request->group_id, 32, gid_hex);
+    bytes_to_hex(request->group_id, 32, gid_hex, sizeof(gid_hex));
     cJSON *e_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(e_tag, cJSON_CreateString("e"));
     cJSON_AddItemToArray(e_tag, cJSON_CreateString(gid_hex));
@@ -133,13 +133,13 @@ int frost_create_sign_request(const frost_group_t *group,
         cJSON *p_tag = cJSON_CreateArray();
         cJSON_AddItemToArray(p_tag, cJSON_CreateString("p"));
         char npub_hex[65];
-        bytes_to_hex(group->participants[i].npub, 32, npub_hex);
+        bytes_to_hex(group->participants[i].npub, 32, npub_hex, sizeof(npub_hex));
         cJSON_AddItemToArray(p_tag, cJSON_CreateString(npub_hex));
         cJSON_AddItemToArray(tags, p_tag);
     }
 
     char rid_hex[65];
-    bytes_to_hex(request->request_id, 32, rid_hex);
+    bytes_to_hex(request->request_id, 32, rid_hex, sizeof(rid_hex));
     cJSON *rid_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(rid_tag, cJSON_CreateString("request_id"));
     cJSON_AddItemToArray(rid_tag, cJSON_CreateString(rid_hex));
@@ -158,7 +158,7 @@ int frost_create_sign_request(const frost_group_t *group,
 
     if (request->has_policy) {
         char ph_hex[65];
-        bytes_to_hex(request->policy_hash, 32, ph_hex);
+        bytes_to_hex(request->policy_hash, 32, ph_hex, sizeof(ph_hex));
         cJSON *ph_tag = cJSON_CreateArray();
         cJSON_AddItemToArray(ph_tag, cJSON_CreateString("policy_hash"));
         cJSON_AddItemToArray(ph_tag, cJSON_CreateString(ph_hex));
@@ -171,7 +171,7 @@ int frost_create_sign_request(const frost_group_t *group,
     if (request->payload && request->payload_len > 0) {
         char *payload_hex = malloc(request->payload_len * 2 + 1);
         if (payload_hex) {
-            bytes_to_hex(request->payload, request->payload_len, payload_hex);
+            bytes_to_hex(request->payload, request->payload_len, payload_hex, request->payload_len * 2 + 1);
             cJSON_AddStringToObject(content_obj, "payload", payload_hex);
             free(payload_hex);
         }
@@ -222,7 +222,7 @@ int frost_create_sign_response(const frost_group_t *group,
     cJSON *tags = cJSON_AddArrayToObject(root, "tags");
 
     char gid_hex[65];
-    bytes_to_hex(group->group_id, 32, gid_hex);
+    bytes_to_hex(group->group_id, 32, gid_hex, sizeof(gid_hex));
     cJSON *e_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(e_tag, cJSON_CreateString("e"));
     cJSON_AddItemToArray(e_tag, cJSON_CreateString(gid_hex));
@@ -231,7 +231,7 @@ int frost_create_sign_response(const frost_group_t *group,
     cJSON_AddItemToArray(tags, e_tag);
 
     char rid_hex[65];
-    bytes_to_hex(response->request_id, 32, rid_hex);
+    bytes_to_hex(response->request_id, 32, rid_hex, sizeof(rid_hex));
     cJSON *rid_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(rid_tag, cJSON_CreateString("request_id"));
     cJSON_AddItemToArray(rid_tag, cJSON_CreateString(rid_hex));
@@ -263,10 +263,10 @@ int frost_create_sign_response(const frost_group_t *group,
 
     if (response->status == FROST_SIGN_STATUS_SIGNED) {
         char sig_hex[65];
-        bytes_to_hex(response->partial_signature, 32, sig_hex);
+        bytes_to_hex(response->partial_signature, 32, sig_hex, sizeof(sig_hex));
         cJSON_AddStringToObject(content_obj, "partial_signature", sig_hex);
         char nc_hex[67];
-        bytes_to_hex(response->nonce_commitment, 33, nc_hex);
+        bytes_to_hex(response->nonce_commitment, 33, nc_hex, sizeof(nc_hex));
         cJSON_AddStringToObject(content_obj, "nonce_commitment", nc_hex);
     } else if (response->status == FROST_SIGN_STATUS_REJECTED) {
         cJSON_AddStringToObject(content_obj, "status", "rejected");

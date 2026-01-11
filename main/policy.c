@@ -202,10 +202,10 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     char policy_hash_hex[65];
-    bytes_to_hex(bundle.policy_hash, POLICY_HASH_LEN, policy_hash_hex);
+    bytes_to_hex(bundle.policy_hash, POLICY_HASH_LEN, policy_hash_hex, sizeof(policy_hash_hex));
 
     char warden_pubkey_hex[65];
-    bytes_to_hex(bundle.warden_pubkey, POLICY_PUBKEY_LEN, warden_pubkey_hex);
+    bytes_to_hex(bundle.warden_pubkey, POLICY_PUBKEY_LEN, warden_pubkey_hex, sizeof(warden_pubkey_hex));
 
     char result[512];
     int written = snprintf(result, sizeof(result),

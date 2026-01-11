@@ -21,9 +21,11 @@ int hex_to_bytes(const char *hex, uint8_t *out, size_t out_len) {
     return (int)(hex_len / 2);
 }
 
-void bytes_to_hex(const uint8_t *bytes, size_t len, char *out) {
+int bytes_to_hex(const uint8_t *bytes, size_t len, char *out, size_t out_len) {
+    if (out_len < len * 2 + 1) return -1;
     for (size_t i = 0; i < len; i++) {
         sprintf(out + 2 * i, "%02x", bytes[i]);
     }
     out[len * 2] = '\0';
+    return 0;
 }
