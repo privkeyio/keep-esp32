@@ -3,7 +3,10 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <nostr.h>
 
-int secure_random_fill(uint8_t *buf, size_t len);
+static inline int secure_random_fill(uint8_t *buf, size_t len) {
+    return nostr_random_bytes(buf, len) == 1 ? 0 : -1;
+}
 
 #endif
