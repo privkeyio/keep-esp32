@@ -76,3 +76,21 @@ jobs:
           ./test_session
           ./test_storage
           [ ! -f ./test_protocol ] || ./test_protocol
+
+  docs:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+
+      - name: Generate documentation
+        run: doxygen Doxyfile
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/html
