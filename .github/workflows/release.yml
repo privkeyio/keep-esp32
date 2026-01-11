@@ -56,12 +56,13 @@ jobs:
       - name: Package release
         run: |
           mkdir -p release
-          cp keep-esp32/build/keep.bin release/
-          cp keep-esp32/build/bootloader/bootloader.bin release/
-          cp keep-esp32/build/partition_table/partition-table.bin release/
-          cp keep-esp32/build/ota_data_initial.bin release/
-          cp keep-esp32/build/flash_args release/
+          sudo cp keep-esp32/build/keep.bin release/
+          sudo cp keep-esp32/build/bootloader/bootloader.bin release/
+          sudo cp keep-esp32/build/partition_table/partition-table.bin release/
+          sudo cp keep-esp32/build/ota_data_initial.bin release/
+          sudo cp keep-esp32/build/flash_args release/
           cp keep-esp32/README.md release/
+          sudo chown -R $(id -u):$(id -g) release/
           cd release
           esptool --chip esp32s3 merge-bin \
             --flash-mode dio \
@@ -88,7 +89,7 @@ jobs:
           cp release/keep-merged.bin pages/
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           path: pages
 

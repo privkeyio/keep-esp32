@@ -169,6 +169,8 @@
       const file = e.target.files[0];
       if (!file) return;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (manifestUrl) URL.revokeObjectURL(manifestUrl);
+      manifestUrl = null;
       blobUrl = URL.createObjectURL(file);
       fileLabelText.textContent = file.name;
       flashBtn.disabled = false;
@@ -176,6 +178,8 @@
 
     flashBtn.addEventListener('click', async () => {
       if (!blobUrl) return;
+      fileInput.disabled = true;
+      flashBtn.disabled = true;
       if (manifestUrl) URL.revokeObjectURL(manifestUrl);
       const manifest = {
         name: 'Custom Firmware',
@@ -204,51 +208,67 @@
       return null;
     }
 
-    let savedOverflow = null;
+    const POLL_INTERVAL_MS = 300;
+    const POLL_TIMEOUT_MS = 60000;
+
     const observer = new MutationObserver(() => {
       const dialog = document.querySelector('ewt-install-dialog');
       if (!dialog?.shadowRoot || dialog.dataset.patched) return;
+
       dialog.dataset.patched = 'true';
-      savedOverflow = document.body.style.overflow;
+      const savedOverflow = document.body.style.overflow;
 
-      let check = null;
-      let timeout = null;
+      let pollInterval = null;
+      let pollTimeout = null;
 
-      const cleanup = () => {
-        if (check) clearInterval(check);
-        if (timeout) clearTimeout(timeout);
-        check = null;
-        timeout = null;
-      };
+      function stopPolling() {
+        if (pollInterval) clearInterval(pollInterval);
+        if (pollTimeout) clearTimeout(pollTimeout);
+        pollInterval = null;
+        pollTimeout = null;
+      }
 
-      timeout = setTimeout(() => {
-        cleanup();
-        observer.disconnect();
-      }, 60000);
+      function restoreBodyOverflow() {
+        document.body.style.overflow = savedOverflow || '';
+      }
 
-      check = setInterval(() => {
+      function enableCustomFlash() {
+        fileInput.disabled = false;
+        if (blobUrl) flashBtn.disabled = false;
+      }
+
+      pollTimeout = setTimeout(stopPolling, POLL_TIMEOUT_MS);
+
+      pollInterval = setInterval(() => {
         if (!document.contains(dialog)) {
-          cleanup();
-          document.body.style.overflow = savedOverflow ?? '';
-          observer.disconnect();
+          stopPolling();
+          restoreBodyOverflow();
+          enableCustomFlash();
           return;
         }
+
         const btn = queryShadow(dialog.shadowRoot, 'ew-text-button');
-        if (!btn?.textContent?.includes('Next')) return;
-        const text = queryShadow(dialog.shadowRoot, 'ewt-page-message')?.textContent || '';
-        if (!text.includes('Installation complete')) return;
-        cleanup();
+        const isNextButton = btn?.textContent?.includes('Next');
+        if (!isNextButton) return;
+
+        const messageEl = queryShadow(dialog.shadowRoot, 'ewt-page-message');
+        const isInstallComplete = messageEl?.textContent?.includes('Installation complete');
+        if (!isInstallComplete) return;
+
+        stopPolling();
+
         btn.textContent = 'Done';
         const clone = btn.cloneNode(true);
         clone.addEventListener('click', () => {
           dialog.remove();
-          document.body.style.overflow = savedOverflow ?? '';
+          restoreBodyOverflow();
+          enableCustomFlash();
           window.scrollTo({ top: 0, behavior: 'smooth' });
-          observer.disconnect();
         });
         btn.replaceWith(clone);
-      }, 300);
+      }, POLL_INTERVAL_MS);
     });
+
     observer.observe(document.body, { childList: true, subtree: true });
   </script>
 </body>
