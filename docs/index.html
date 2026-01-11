@@ -120,7 +120,7 @@
       <div class="custom-flash">
         <label id="file-label">
           <input type="file" id="custom-file" accept=".bin" aria-label="Select firmware file">
-          Choose .bin file
+          <span id="file-label-text">Choose .bin file</span>
         </label>
         <button id="flash-custom" disabled aria-label="Flash selected firmware">Flash</button>
       </div>
@@ -159,7 +159,7 @@
   <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module" integrity="sha384-GTdfFVaTqjGAB6rkiyDt7OE2P/4tWRRDDzhqSVp5vM5JUTFTvziwyu9AM+ImqOyw" crossorigin="anonymous"></script>
   <script type="module">
     const fileInput = document.getElementById('custom-file');
-    const fileLabel = document.getElementById('file-label');
+    const fileLabelText = document.getElementById('file-label-text');
     const flashBtn = document.getElementById('flash-custom');
     const installer = document.getElementById('custom-installer');
     let blobUrl = null;
@@ -170,11 +170,11 @@
       if (!file) return;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
       blobUrl = URL.createObjectURL(file);
-      fileLabel.textContent = file.name;
+      fileLabelText.textContent = file.name;
       flashBtn.disabled = false;
     });
 
-    flashBtn.addEventListener('click', () => {
+    flashBtn.addEventListener('click', async () => {
       if (!blobUrl) return;
       if (manifestUrl) URL.revokeObjectURL(manifestUrl);
       const manifest = {
@@ -183,7 +183,13 @@
       };
       manifestUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
       installer.setAttribute('manifest', manifestUrl);
-      requestAnimationFrame(() => installer.shadowRoot?.querySelector('button')?.click());
+      await customElements.whenDefined('esp-web-install-button');
+      const activateBtn = installer.querySelector('button[slot="activate"]');
+      if (activateBtn) {
+        activateBtn.click();
+      } else {
+        installer.shadowRoot?.querySelector('button')?.click();
+      }
     });
 
     function queryShadow(root, selector) {
@@ -198,30 +204,51 @@
       return null;
     }
 
-    new MutationObserver(() => {
+    let savedOverflow = null;
+    const observer = new MutationObserver(() => {
       const dialog = document.querySelector('ewt-install-dialog');
       if (!dialog?.shadowRoot || dialog.dataset.patched) return;
       dialog.dataset.patched = 'true';
-      const check = setInterval(() => {
+      savedOverflow = document.body.style.overflow;
+
+      let check = null;
+      let timeout = null;
+
+      const cleanup = () => {
+        if (check) clearInterval(check);
+        if (timeout) clearTimeout(timeout);
+        check = null;
+        timeout = null;
+      };
+
+      timeout = setTimeout(() => {
+        cleanup();
+        observer.disconnect();
+      }, 60000);
+
+      check = setInterval(() => {
         if (!document.contains(dialog)) {
-          clearInterval(check);
+          cleanup();
+          observer.disconnect();
           return;
         }
         const btn = queryShadow(dialog.shadowRoot, 'ew-text-button');
         if (!btn?.textContent?.includes('Next')) return;
         const text = queryShadow(dialog.shadowRoot, 'ewt-page-message')?.textContent || '';
         if (!text.includes('Installation complete')) return;
-        clearInterval(check);
+        cleanup();
         btn.textContent = 'Done';
         const clone = btn.cloneNode(true);
         clone.addEventListener('click', () => {
           dialog.remove();
-          document.body.style.overflow = '';
+          document.body.style.overflow = savedOverflow ?? '';
           window.scrollTo({ top: 0, behavior: 'smooth' });
+          observer.disconnect();
         });
         btn.replaceWith(clone);
       }, 300);
-    }).observe(document.body, { childList: true });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   </script>
 </body>
 </html>
