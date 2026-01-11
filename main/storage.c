@@ -1,4 +1,5 @@
 #include "storage.h"
+#include "storage_crypto.h"
 #include "hex_utils.h"
 #include "esp_partition.h"
 #include "esp_log.h"
@@ -11,18 +12,31 @@
 #define MAX_SHARES 8
 #define SHARE_SLOT_SIZE 512
 #define SECTOR_SIZE 4096
+#define ENCRYPTED_FLAG 0x8000
 
 typedef struct {
     char group[STORAGE_GROUP_LEN + 1];
     uint16_t share_len;
     uint8_t share_data[STORAGE_SHARE_LEN];
-    uint8_t reserved[189];
+    uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE];
+    uint8_t tag[STORAGE_CRYPTO_TAG_SIZE];
+    uint8_t reserved[161];
 } __attribute__((packed)) share_slot_t;
 
 static const esp_partition_t *storage_partition = NULL;
 static bool initialized = false;
 static uint8_t sector_buf[SECTOR_SIZE];
 static share_slot_t work_slot;
+
+static bool slot_is_empty(const share_slot_t *slot) {
+    uint16_t len = slot->share_len & ~ENCRYPTED_FLAG;
+    return slot->share_len == 0xFFFF || (unsigned char)slot->group[0] == 0xFF || len == 0;
+}
+
+static bool slot_is_valid(const share_slot_t *slot) {
+    uint16_t len = slot->share_len & ~ENCRYPTED_FLAG;
+    return !slot_is_empty(slot) && len <= STORAGE_SHARE_LEN;
+}
 
 static int validate_group_name(const char *group) {
     size_t len = strnlen(group, STORAGE_GROUP_LEN + 1);
@@ -52,6 +66,7 @@ int storage_init(void) {
 int storage_save_share(const char *group, const char *share_hex) {
     if (!initialized) return -1;
     if (!validate_group_name(group)) return -1;
+    if (!storage_crypto_is_initialized()) return -1;
 
     unsigned char share_bytes[STORAGE_SHARE_LEN];
     int share_len = hex_to_bytes(share_hex, share_bytes, sizeof(share_bytes));
@@ -60,26 +75,26 @@ int storage_save_share(const char *group, const char *share_hex) {
         return -1;
     }
 
-    int free_slot = -1;
+    int target_slot = -1;
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        memset(&slot, 0xFF, sizeof(slot));
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK) continue;
-        if (strcmp(slot.group, group) == 0) {
-            free_slot = i;
+        slot.group[STORAGE_GROUP_LEN] = '\0';
+        if (slot_is_valid(&slot) && strcmp(slot.group, group) == 0) {
+            target_slot = i;
             break;
         }
-        if (free_slot < 0 && (slot.share_len == 0 || slot.share_len == 0xFFFF || (unsigned char)slot.group[0] == 0xFF)) {
-            free_slot = i;
+        if (target_slot < 0 && slot_is_empty(&slot)) {
+            target_slot = i;
         }
     }
-    if (free_slot < 0) {
+    if (target_slot < 0) {
         secure_memzero(share_bytes, sizeof(share_bytes));
         return -1;
     }
 
-    size_t sector_offset = (free_slot * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
+    size_t sector_offset = (target_slot * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
     esp_err_t err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
     if (err != ESP_OK) {
         secure_memzero(share_bytes, sizeof(share_bytes));
@@ -89,11 +104,20 @@ int storage_save_share(const char *group, const char *share_hex) {
     memset(&work_slot, 0, sizeof(work_slot));
     strncpy(work_slot.group, group, STORAGE_GROUP_LEN);
     work_slot.group[STORAGE_GROUP_LEN] = '\0';
-    work_slot.share_len = (uint16_t)share_len;
-    memcpy(work_slot.share_data, share_bytes, share_len);
+
+    uint8_t encrypted[STORAGE_SHARE_LEN];
+    if (storage_crypto_encrypt(share_bytes, share_len, work_slot.nonce, encrypted, work_slot.tag) != 0) {
+        secure_memzero(share_bytes, sizeof(share_bytes));
+        secure_memzero(&work_slot, sizeof(work_slot));
+        return -1;
+    }
     secure_memzero(share_bytes, sizeof(share_bytes));
 
-    size_t slot_offset_in_sector = (free_slot * SHARE_SLOT_SIZE) % SECTOR_SIZE;
+    work_slot.share_len = (uint16_t)share_len | ENCRYPTED_FLAG;
+    memcpy(work_slot.share_data, encrypted, share_len);
+    secure_memzero(encrypted, sizeof(encrypted));
+
+    size_t slot_offset_in_sector = (target_slot * SHARE_SLOT_SIZE) % SECTOR_SIZE;
     memcpy(sector_buf + slot_offset_in_sector, &work_slot, sizeof(work_slot));
     secure_memzero(&work_slot, sizeof(work_slot));
 
@@ -110,26 +134,37 @@ int storage_save_share(const char *group, const char *share_hex) {
 
 int storage_load_share(const char *group, char *share_hex, size_t len) {
     if (!initialized) return -1;
+    if (!storage_crypto_is_initialized()) return -1;
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK || slot.share_len == 0 || slot.share_len == 0xFFFF) {
+        if (err != ESP_OK || !slot_is_valid(&slot)) continue;
+
+        slot.group[STORAGE_GROUP_LEN] = '\0';
+        if (strcmp(slot.group, group) != 0) continue;
+
+        uint16_t actual_len = slot.share_len & ~ENCRYPTED_FLAG;
+        if (actual_len * 2 + 1 > len) {
+            ESP_LOGE(TAG, "Output buffer too small");
             secure_memzero(&slot, sizeof(slot));
-            continue;
+            return -1;
         }
 
-        if (strcmp(slot.group, group) == 0) {
-            if (slot.share_len * 2 + 1 > len) {
-                ESP_LOGE(TAG, "Output buffer too small");
+        if (slot.share_len & ENCRYPTED_FLAG) {
+            uint8_t decrypted[STORAGE_SHARE_LEN];
+            if (storage_crypto_decrypt(slot.share_data, actual_len, slot.nonce, slot.tag, decrypted) != 0) {
+                ESP_LOGE(TAG, "Share decryption failed - tampered or wrong PIN");
                 secure_memzero(&slot, sizeof(slot));
                 return -1;
             }
-            bytes_to_hex(slot.share_data, slot.share_len, share_hex);
-            secure_memzero(&slot, sizeof(slot));
-            return 0;
+            bytes_to_hex(decrypted, actual_len, share_hex);
+            secure_memzero(decrypted, sizeof(decrypted));
+        } else {
+            bytes_to_hex(slot.share_data, actual_len, share_hex);
         }
         secure_memzero(&slot, sizeof(slot));
+        return 0;
     }
 
     return -1;
@@ -141,38 +176,33 @@ int storage_delete_share(const char *group) {
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK || slot.share_len == 0 || slot.share_len == 0xFFFF) {
-            secure_memzero(&slot, sizeof(slot));
-            continue;
-        }
+        if (err != ESP_OK || !slot_is_valid(&slot)) continue;
 
-        if (strcmp(slot.group, group) == 0) {
-            secure_memzero(&slot, sizeof(slot));
-            size_t sector_offset = (i * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
-            err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
-            if (err != ESP_OK) {
-                secure_memzero(sector_buf, SECTOR_SIZE);
-                return -1;
-            }
+        slot.group[STORAGE_GROUP_LEN] = '\0';
+        if (strcmp(slot.group, group) != 0) continue;
 
-            size_t slot_offset_in_sector = (i * SHARE_SLOT_SIZE) % SECTOR_SIZE;
-            memset(sector_buf + slot_offset_in_sector, 0xFF, sizeof(share_slot_t));
-
-            err = esp_partition_erase_range(storage_partition, sector_offset, SECTOR_SIZE);
-            if (err != ESP_OK) {
-                secure_memzero(sector_buf, SECTOR_SIZE);
-                return -1;
-            }
-
-            err = esp_partition_write(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
+        size_t sector_offset = (i * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
+        err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
+        if (err != ESP_OK) {
             secure_memzero(sector_buf, SECTOR_SIZE);
-            if (err == ESP_OK) {
-                ESP_LOGI(TAG, "Deleted share for group %.16s...", group);
-                return 0;
-            }
             return -1;
         }
-        secure_memzero(&slot, sizeof(slot));
+
+        size_t slot_offset_in_sector = (i * SHARE_SLOT_SIZE) % SECTOR_SIZE;
+        memset(sector_buf + slot_offset_in_sector, 0xFF, sizeof(share_slot_t));
+
+        err = esp_partition_erase_range(storage_partition, sector_offset, SECTOR_SIZE);
+        if (err != ESP_OK) {
+            secure_memzero(sector_buf, SECTOR_SIZE);
+            return -1;
+        }
+
+        err = esp_partition_write(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
+        secure_memzero(sector_buf, SECTOR_SIZE);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Deleted share for group %.16s...", group);
+        }
+        return err == ESP_OK ? 0 : -1;
     }
 
     return -1;
@@ -187,14 +217,11 @@ int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
     for (int i = 0; i < MAX_SHARES && count < max_groups; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK || slot.share_len == 0 || slot.share_len == 0xFFFF || (unsigned char)slot.group[0] == 0xFF) {
-            secure_memzero(&slot, sizeof(slot));
+        if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
-
         strncpy(groups[count], slot.group, STORAGE_GROUP_LEN);
         groups[count][STORAGE_GROUP_LEN] = '\0';
-        secure_memzero(&slot, sizeof(slot));
         count++;
     }
 
@@ -207,16 +234,13 @@ bool storage_has_share(const char *group) {
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK || slot.share_len == 0 || slot.share_len == 0xFFFF) {
-            secure_memzero(&slot, sizeof(slot));
+        if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
-
+        slot.group[STORAGE_GROUP_LEN] = '\0';
         if (strcmp(slot.group, group) == 0) {
-            secure_memzero(&slot, sizeof(slot));
             return true;
         }
-        secure_memzero(&slot, sizeof(slot));
     }
 
     return false;

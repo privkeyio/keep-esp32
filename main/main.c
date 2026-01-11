@@ -8,6 +8,7 @@
 #include "protocol.h"
 #include "serial.h"
 #include "storage.h"
+#include "storage_crypto.h"
 #include "frost_signer.h"
 #include "frost_dkg.h"
 #include "psbt.h"
@@ -151,8 +152,6 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
 
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
-
-    // Clean up expired sessions before handling request
     frost_signer_cleanup_stale();
 
     switch (req->method) {
@@ -223,6 +222,10 @@ void app_main(void) {
 
     if (storage_init() != 0) {
         ESP_LOGW(TAG, "Storage init failed, continuing without storage");
+    }
+
+    if (storage_crypto_init(NULL) != 0) {
+        ESP_LOGW(TAG, "Storage crypto init failed");
     }
 
     if (policy_init() != 0) {
