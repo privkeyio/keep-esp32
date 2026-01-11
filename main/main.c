@@ -64,29 +64,42 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
 
 static void handle_import_share(const rpc_request_t *req, rpc_response_t *resp) {
     int ret = storage_save_share(req->group, req->share);
-    if (ret == STORAGE_OK) {
+
+    switch (ret) {
+    case STORAGE_OK:
         protocol_success(resp, req->id, "{\"ok\":true}");
-    } else if (ret == STORAGE_ERR_CRYPTO_NOT_INIT) {
+        break;
+    case STORAGE_ERR_CRYPTO_NOT_INIT:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage crypto not initialized");
-    } else if (ret == STORAGE_ERR_INVALID_GROUP) {
+        break;
+    case STORAGE_ERR_INVALID_GROUP:
         protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
-    } else if (ret == STORAGE_ERR_INVALID_DATA) {
+        break;
+    case STORAGE_ERR_INVALID_DATA:
         protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid share data");
-    } else if (ret == STORAGE_ERR_NO_SLOT) {
+        break;
+    case STORAGE_ERR_NO_SLOT:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "No free storage slot");
-    } else {
+        break;
+    default:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        break;
     }
 }
 
 static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) {
     int ret = storage_delete_share(req->group);
-    if (ret == STORAGE_OK) {
+
+    switch (ret) {
+    case STORAGE_OK:
         protocol_success(resp, req->id, "{\"ok\":true}");
-    } else if (ret == STORAGE_ERR_NOT_FOUND) {
+        break;
+    case STORAGE_ERR_NOT_FOUND:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
-    } else {
+        break;
+    default:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        break;
     }
 }
 

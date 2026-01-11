@@ -1,8 +1,9 @@
 #ifndef STORAGE_CRYPTO_H
 #define STORAGE_CRYPTO_H
 
-#include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define STORAGE_CRYPTO_KEY_SIZE 32
 #define STORAGE_CRYPTO_NONCE_SIZE 12
@@ -10,7 +11,7 @@
 #define STORAGE_CRYPTO_MAX_PIN_LEN 64
 
 int storage_crypto_init(const char *pin);
-int storage_crypto_is_initialized(void);
+bool storage_crypto_is_initialized(void);
 void storage_crypto_clear(void);
 
 int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len,

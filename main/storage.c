@@ -28,24 +28,32 @@ static bool initialized = false;
 static uint8_t sector_buf[SECTOR_SIZE];
 static share_slot_t work_slot;
 
+static uint16_t slot_data_len(const share_slot_t *slot) {
+    return slot->share_len & ~ENCRYPTED_FLAG;
+}
+
 static bool slot_is_empty(const share_slot_t *slot) {
-    uint16_t len = slot->share_len & ~ENCRYPTED_FLAG;
-    return slot->share_len == 0xFFFF || (unsigned char)slot->group[0] == 0xFF || len == 0;
+    return slot->share_len == 0xFFFF ||
+           (unsigned char)slot->group[0] == 0xFF ||
+           slot_data_len(slot) == 0;
 }
 
 static bool slot_is_valid(const share_slot_t *slot) {
-    uint16_t len = slot->share_len & ~ENCRYPTED_FLAG;
-    return !slot_is_empty(slot) && len <= STORAGE_SHARE_LEN;
+    return !slot_is_empty(slot) && slot_data_len(slot) <= STORAGE_SHARE_LEN;
 }
 
-static int validate_group_name(const char *group) {
+static bool validate_group_name(const char *group) {
     size_t len = strnlen(group, STORAGE_GROUP_LEN + 1);
-    if (len == 0 || len > STORAGE_GROUP_LEN) return 0;
+    if (len == 0 || len > STORAGE_GROUP_LEN) {
+        return false;
+    }
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)group[i];
-        if (!isalnum(c) && c != '_' && c != '-') return 0;
+        if (!isalnum(c) && c != '_' && c != '-') {
+            return false;
+        }
     }
-    return 1;
+    return true;
 }
 
 int storage_init(void) {
@@ -63,10 +71,23 @@ int storage_init(void) {
     return 0;
 }
 
+static void null_terminate_group(share_slot_t *slot) {
+    slot->group[STORAGE_GROUP_LEN] = '\0';
+}
+
 int storage_save_share(const char *group, const char *share_hex) {
-    if (!initialized) return STORAGE_ERR_NOT_INIT;
-    if (!validate_group_name(group)) return STORAGE_ERR_INVALID_GROUP;
-    if (!storage_crypto_is_initialized()) return STORAGE_ERR_CRYPTO_NOT_INIT;
+    if (!initialized) {
+        return STORAGE_ERR_NOT_INIT;
+    }
+    if (!validate_group_name(group)) {
+        return STORAGE_ERR_INVALID_GROUP;
+    }
+    if (!share_hex) {
+        return STORAGE_ERR_INVALID_DATA;
+    }
+    if (!storage_crypto_is_initialized()) {
+        return STORAGE_ERR_CRYPTO_NOT_INIT;
+    }
 
     unsigned char share_bytes[STORAGE_SHARE_LEN];
     int share_len = hex_to_bytes(share_hex, share_bytes, sizeof(share_bytes));
@@ -79,8 +100,10 @@ int storage_save_share(const char *group, const char *share_hex) {
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK) continue;
-        slot.group[STORAGE_GROUP_LEN] = '\0';
+        if (err != ESP_OK) {
+            continue;
+        }
+        null_terminate_group(&slot);
         if (slot_is_valid(&slot) && strcmp(slot.group, group) == 0) {
             target_slot = i;
             break;
@@ -89,6 +112,7 @@ int storage_save_share(const char *group, const char *share_hex) {
             target_slot = i;
         }
     }
+
     if (target_slot < 0) {
         secure_memzero(share_bytes, sizeof(share_bytes));
         return STORAGE_ERR_NO_SLOT;
@@ -133,18 +157,26 @@ int storage_save_share(const char *group, const char *share_hex) {
 }
 
 int storage_load_share(const char *group, char *share_hex, size_t len) {
-    if (!initialized) return STORAGE_ERR_NOT_INIT;
-    if (!storage_crypto_is_initialized()) return STORAGE_ERR_CRYPTO_NOT_INIT;
+    if (!initialized) {
+        return STORAGE_ERR_NOT_INIT;
+    }
+    if (!storage_crypto_is_initialized()) {
+        return STORAGE_ERR_CRYPTO_NOT_INIT;
+    }
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK || !slot_is_valid(&slot)) continue;
+        if (err != ESP_OK || !slot_is_valid(&slot)) {
+            continue;
+        }
 
-        slot.group[STORAGE_GROUP_LEN] = '\0';
-        if (strcmp(slot.group, group) != 0) continue;
+        null_terminate_group(&slot);
+        if (strcmp(slot.group, group) != 0) {
+            continue;
+        }
 
-        uint16_t actual_len = slot.share_len & ~ENCRYPTED_FLAG;
+        uint16_t actual_len = slot_data_len(&slot);
         if (actual_len * 2 + 1 > len) {
             ESP_LOGE(TAG, "Output buffer too small");
             secure_memzero(&slot, sizeof(slot));
@@ -171,15 +203,21 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
 }
 
 int storage_delete_share(const char *group) {
-    if (!initialized) return STORAGE_ERR_NOT_INIT;
+    if (!initialized) {
+        return STORAGE_ERR_NOT_INIT;
+    }
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
-        if (err != ESP_OK || !slot_is_valid(&slot)) continue;
+        if (err != ESP_OK || !slot_is_valid(&slot)) {
+            continue;
+        }
 
-        slot.group[STORAGE_GROUP_LEN] = '\0';
-        if (strcmp(slot.group, group) != 0) continue;
+        null_terminate_group(&slot);
+        if (strcmp(slot.group, group) != 0) {
+            continue;
+        }
 
         size_t sector_offset = (i * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
         err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
@@ -211,7 +249,9 @@ int storage_delete_share(const char *group) {
 _Static_assert(sizeof(share_slot_t) == SHARE_SLOT_SIZE, "share_slot_t must equal SHARE_SLOT_SIZE");
 
 int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
-    if (!initialized) return -1;
+    if (!initialized) {
+        return -1;
+    }
 
     int count = 0;
     for (int i = 0; i < MAX_SHARES && count < max_groups; i++) {
@@ -220,6 +260,7 @@ int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
+        null_terminate_group(&slot);
         strncpy(groups[count], slot.group, STORAGE_GROUP_LEN);
         groups[count][STORAGE_GROUP_LEN] = '\0';
         count++;
@@ -229,7 +270,9 @@ int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
 }
 
 bool storage_has_share(const char *group) {
-    if (!initialized) return false;
+    if (!initialized) {
+        return false;
+    }
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
@@ -237,7 +280,7 @@ bool storage_has_share(const char *group) {
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
-        slot.group[STORAGE_GROUP_LEN] = '\0';
+        null_terminate_group(&slot);
         if (strcmp(slot.group, group) == 0) {
             return true;
         }
