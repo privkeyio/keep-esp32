@@ -25,8 +25,9 @@ static int consecutive_errors = 0;
 static bool psbt_initialized = false;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
-    char result[64];
-    snprintf(result, sizeof(result), "{\"version\":\"%s\"}", VERSION);
+    char result[96];
+    snprintf(result, sizeof(result), "{\"pong\":true,\"version\":\"%s\",\"protocol_version\":%d}",
+             VERSION, PROTOCOL_API_VERSION);
     protocol_success(resp, req->id, result);
 }
 
