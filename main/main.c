@@ -8,6 +8,7 @@
 #include "protocol.h"
 #include "serial.h"
 #include "storage.h"
+#include "storage_crypto.h"
 #include "frost_signer.h"
 #include "frost_dkg.h"
 #include "psbt.h"
@@ -62,18 +63,43 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 static void handle_import_share(const rpc_request_t *req, rpc_response_t *resp) {
-    if (storage_save_share(req->group, req->share) == 0) {
+    int ret = storage_save_share(req->group, req->share);
+
+    switch (ret) {
+    case STORAGE_OK:
         protocol_success(resp, req->id, "{\"ok\":true}");
-    } else {
+        break;
+    case STORAGE_ERR_CRYPTO_NOT_INIT:
+        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage crypto not initialized");
+        break;
+    case STORAGE_ERR_INVALID_GROUP:
+        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
+        break;
+    case STORAGE_ERR_INVALID_DATA:
+        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid share data");
+        break;
+    case STORAGE_ERR_NO_SLOT:
+        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "No free storage slot");
+        break;
+    default:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        break;
     }
 }
 
 static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) {
-    if (storage_delete_share(req->group) == 0) {
+    int ret = storage_delete_share(req->group);
+
+    switch (ret) {
+    case STORAGE_OK:
         protocol_success(resp, req->id, "{\"ok\":true}");
-    } else {
+        break;
+    case STORAGE_ERR_NOT_FOUND:
+        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
+        break;
+    default:
         protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        break;
     }
 }
 
@@ -151,8 +177,6 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
 
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
-
-    // Clean up expired sessions before handling request
     frost_signer_cleanup_stale();
 
     switch (req->method) {
@@ -223,6 +247,10 @@ void app_main(void) {
 
     if (storage_init() != 0) {
         ESP_LOGW(TAG, "Storage init failed, continuing without storage");
+    }
+
+    if (storage_crypto_init(NULL) != 0) {
+        ESP_LOGE(TAG, "Storage crypto init failed - share storage operations will be unavailable");
     }
 
     if (policy_init() != 0) {

@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c" "protocol.c" "serial.c" "storage.c" "frost_signer.c" "frost.c" "session.c"
+    SRCS "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c" "frost_signer.c" "frost.c" "session.c"
          "nostr_frost.c" "nostr_frost_sign.c" "nostr_frost_dkg_events.c" "nostr_frost_nip46.c"
          "frost_crypto_ops.c" "frost_coordinator.c" "frost_dkg.c" "psbt.c" "policy.c"
          "hex_utils.c" "random_utils.c"
