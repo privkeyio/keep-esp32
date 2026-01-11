@@ -32,3 +32,14 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
 else()
     message(STATUS "Skipping test_protocol (cJSON not found)")
 endif()
+
+add_executable(test_storage test_storage.c)
+target_include_directories(test_storage PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
+target_compile_definitions(test_storage PRIVATE NATIVE_TEST=1)
+
+add_executable(test_session test_session.c)
+target_include_directories(test_session PRIVATE ${MAIN_DIR})
+target_compile_definitions(test_session PRIVATE NATIVE_TEST=1)
