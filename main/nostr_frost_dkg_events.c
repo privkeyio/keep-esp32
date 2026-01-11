@@ -18,7 +18,7 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
     cJSON *tags = cJSON_AddArrayToObject(root, "tags");
 
     char gid_hex[65];
-    bytes_to_hex(round1->group_id, 32, gid_hex);
+    bytes_to_hex(round1->group_id, 32, gid_hex, sizeof(gid_hex));
     cJSON *e_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(e_tag, cJSON_CreateString("e"));
     cJSON_AddItemToArray(e_tag, cJSON_CreateString(gid_hex));
@@ -30,7 +30,7 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
         cJSON *p_tag = cJSON_CreateArray();
         cJSON_AddItemToArray(p_tag, cJSON_CreateString("p"));
         char npub_hex[65];
-        bytes_to_hex(group->participants[i].npub, 32, npub_hex);
+        bytes_to_hex(group->participants[i].npub, 32, npub_hex, sizeof(npub_hex));
         cJSON_AddItemToArray(p_tag, cJSON_CreateString(npub_hex));
         cJSON_AddItemToArray(tags, p_tag);
     }
@@ -47,14 +47,14 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
     cJSON *coeffs = cJSON_AddArrayToObject(content_obj, "coefficient_commitments");
     for (uint8_t i = 0; i < round1->num_coefficients; i++) {
         char coeff_hex[129];
-        bytes_to_hex(round1->coefficient_commitments[i], 64, coeff_hex);
+        bytes_to_hex(round1->coefficient_commitments[i], 64, coeff_hex, sizeof(coeff_hex));
         cJSON_AddItemToArray(coeffs, cJSON_CreateString(coeff_hex));
     }
     char zkp_r_hex[129];
-    bytes_to_hex(round1->zkp_r, 64, zkp_r_hex);
+    bytes_to_hex(round1->zkp_r, 64, zkp_r_hex, sizeof(zkp_r_hex));
     cJSON_AddStringToObject(content_obj, "zkp_r", zkp_r_hex);
     char zkp_z_hex[65];
-    bytes_to_hex(round1->zkp_z, 32, zkp_z_hex);
+    bytes_to_hex(round1->zkp_z, 32, zkp_z_hex, sizeof(zkp_z_hex));
     cJSON_AddStringToObject(content_obj, "zkp_z", zkp_z_hex);
 
     char *content_str = cJSON_PrintUnformatted(content_obj);
@@ -185,7 +185,7 @@ int frost_create_dkg_round2_event(const frost_group_t *group,
     cJSON *tags = cJSON_AddArrayToObject(root, "tags");
 
     char gid_hex[65];
-    bytes_to_hex(round2->group_id, 32, gid_hex);
+    bytes_to_hex(round2->group_id, 32, gid_hex, sizeof(gid_hex));
     cJSON *e_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(e_tag, cJSON_CreateString("e"));
     cJSON_AddItemToArray(e_tag, cJSON_CreateString(gid_hex));
@@ -196,7 +196,7 @@ int frost_create_dkg_round2_event(const frost_group_t *group,
     cJSON *p_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(p_tag, cJSON_CreateString("p"));
     char recip_hex[65];
-    bytes_to_hex(recipient_pubkey, 32, recip_hex);
+    bytes_to_hex(recipient_pubkey, 32, recip_hex, sizeof(recip_hex));
     cJSON_AddItemToArray(p_tag, cJSON_CreateString(recip_hex));
     cJSON_AddItemToArray(tags, p_tag);
 
@@ -216,7 +216,7 @@ int frost_create_dkg_round2_event(const frost_group_t *group,
 
     cJSON *content_obj = cJSON_CreateObject();
     char share_hex[97];
-    bytes_to_hex(round2->encrypted_share, 48, share_hex);
+    bytes_to_hex(round2->encrypted_share, 48, share_hex, sizeof(share_hex));
     cJSON_AddStringToObject(content_obj, "share", share_hex);
     cJSON_AddNumberToObject(content_obj, "sender_index", round2->sender_index);
     cJSON_AddNumberToObject(content_obj, "recipient_index", round2->recipient_index);

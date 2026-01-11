@@ -14,6 +14,7 @@
 #include "psbt.h"
 #include "policy.h"
 #include "random_utils.h"
+#include "hex_utils.h"
 
 #define TAG "main"
 #define VERSION "0.1.2"
@@ -166,10 +167,7 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
     }
 
     char hex[65];
-    for (int i = 0; i < 32; i++) {
-        snprintf(hex + i * 2, 3, "%02x", sighash[i]);
-    }
-    hex[64] = '\0';
+    bytes_to_hex(sighash, 32, hex, sizeof(hex));
 
     char result[128];
     snprintf(result, sizeof(result), "{\"input_idx\":%zu,\"sighash\":\"%s\"}", req->input_idx, hex);
