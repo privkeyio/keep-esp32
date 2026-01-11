@@ -35,19 +35,19 @@ static dkg_session_t g_session;
 
 void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
     if (req->threshold < 2 || req->threshold > DKG_MAX_THRESHOLD) {
-        protocol_error(resp, req->id, -1, "Invalid threshold");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid threshold");
         return;
     }
     if (req->participant_count < req->threshold || req->participant_count > DKG_MAX_PARTICIPANTS) {
-        protocol_error(resp, req->id, -1, "Invalid participant count");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid participant count");
         return;
     }
     if (req->our_index < 1 || req->our_index > req->participant_count) {
-        protocol_error(resp, req->id, -1, "Invalid our_index");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid our_index");
         return;
     }
     if (strlen(req->group) == 0) {
-        protocol_error(resp, req->id, -1, "Group required");
+        PROTOCOL_ERROR(resp, req->id, -1, "Group required");
         return;
     }
 
@@ -66,7 +66,7 @@ void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
 
 void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
     if (!g_session.active) {
-        protocol_error(resp, req->id, -1, "No active DKG session");
+        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
         return;
     }
 
@@ -80,7 +80,7 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
                                          (uint8_t*)g_session.secret_shares,
                                          &g_session.secret_share_count);
     if (ret != 0) {
-        protocol_error(resp, req->id, -1, "Round 1 generation failed");
+        PROTOCOL_ERROR(resp, req->id, -1, "Round 1 generation failed");
         return;
     }
 
@@ -113,25 +113,25 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
 
 void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     if (!g_session.active) {
-        protocol_error(resp, req->id, -1, "No active DKG session");
+        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
         return;
     }
     if (g_session.peer_round1_count >= DKG_MAX_PARTICIPANTS) {
-        protocol_error(resp, req->id, -1, "Too many peer round1 entries");
+        PROTOCOL_ERROR(resp, req->id, -1, "Too many peer round1 entries");
         return;
     }
     if (req->peer_index < 1 || req->peer_index > g_session.participant_count) {
-        protocol_error(resp, req->id, -1, "Invalid peer_index");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid peer_index");
         return;
     }
     for (uint8_t i = 0; i < g_session.peer_round1_count; i++) {
         if (g_session.peer_round1[i].participant_index == req->peer_index) {
-            protocol_error(resp, req->id, -1, "Duplicate peer_index");
+            PROTOCOL_ERROR(resp, req->id, -1, "Duplicate peer_index");
             return;
         }
     }
     if (strlen(req->dkg_data) == 0) {
-        protocol_error(resp, req->id, -1, "dkg_data required");
+        PROTOCOL_ERROR(resp, req->id, -1, "dkg_data required");
         return;
     }
 
@@ -141,7 +141,7 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
 
     char *data = strdup(req->dkg_data);
     if (!data) {
-        protocol_error(resp, req->id, -1, "Memory error");
+        PROTOCOL_ERROR(resp, req->id, -1, "Memory error");
         return;
     }
 
@@ -152,20 +152,24 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
 
     if (!num_coeff_str || !coeffs_str || !zkp_r_str || !zkp_z_str) {
         free(data);
-        protocol_error(resp, req->id, -1, "Malformed dkg_data");
+        PROTOCOL_ERROR(resp, req->id, -1, "Malformed dkg_data");
         return;
     }
 
     peer->num_coefficients = (uint8_t)atoi(num_coeff_str + 18);
     if (peer->num_coefficients > MAX_THRESHOLD) {
         free(data);
-        protocol_error(resp, req->id, -1, "Too many coefficients");
+        PROTOCOL_ERROR(resp, req->id, -1, "Too many coefficients");
         return;
     }
 
     char *coeffs_start = coeffs_str + 26;
     char *coeffs_end = strchr(coeffs_start, '"');
-    if (!coeffs_end) { free(data); protocol_error(resp, req->id, -1, "Parse error"); return; }
+    if (!coeffs_end) {
+        free(data);
+        PROTOCOL_ERROR(resp, req->id, -1, "Parse error");
+        return;
+    }
     *coeffs_end = '\0';
 
     size_t coeffs_len = strlen(coeffs_start);
@@ -196,7 +200,7 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
 
     int ret = frost_dkg_round1_validate(peer);
     if (ret != 0) {
-        protocol_error(resp, req->id, -1, "Round 1 validation failed");
+        PROTOCOL_ERROR(resp, req->id, -1, "Round 1 validation failed");
         return;
     }
 
@@ -208,11 +212,11 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
 
 void dkg_round2(const rpc_request_t *req, rpc_response_t *resp) {
     if (!g_session.active) {
-        protocol_error(resp, req->id, -1, "No active DKG session");
+        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
         return;
     }
     if (g_session.secret_share_count == 0) {
-        protocol_error(resp, req->id, -1, "Round 1 not completed");
+        PROTOCOL_ERROR(resp, req->id, -1, "Round 1 not completed");
         return;
     }
 
@@ -241,25 +245,25 @@ void dkg_round2(const rpc_request_t *req, rpc_response_t *resp) {
 
 void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp) {
     if (!g_session.active) {
-        protocol_error(resp, req->id, -1, "No active DKG session");
+        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
         return;
     }
     if (g_session.received_share_count >= DKG_MAX_PARTICIPANTS) {
-        protocol_error(resp, req->id, -1, "Too many received shares");
+        PROTOCOL_ERROR(resp, req->id, -1, "Too many received shares");
         return;
     }
     if (req->peer_index < 1 || req->peer_index > g_session.participant_count) {
-        protocol_error(resp, req->id, -1, "Invalid peer_index");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid peer_index");
         return;
     }
     for (uint8_t i = 0; i < g_session.received_share_count; i++) {
         if (g_session.received_shares[i].generator_index == req->peer_index) {
-            protocol_error(resp, req->id, -1, "Duplicate share from peer");
+            PROTOCOL_ERROR(resp, req->id, -1, "Duplicate share from peer");
             return;
         }
     }
     if (strlen(req->share) != 64) {
-        protocol_error(resp, req->id, -1, "Invalid share length");
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid share length");
         return;
     }
 
@@ -276,7 +280,7 @@ void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp) {
 
 void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     if (!g_session.active) {
-        protocol_error(resp, req->id, -1, "No active DKG session");
+        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
         return;
     }
 
@@ -316,7 +320,7 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     if (ret != 0) {
         char err[64];
         snprintf(err, sizeof(err), "DKG finalize failed: %d", ret);
-        protocol_error(resp, req->id, -1, err);
+        PROTOCOL_ERROR(resp, req->id, -1, err);
         return;
     }
 
@@ -324,7 +328,7 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     bytes_to_hex(final_share, 32, share_hex);
 
     if (storage_save_share(g_session.group, share_hex) != 0) {
-        protocol_error(resp, req->id, -1, "Failed to store share");
+        PROTOCOL_ERROR(resp, req->id, -1, "Failed to store share");
         return;
     }
 

@@ -123,6 +123,27 @@ static int test_format_error(void) {
     if (strstr(buf, "\"error\"") == NULL) FAIL("missing error");
     if (strstr(buf, "\"code\":-1") == NULL) FAIL("missing code");
     if (strstr(buf, "Share not found") == NULL) FAIL("missing message");
+    if (strstr(buf, "\"context\"") != NULL) FAIL("should not have context");
+    PASS();
+    return 0;
+}
+
+static int test_format_error_with_context(void) {
+    TEST("format error response with context");
+    rpc_response_t resp;
+    PROTOCOL_ERROR(&resp, 3, -2, "Test error");
+    char buf[512];
+    int len = protocol_format_response(&resp, buf, sizeof(buf));
+    if (len <= 0) FAIL("format failed");
+    if (strstr(buf, "\"id\":3") == NULL) FAIL("missing id");
+    if (strstr(buf, "\"error\"") == NULL) FAIL("missing error");
+    if (strstr(buf, "\"code\":-2") == NULL) FAIL("missing code");
+    if (strstr(buf, "Test error") == NULL) FAIL("missing message");
+    if (strstr(buf, "\"context\"") == NULL) FAIL("missing context");
+    if (strstr(buf, "\"file\"") == NULL) FAIL("missing file");
+    if (strstr(buf, "\"line\"") == NULL) FAIL("missing line");
+    if (strstr(buf, "\"func\"") == NULL) FAIL("missing func");
+    if (strstr(buf, "test_protocol.c") == NULL) FAIL("wrong file");
     PASS();
     return 0;
 }
@@ -333,6 +354,7 @@ int main(void) {
     failures += test_parse_method_wrong_type();
     failures += test_format_success();
     failures += test_format_error();
+    failures += test_format_error_with_context();
     failures += test_all_methods();
     failures += test_threshold_boundary();
     failures += test_participant_count_boundary();

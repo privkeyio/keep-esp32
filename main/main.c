@@ -38,7 +38,7 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
 
     int ret = snprintf(result, buf_size, "{\"shares\":[");
     if (ret < 0 || (size_t)ret >= buf_size) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer error");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer error");
         return;
     }
     offset = (size_t)ret;
@@ -47,7 +47,7 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
         ret = snprintf(result + offset, buf_size - offset,
                        "%s\"%s\"", (i > 0) ? "," : "", groups[i]);
         if (ret < 0 || (size_t)ret >= buf_size - offset) {
-            protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
             return;
         }
         offset += (size_t)ret;
@@ -55,7 +55,7 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
 
     ret = snprintf(result + offset, buf_size - offset, "]}");
     if (ret < 0 || (size_t)ret >= buf_size - offset) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
         return;
     }
 
@@ -70,19 +70,19 @@ static void handle_import_share(const rpc_request_t *req, rpc_response_t *resp) 
         protocol_success(resp, req->id, "{\"ok\":true}");
         break;
     case STORAGE_ERR_CRYPTO_NOT_INIT:
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage crypto not initialized");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage crypto not initialized");
         break;
     case STORAGE_ERR_INVALID_GROUP:
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
         break;
     case STORAGE_ERR_INVALID_DATA:
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid share data");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid share data");
         break;
     case STORAGE_ERR_NO_SLOT:
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "No free storage slot");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "No free storage slot");
         break;
     default:
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
         break;
     }
 }
@@ -95,21 +95,21 @@ static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) 
         protocol_success(resp, req->id, "{\"ok\":true}");
         break;
     case STORAGE_ERR_NOT_FOUND:
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
         break;
     default:
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
         break;
     }
 }
 
 static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp) {
     if (!psbt_initialized) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
         return;
     }
     if (!req->psbt) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
         return;
     }
 
@@ -118,7 +118,7 @@ static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp)
     if (ret != 0) {
         char err_msg[64];
         snprintf(err_msg, sizeof(err_msg), "PSBT parse error: %d", ret);
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, err_msg);
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, err_msg);
         return;
     }
 
@@ -134,33 +134,33 @@ static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp)
 
 static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) {
     if (!psbt_initialized) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
         return;
     }
     if (!req->psbt) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
         return;
     }
 
     psbt_summary_t summary;
     if (psbt_parse(req->psbt, &summary) != 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Failed to parse PSBT");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Failed to parse PSBT");
         return;
     }
 
     int policy_ret = policy_evaluate(summary.total_out_sats, summary.fee_sats);
     if (policy_ret == POLICY_ERR_DENIED) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Policy denied");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy denied");
         return;
     }
     if (policy_ret != 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Policy evaluation failed");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy evaluation failed");
         return;
     }
 
     uint8_t sighash[32];
     if (psbt_get_sighash(req->psbt, req->input_idx, sighash) != 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");
         return;
     }
 
@@ -235,7 +235,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
             policy_handle_get(req, resp);
             break;
         default:
-            protocol_error(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
     }
 }
 
@@ -290,7 +290,7 @@ void app_main(void) {
                 handle_request(&req, &resp);
                 protocol_free_request(&req);
             } else {
-                protocol_error(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
+                PROTOCOL_ERROR(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
             }
             if (resp.success) {
                 consecutive_errors = 0;
