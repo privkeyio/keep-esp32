@@ -229,6 +229,7 @@
       check = setInterval(() => {
         if (!document.contains(dialog)) {
           cleanup();
+          document.body.style.overflow = savedOverflow ?? '';
           observer.disconnect();
           return;
         }
