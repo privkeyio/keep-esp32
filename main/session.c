@@ -63,12 +63,12 @@ bool session_is_participant(session_t *s, uint16_t share_index) {
 }
 
 int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment, size_t len) {
-    if (s->state != SESSION_AWAITING_COMMITMENTS) return -1;
-    if (!session_is_participant(s, share_index)) return -2;
-    if (len > 128) return -3;
+    if (s->state != SESSION_AWAITING_COMMITMENTS) return SESSION_ERR_INVALID_STATE;
+    if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
+    if (len == 0 || len > COMMITMENT_LEN) return SESSION_ERR_INVALID_LEN;
 
     for (int i = 0; i < s->commitment_count; i++) {
-        if (s->commitment_indices[i] == share_index) return -4;
+        if (s->commitment_indices[i] == share_index) return SESSION_ERR_DUPLICATE;
     }
 
     int idx = s->commitment_count;
@@ -84,12 +84,12 @@ int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *co
 }
 
 int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_t *share, size_t len) {
-    if (s->state != SESSION_AWAITING_SHARES) return -1;
-    if (!session_is_participant(s, share_index)) return -2;
-    if (len > 64) return -3;
+    if (s->state != SESSION_AWAITING_SHARES) return SESSION_ERR_INVALID_STATE;
+    if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
+    if (len == 0 || len > SIGNATURE_LEN) return SESSION_ERR_INVALID_LEN;
 
     for (int i = 0; i < s->sig_share_count; i++) {
-        if (s->sig_share_indices[i] == share_index) return -4;
+        if (s->sig_share_indices[i] == share_index) return SESSION_ERR_DUPLICATE;
     }
 
     int idx = s->sig_share_count;

@@ -107,7 +107,7 @@ static int test_commitment_wrong_state(void) {
     session_add_commitment(&s, 1, commit, sizeof(commit));
     session_add_commitment(&s, 2, commit, sizeof(commit));
 
-    if (session_add_commitment(&s, 3, commit, sizeof(commit)) != -1) FAIL("should fail in wrong state");
+    if (session_add_commitment(&s, 3, commit, sizeof(commit)) != SESSION_ERR_INVALID_STATE) FAIL("should fail in wrong state");
 
     session_destroy(&s);
     PASS();
@@ -123,7 +123,7 @@ static int test_commitment_not_participant(void) {
     session_init(&s, &req, 2);
 
     uint8_t commit[64] = {0};
-    if (session_add_commitment(&s, 99, commit, sizeof(commit)) != -2) FAIL("should fail for non-participant");
+    if (session_add_commitment(&s, 99, commit, sizeof(commit)) != SESSION_ERR_NOT_PARTICIPANT) FAIL("should fail for non-participant");
 
     session_destroy(&s);
     PASS();
@@ -140,7 +140,7 @@ static int test_commitment_too_long(void) {
 
     uint8_t commit[256];
     memset(commit, 0, sizeof(commit));
-    if (session_add_commitment(&s, 1, commit, 129) != -3) FAIL("should fail for too long");
+    if (session_add_commitment(&s, 1, commit, COMMITMENT_LEN + 1) != SESSION_ERR_INVALID_LEN) FAIL("should fail for too long");
 
     session_destroy(&s);
     PASS();
@@ -157,7 +157,7 @@ static int test_commitment_duplicate(void) {
 
     uint8_t commit[64] = {0};
     if (session_add_commitment(&s, 1, commit, sizeof(commit)) != 0) FAIL("first add failed");
-    if (session_add_commitment(&s, 1, commit, sizeof(commit)) != -4) FAIL("duplicate should fail");
+    if (session_add_commitment(&s, 1, commit, sizeof(commit)) != SESSION_ERR_DUPLICATE) FAIL("duplicate should fail");
 
     session_destroy(&s);
     PASS();
@@ -196,7 +196,7 @@ static int test_signature_share_wrong_state(void) {
     session_init(&s, &req, 2);
 
     uint8_t share[32] = {0};
-    if (session_add_signature_share(&s, 1, share, sizeof(share)) != -1) FAIL("should fail in wrong state");
+    if (session_add_signature_share(&s, 1, share, sizeof(share)) != SESSION_ERR_INVALID_STATE) FAIL("should fail in wrong state");
 
     session_destroy(&s);
     PASS();
@@ -216,7 +216,7 @@ static int test_signature_share_not_participant(void) {
     session_add_commitment(&s, 2, commit, sizeof(commit));
 
     uint8_t share[32] = {0};
-    if (session_add_signature_share(&s, 99, share, sizeof(share)) != -2) FAIL("should fail for non-participant");
+    if (session_add_signature_share(&s, 99, share, sizeof(share)) != SESSION_ERR_NOT_PARTICIPANT) FAIL("should fail for non-participant");
 
     session_destroy(&s);
     PASS();
@@ -236,7 +236,7 @@ static int test_signature_share_too_long(void) {
     session_add_commitment(&s, 2, commit, sizeof(commit));
 
     uint8_t share[128] = {0};
-    if (session_add_signature_share(&s, 1, share, 65) != -3) FAIL("should fail for too long");
+    if (session_add_signature_share(&s, 1, share, SIGNATURE_LEN + 1) != SESSION_ERR_INVALID_LEN) FAIL("should fail for too long");
 
     session_destroy(&s);
     PASS();
@@ -257,7 +257,7 @@ static int test_signature_share_duplicate(void) {
 
     uint8_t share[32] = {0};
     if (session_add_signature_share(&s, 1, share, sizeof(share)) != 0) FAIL("first add failed");
-    if (session_add_signature_share(&s, 1, share, sizeof(share)) != -4) FAIL("duplicate should fail");
+    if (session_add_signature_share(&s, 1, share, sizeof(share)) != SESSION_ERR_DUPLICATE) FAIL("duplicate should fail");
 
     session_destroy(&s);
     PASS();
