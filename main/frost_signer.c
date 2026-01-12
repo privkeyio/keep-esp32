@@ -164,6 +164,35 @@ static void free_session(signing_session_t *s) {
     }
 }
 
+static const uint8_t SESSION_ID_ALL_ONES[SESSION_ID_LEN] = {
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+};
+
+static bool is_session_id_valid(const uint8_t *session_id) {
+    bool is_zero = ct_is_zero(session_id, SESSION_ID_LEN) == 1;
+    bool is_all_ones = ct_compare(session_id, SESSION_ID_ALL_ONES, SESSION_ID_LEN) == 0;
+    return !is_zero && !is_all_ones;
+}
+
+static int parse_session_id(const char *hex, uint8_t *out, rpc_response_t *resp) {
+    if (strlen(hex) != SESSION_ID_HEX_LEN) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
+        return -1;
+    }
+    if (hex_to_bytes(hex, out, SESSION_ID_LEN) != SESSION_ID_LEN) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+        return -1;
+    }
+    if (!is_session_id_valid(out)) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id value");
+        return -1;
+    }
+    return 0;
+}
+
 static int load_frost_state(frost_state_t *state, const char *group) {
     char share_hex[STORAGE_SHARE_LEN * 2 + 1];
     if (storage_load_share(group, share_hex, sizeof(share_hex)) != 0) {
@@ -236,14 +265,8 @@ void frost_get_share_info(const char *group, rpc_response_t *resp) {
 }
 
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
-        return;
-    }
-
     uint8_t session_id[SESSION_ID_LEN];
-    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
     }
 
@@ -319,14 +342,8 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
 }
 
 void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
-        return;
-    }
-
     uint8_t session_id[SESSION_ID_LEN];
-    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
     }
 
@@ -422,14 +439,8 @@ void frost_signer_cleanup_stale(void) {
 }
 
 void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
-        return;
-    }
-
     uint8_t session_id[SESSION_ID_LEN];
-    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
     }
 
@@ -474,14 +485,8 @@ void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint
 }
 
 void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
-    if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
-        return;
-    }
-
     uint8_t session_id[SESSION_ID_LEN];
-    if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
     }
 
