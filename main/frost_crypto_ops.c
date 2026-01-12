@@ -224,11 +224,11 @@ int frost_sign_partial(const frost_group_t *group,
     memcpy(kp->secret, our_share, 32);
 
     uint8_t binding_seed[32], hiding_seed[32];
-    if (secure_random_fill(binding_seed, 32) != 0 || secure_random_fill(hiding_seed, 32) != 0) {
+    if (rng_fill_checked(binding_seed, 32) != 0 || rng_fill_checked(hiding_seed, 32) != 0) {
         secure_memzero(kp->secret, 32);
         secp256k1_frost_keypair_destroy(kp);
         response->status = FROST_SIGN_STATUS_REJECTED;
-        strncpy(response->rejection_reason, "Failed to get secure random", sizeof(response->rejection_reason) - 1);
+        strncpy(response->rejection_reason, "RNG health check failed", sizeof(response->rejection_reason) - 1);
         return -4;
     }
 

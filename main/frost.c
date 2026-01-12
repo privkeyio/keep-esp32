@@ -1,110 +1,32 @@
 #include "frost.h"
+#include "random_utils.h"
 #include <string.h>
 #include <stdlib.h>
 #include <secp256k1.h>
 #include <secp256k1_frost.h>
 
-#ifndef ESP_PLATFORM
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#include "crypto_asm.h"
+#define secure_zero(buf, len) secure_memzero(buf, len)
+#else
 #include <stdio.h>
-#include <stdlib.h>
-
-#if defined(__linux__) && defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 25))
-#include <sys/random.h>
-#define HAVE_GETRANDOM 1
-#endif
-
-static void fill_random(uint8_t *buf, size_t len) {
-#ifdef HAVE_GETRANDOM
-    ssize_t ret = getrandom(buf, len, 0);
-    if (ret == (ssize_t)len) return;
-    fprintf(stderr, "FATAL: getrandom failed (returned %zd, expected %zu)\n", ret, len);
-    abort();
-#else
-    FILE *fp = fopen("/dev/urandom", "r");
-    if (fp) {
-        size_t total = 0;
-        while (total < len) {
-            size_t n = fread(buf + total, 1, len - total, fp);
-            if (n == 0) break;
-            total += n;
-        }
-        fclose(fp);
-        if (total == len) return;
-    }
-#ifdef FROST_ALLOW_WEAK_RNG
-    fprintf(stderr, "WARNING: Using weak RNG fallback (test mode only)\n");
-    for (size_t i = 0; i < len; i++) {
-        buf[i] = (uint8_t)(rand() & 0xff);
-    }
-#else
-    fprintf(stderr, "FATAL: /dev/urandom unavailable and secure RNG required\n");
-    abort();
-#endif
-#endif
-}
 static void secure_zero(void *buf, size_t len) {
     volatile uint8_t *p = buf;
     while (len--) *p++ = 0;
 }
-#else
-#include "esp_random.h"
-#include "esp_log.h"
-#include "crypto_asm.h"
-static int fill_random_checked(const uint8_t *buf, size_t len) {
-    if (len < 8) return 0;
-
-    uint32_t zeros = 0, ones = 0;
-    uint32_t bit_count = 0;
-    uint32_t transitions = 0;
-    uint8_t prev_bit = buf[0] & 1;
-
-    for (size_t i = 0; i < len; i++) {
-        uint8_t b = buf[i];
-        if (b == 0x00) zeros++;
-        if (b == 0xFF) ones++;
-        bit_count += __builtin_popcount(b);
-        for (int j = (i == 0 ? 1 : 0); j < 8; j++) {
-            uint8_t curr_bit = (b >> j) & 1;
-            transitions += curr_bit ^ prev_bit;
-            prev_bit = curr_bit;
-        }
-    }
-
-    if (zeros > len / 2 || ones > len / 2) {
-        ESP_LOGE("frost", "RNG health check failed: extreme byte values");
-        return -1;
-    }
-
-    uint32_t total_bits = len * 8;
-    uint32_t expected_bits = total_bits / 2;
-    uint32_t bit_tolerance = expected_bits / 4;
-    if (bit_count < expected_bits - bit_tolerance || bit_count > expected_bits + bit_tolerance) {
-        ESP_LOGE("frost", "RNG monobit test failed");
-        return -1;
-    }
-
-    uint32_t expected_trans = (total_bits - 1) / 2;
-    uint32_t trans_tolerance = expected_trans / 4;
-    if (transitions < expected_trans - trans_tolerance || transitions > expected_trans + trans_tolerance) {
-        ESP_LOGE("frost", "RNG bit-transition test failed");
-        return -1;
-    }
-
-    return 0;
-}
+#endif
 
 static void fill_random(uint8_t *buf, size_t len) {
-    esp_fill_random(buf, len);
-    if (fill_random_checked(buf, len) != 0) {
-        esp_fill_random(buf, len);
-        if (fill_random_checked(buf, len) != 0) {
-            ESP_LOGE("frost", "RNG failure - aborting");
-            abort();
-        }
+    if (rng_fill_checked(buf, len) != 0) {
+#ifdef ESP_PLATFORM
+        ESP_LOGE("frost", "RNG failure - aborting");
+#else
+        fprintf(stderr, "FATAL: RNG failure\n");
+#endif
+        abort();
     }
 }
-#define secure_zero(buf, len) secure_memzero(buf, len)
-#endif
 
 #define KEYPAIR_SERIALIZED_LEN 102
 

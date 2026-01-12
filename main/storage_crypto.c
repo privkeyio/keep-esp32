@@ -127,7 +127,7 @@ int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len,
     if (!key_initialized || !plaintext || !nonce || !ciphertext || !tag) {
         return -1;
     }
-    if (secure_random_fill(nonce, STORAGE_CRYPTO_NONCE_SIZE) != 0) {
+    if (rng_fill_checked(nonce, STORAGE_CRYPTO_NONCE_SIZE) != 0) {
         return -1;
     }
 
