@@ -169,8 +169,8 @@ int frost_coordinator_init(const uint8_t privkey[32]) {
     }
 
     uint8_t entropy[NC_CONTEXT_ENTROPY_SIZE];
-    if (secure_random_fill(entropy, sizeof(entropy)) != 0) {
-        ESP_LOGE(TAG, "Failed to get secure random");
+    if (rng_fill_checked(entropy, sizeof(entropy)) != 0) {
+        ESP_LOGE(TAG, "RNG health check failed");
         free(g_ctx.nc_ctx);
 #ifdef ESP_PLATFORM
         vSemaphoreDelete(g_ctx.mutex);

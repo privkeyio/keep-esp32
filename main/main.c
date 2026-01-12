@@ -13,6 +13,7 @@
 #include "frost_dkg.h"
 #include "psbt.h"
 #include "policy.h"
+#include "random_utils.h"
 
 #define TAG "main"
 #define VERSION "0.1.2"
@@ -244,6 +245,11 @@ void app_main(void) {
     ESP_LOGI(TAG, "  Keep Hardware - FROST Signer");
     ESP_LOGI(TAG, "  Version: %s", VERSION);
     ESP_LOGI(TAG, "=================================");
+
+    if (rng_init() != 0) {
+        ESP_LOGE(TAG, "RNG self-test failed, restarting");
+        esp_restart();
+    }
 
     if (storage_init() != 0) {
         ESP_LOGW(TAG, "Storage init failed, continuing without storage");
