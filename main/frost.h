@@ -14,6 +14,9 @@
 #include <stdbool.h>
 #include "session.h"
 
+#define KEYPAIR_SERIALIZED_LEN 102
+#define FROST_POINT_LEN 64
+
 /** @brief FROST signer state. */
 typedef struct {
     void *ctx;                  /**< secp256k1 context */

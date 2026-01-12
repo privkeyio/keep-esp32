@@ -28,8 +28,6 @@ static void fill_random(uint8_t *buf, size_t len) {
     }
 }
 
-#define KEYPAIR_SERIALIZED_LEN 102
-
 int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_len) {
     memset(state, 0, sizeof(*state));
     if (share_len < KEYPAIR_SERIALIZED_LEN) return -1;
@@ -38,8 +36,8 @@ int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_le
     if (!state->ctx) return -2;
 
     const uint8_t *p = share_bytes;
-    uint8_t secret[32];
-    memcpy(secret, p, 32); p += 32;
+    uint8_t secret[SCALAR_LEN];
+    memcpy(secret, p, SCALAR_LEN); p += SCALAR_LEN;
 
     uint8_t pubkey33[33], group_pubkey33[33];
     memcpy(pubkey33, p, 33); p += 33;
@@ -62,7 +60,7 @@ int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_le
         return -3;
     }
 
-    memcpy(kp->secret, secret, 32);
+    memcpy(kp->secret, secret, SCALAR_LEN);
     secure_zero(secret, sizeof(secret));
 
     if (!secp256k1_frost_pubkey_load(&kp->public_keys, index, max_participants, pubkey33, group_pubkey33)) {
@@ -93,9 +91,9 @@ void frost_free(frost_state_t *state) {
 
 int frost_create_commitment(frost_state_t *state, session_t *session,
                             uint8_t *commitment_out, size_t *commitment_len) {
-    uint8_t binding_seed[32], hiding_seed[32];
-    fill_random(binding_seed, 32);
-    fill_random(hiding_seed, 32);
+    uint8_t binding_seed[SCALAR_LEN], hiding_seed[SCALAR_LEN];
+    fill_random(binding_seed, SCALAR_LEN);
+    fill_random(hiding_seed, SCALAR_LEN);
 
     secp256k1_frost_nonce *nonce = secp256k1_frost_nonce_create(
         state->ctx, state->keypair, binding_seed, hiding_seed);
@@ -103,8 +101,8 @@ int frost_create_commitment(frost_state_t *state, session_t *session,
     secure_zero(hiding_seed, sizeof(hiding_seed));
     if (!nonce) return -1;
 
-    memcpy(session->our_nonce, nonce->hiding, 32);
-    memcpy(session->our_nonce + 32, nonce->binding, 32);
+    memcpy(session->our_nonce, nonce->hiding, SCALAR_LEN);
+    memcpy(session->our_nonce + SCALAR_LEN, nonce->binding, SCALAR_LEN);
 
     secp256k1_frost_nonce_commitment *c = &nonce->commitments;
     uint8_t *p = commitment_out;
@@ -113,12 +111,12 @@ int frost_create_commitment(frost_state_t *state, session_t *session,
     p[2] = (c->index >> 16) & 0xff;
     p[3] = (c->index >> 24) & 0xff;
     p += 4;
-    memcpy(p, c->hiding, 64); p += 64;
-    memcpy(p, c->binding, 64);
+    memcpy(p, c->hiding, FROST_POINT_LEN); p += FROST_POINT_LEN;
+    memcpy(p, c->binding, FROST_POINT_LEN);
 
-    *commitment_len = 132;
-    session->our_commitment_len = 132;
-    memcpy(session->our_commitment, commitment_out, 132);
+    *commitment_len = COMMITMENT_LEN;
+    session->our_commitment_len = COMMITMENT_LEN;
+    memcpy(session->our_commitment, commitment_out, COMMITMENT_LEN);
 
     secp256k1_frost_nonce_destroy(nonce);
     return 0;
@@ -126,8 +124,8 @@ int frost_create_commitment(frost_state_t *state, session_t *session,
 
 static void deserialize_commitment(const uint8_t *data, secp256k1_frost_nonce_commitment *c) {
     c->index = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
-    memcpy(c->hiding, data + 4, 64);
-    memcpy(c->binding, data + 68, 64);
+    memcpy(c->hiding, data + 4, FROST_POINT_LEN);
+    memcpy(c->binding, data + 4 + FROST_POINT_LEN, FROST_POINT_LEN);
 }
 
 int frost_sign_share(frost_state_t *state, session_t *session,
@@ -160,15 +158,15 @@ int frost_sign_share(frost_state_t *state, session_t *session,
     p[1] = (share.index >> 8) & 0xff;
     p[2] = (share.index >> 16) & 0xff;
     p[3] = (share.index >> 24) & 0xff;
-    memcpy(p + 4, share.response, 32);
-    *sig_share_len = 36;
+    memcpy(p + 4, share.response, SCALAR_LEN);
+    *sig_share_len = SIG_SHARE_LEN;
 
     return 0;
 }
 
 static void deserialize_sig_share(const uint8_t *data, secp256k1_frost_signature_share *s) {
     s->index = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
-    memcpy(s->response, data + 4, 32);
+    memcpy(s->response, data + 4, SCALAR_LEN);
 }
 
 int frost_aggregate(frost_state_t *state, session_t *session,
