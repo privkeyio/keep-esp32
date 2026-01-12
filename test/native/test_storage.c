@@ -35,9 +35,9 @@ esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t off
 }
 
 #include "hex_utils.h"
+#include "storage_crypto.h"
 #include "storage.h"
 #include "storage.c"
-#include "hex_utils.c"
 
 #define TEST(name) printf("  TEST: %s\n", name)
 #define PASS() printf("    PASS\n")
@@ -123,7 +123,7 @@ static int test_delete_nonexistent(void) {
     reset_flash();
     if (storage_init() != 0) FAIL("init failed");
 
-    if (storage_delete_share("nonexistent") != -1) FAIL("should fail");
+    if (storage_delete_share("nonexistent") != STORAGE_ERR_NOT_FOUND) FAIL("should fail");
 
     PASS();
     return 0;
@@ -135,7 +135,7 @@ static int test_load_nonexistent(void) {
     if (storage_init() != 0) FAIL("init failed");
 
     char buf[128];
-    if (storage_load_share("nonexistent", buf, sizeof(buf)) != -1) FAIL("should fail");
+    if (storage_load_share("nonexistent", buf, sizeof(buf)) != STORAGE_ERR_NOT_FOUND) FAIL("should fail");
 
     PASS();
     return 0;
@@ -169,7 +169,7 @@ static int test_full_slots(void) {
         if (storage_save_share(name, "aa") != 0) FAIL("save failed");
     }
 
-    if (storage_save_share("group_overflow", "bb") != -1) FAIL("should fail when full");
+    if (storage_save_share("group_overflow", "bb") != STORAGE_ERR_NO_SLOT) FAIL("should fail when full");
 
     PASS();
     return 0;
@@ -180,9 +180,9 @@ static int test_invalid_group_name(void) {
     reset_flash();
     if (storage_init() != 0) FAIL("init failed");
 
-    if (storage_save_share("", "aa") != -1) FAIL("empty name should fail");
-    if (storage_save_share("bad/name", "aa") != -1) FAIL("slash should fail");
-    if (storage_save_share("bad name", "aa") != -1) FAIL("space should fail");
+    if (storage_save_share("", "aa") != STORAGE_ERR_INVALID_GROUP) FAIL("empty name should fail");
+    if (storage_save_share("bad/name", "aa") != STORAGE_ERR_INVALID_GROUP) FAIL("slash should fail");
+    if (storage_save_share("bad name", "aa") != STORAGE_ERR_INVALID_GROUP) FAIL("space should fail");
 
     PASS();
     return 0;
@@ -193,8 +193,8 @@ static int test_invalid_hex(void) {
     reset_flash();
     if (storage_init() != 0) FAIL("init failed");
 
-    if (storage_save_share("test", "gg") != -1) FAIL("invalid hex should fail");
-    if (storage_save_share("test", "abc") != -1) FAIL("odd length should fail");
+    if (storage_save_share("test", "gg") != STORAGE_ERR_INVALID_DATA) FAIL("invalid hex should fail");
+    if (storage_save_share("test", "abc") != STORAGE_ERR_INVALID_DATA) FAIL("odd length should fail");
 
     PASS();
     return 0;
@@ -208,7 +208,7 @@ static int test_buffer_too_small(void) {
     if (storage_save_share("test", "aabbccdd") != 0) FAIL("save failed");
 
     char small[4];
-    if (storage_load_share("test", small, sizeof(small)) != -1) FAIL("should fail with small buffer");
+    if (storage_load_share("test", small, sizeof(small)) != STORAGE_ERR_INVALID_DATA) FAIL("should fail with small buffer");
 
     PASS();
     return 0;
@@ -219,10 +219,10 @@ static int test_uninitialized(void) {
     reset_flash();
 
     char buf[128];
-    if (storage_save_share("test", "aa") != -1) FAIL("save should fail");
-    if (storage_load_share("test", buf, sizeof(buf)) != -1) FAIL("load should fail");
-    if (storage_delete_share("test") != -1) FAIL("delete should fail");
-    if (storage_has_share("test") != false) FAIL("has_share should return false");
+    if (storage_save_share("test", "aa") != STORAGE_ERR_NOT_INIT) FAIL("save should fail");
+    if (storage_load_share("test", buf, sizeof(buf)) != STORAGE_ERR_NOT_INIT) FAIL("load should fail");
+    if (storage_delete_share("test") != STORAGE_ERR_NOT_INIT) FAIL("delete should fail");
+    if (storage_has_share("test")) FAIL("has_share should return false");
 
     PASS();
     return 0;
@@ -234,11 +234,11 @@ static int test_corrupt_share_len(void) {
     if (storage_init() != 0) FAIL("init failed");
 
     if (storage_save_share("test", "aabbccdd") != 0) FAIL("save failed");
-    mock_flash[64] = 0xFF;
     mock_flash[65] = 0xFF;
+    mock_flash[66] = 0xFF;
 
     char buf[128];
-    if (storage_load_share("test", buf, sizeof(buf)) != -1) FAIL("should fail with corrupt len");
+    if (storage_load_share("test", buf, sizeof(buf)) != STORAGE_ERR_NOT_FOUND) FAIL("should fail with corrupt len");
 
     PASS();
     return 0;
@@ -260,7 +260,7 @@ static int test_max_group_name_len(void) {
     memset(too_long, 'a', STORAGE_GROUP_LEN + 1);
     too_long[STORAGE_GROUP_LEN + 1] = '\0';
 
-    if (storage_save_share(too_long, "aa") != -1) FAIL("too long should fail");
+    if (storage_save_share(too_long, "aa") != STORAGE_ERR_INVALID_GROUP) FAIL("too long should fail");
 
     PASS();
     return 0;

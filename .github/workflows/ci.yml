@@ -73,3 +73,6 @@ jobs:
           cmake ..
           make
           ./test_frost
+          ./test_session
+          ./test_storage
+          [ ! -f ./test_protocol ] || ./test_protocol
