@@ -190,10 +190,10 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
                 secure_memzero(&slot, sizeof(slot));
                 return STORAGE_ERR_DECRYPT;
             }
-            bytes_to_hex(decrypted, actual_len, share_hex);
+            bytes_to_hex(decrypted, actual_len, share_hex, len);
             secure_memzero(decrypted, sizeof(decrypted));
         } else {
-            bytes_to_hex(slot.share_data, actual_len, share_hex);
+            bytes_to_hex(slot.share_data, actual_len, share_hex, len);
         }
         secure_memzero(&slot, sizeof(slot));
         return STORAGE_OK;

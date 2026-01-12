@@ -79,7 +79,7 @@ int frost_create_nip46_response(const nip46_response_t *response,
     cJSON *p_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(p_tag, cJSON_CreateString("p"));
     char recip_hex[65];
-    bytes_to_hex(recipient_pubkey, 32, recip_hex);
+    bytes_to_hex(recipient_pubkey, 32, recip_hex, sizeof(recip_hex));
     cJSON_AddItemToArray(p_tag, cJSON_CreateString(recip_hex));
     cJSON_AddItemToArray(tags, p_tag);
 

@@ -326,7 +326,7 @@ int frost_coordinator_subscribe(const char *subscription_id) {
     if (!g_initialized || !g_ctx.has_group) return -1;
 
     char pubkey_hex[65];
-    bytes_to_hex(g_ctx.pubkey, 32, pubkey_hex);
+    bytes_to_hex(g_ctx.pubkey, 32, pubkey_hex, sizeof(pubkey_hex));
 
     char filter[512];
     snprintf(filter, sizeof(filter),

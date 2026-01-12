@@ -206,7 +206,7 @@ void frost_get_pubkey(const char *group, rpc_response_t *resp) {
     }
 
     char pubkey_hex[67];
-    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex);
+    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
 
     char result[128];
     snprintf(result, sizeof(result), "{\"pubkey\":\"%s\",\"index\":%d}",
@@ -224,7 +224,7 @@ void frost_get_share_info(const char *group, rpc_response_t *resp) {
     }
 
     char pubkey_hex[67];
-    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex);
+    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
 
     char result[192];
     snprintf(result, sizeof(result),
@@ -307,7 +307,7 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     }
 
     char commitment_hex[COMMITMENT_HEX_LEN + 1];
-    bytes_to_hex(commitment, commitment_len, commitment_hex);
+    bytes_to_hex(commitment, commitment_len, commitment_hex, sizeof(commitment_hex));
 
     char result[512];
     snprintf(result, sizeof(result),
@@ -396,7 +396,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     }
 
     char sig_share_hex[73];
-    bytes_to_hex(sig_share, sig_share_len, sig_share_hex);
+    bytes_to_hex(sig_share, sig_share_len, sig_share_hex, sizeof(sig_share_hex));
 
     char result[192];
     snprintf(result, sizeof(result),
@@ -504,7 +504,7 @@ void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
     }
 
     char sig_hex[SIGNATURE_LEN * 2 + 1];
-    bytes_to_hex(signature, SIGNATURE_LEN, sig_hex);
+    bytes_to_hex(signature, SIGNATURE_LEN, sig_hex, sizeof(sig_hex));
 
     char result[192];
     snprintf(result, sizeof(result), "{\"signature\":\"%s\"}", sig_hex);
