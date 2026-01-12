@@ -121,7 +121,11 @@ int frost_parse_dkg_round1_event(const char *event_json,
                     }
                 }
             } else if (strcmp(name, "participant_index") == 0) {
-                round1->participant_index = (uint8_t)atoi(val);
+                char *endptr;
+                long tmp = strtol(val, &endptr, 10);
+                if (endptr != val && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                    round1->participant_index = (uint8_t)tmp;
+                }
             }
         }
     }
@@ -288,9 +292,17 @@ int frost_parse_dkg_round2_event(const char *event_json,
                     }
                 }
             } else if (strcmp(name, "participant_index") == 0) {
-                round2->sender_index = (uint8_t)atoi(val);
+                char *endptr;
+                long tmp = strtol(val, &endptr, 10);
+                if (endptr != val && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                    round2->sender_index = (uint8_t)tmp;
+                }
             } else if (strcmp(name, "recipient_index") == 0) {
-                round2->recipient_index = (uint8_t)atoi(val);
+                char *endptr;
+                long tmp = strtol(val, &endptr, 10);
+                if (endptr != val && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                    round2->recipient_index = (uint8_t)tmp;
+                }
             }
         }
     }
