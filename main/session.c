@@ -13,11 +13,13 @@ static void secure_zero(void *buf, size_t len) {
 
 #ifndef ESP_PLATFORM
 #include <time.h>
+#ifndef now_ms
 static uint32_t now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
+#endif
 #else
 #include "esp_timer.h"
 static uint32_t now_ms(void) {
