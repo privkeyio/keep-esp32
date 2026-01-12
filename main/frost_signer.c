@@ -201,7 +201,7 @@ void frost_signer_cleanup(void) {
 void frost_get_pubkey(const char *group, rpc_response_t *resp) {
     frost_state_t state;
     if (load_frost_state(&state, group) != 0) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
         return;
     }
 
@@ -219,7 +219,7 @@ void frost_get_pubkey(const char *group, rpc_response_t *resp) {
 void frost_get_share_info(const char *group, rpc_response_t *resp) {
     frost_state_t state;
     if (load_frost_state(&state, group) != 0) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
         return;
     }
 
@@ -237,24 +237,24 @@ void frost_get_share_info(const char *group, rpc_response_t *resp) {
 
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex, rpc_response_t *resp) {
     if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
     uint8_t session_id[SESSION_ID_LEN];
     if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
 
     if (strlen(message_hex) != SESSION_ID_HEX_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "message must be 32 bytes");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "message must be 32 bytes");
         return;
     }
 
     uint8_t message[SESSION_ID_LEN];
     if (hex_to_bytes(message_hex, message, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid message hex");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid message hex");
         return;
     }
 
@@ -263,14 +263,14 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     int policy_ret = capture_policy_snapshot(&has_policy, policy_hash);
     if (policy_ret != 0) {
         secure_zero(policy_hash, sizeof(policy_hash));
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
         return;
     }
 
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
         secure_zero(policy_hash, sizeof(policy_hash));
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "No free session slots");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "No free session slots");
         return;
     }
 
@@ -280,7 +280,7 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
 
     if (load_frost_state(&s->frost_state, group) != 0) {
         free_session(s);
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
         return;
     }
 
@@ -302,7 +302,7 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     size_t commitment_len = 0;
     if (frost_create_commitment(&s->frost_state, &s->session, commitment, &commitment_len) != 0) {
         free_session(s);
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to create commitment");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to create commitment");
         return;
     }
 
@@ -320,30 +320,30 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
 
 void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex, rpc_response_t *resp) {
     if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
     uint8_t session_id[SESSION_ID_LEN];
     if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
 
     signing_session_t *s = find_session(session_id);
     if (!s) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
         return;
     }
 
     if (strcmp(s->group, group) != 0) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Group mismatch");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Group mismatch");
         return;
     }
 
     if (verify_policy_unchanged(s->has_policy, s->policy_hash) != 0) {
         free_session(s);
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during session");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during session");
         return;
     }
 
@@ -372,7 +372,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     }
     uint8_t total_participants = s->session.commitment_count + 1;
     if (total_participants < s->frost_state.threshold) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough commitments for threshold");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough commitments for threshold");
         return;
     }
     s->session.participant_count = total_participants;
@@ -383,7 +383,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     if (frost_sign_share(&s->frost_state, &s->session, s->session.message, s->session.message_len,
                          sig_share, &sig_share_len) != 0) {
         free_session(s);
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Signing failed");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Signing failed");
         return;
     }
 
@@ -423,43 +423,43 @@ void frost_signer_cleanup_stale(void) {
 
 void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index, rpc_response_t *resp) {
     if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
     uint8_t session_id[SESSION_ID_LEN];
     if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
 
     signing_session_t *s = find_session(session_id);
     if (!s) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
         return;
     }
 
     if (s->session.state != SESSION_AWAITING_SHARES) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not awaiting shares");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not awaiting shares");
         return;
     }
 
     size_t hex_len = strlen(sig_share_hex);
     if (hex_len == 0 || hex_len > 72) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signature share length");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signature share length");
         return;
     }
 
     uint8_t share_bytes[36];
     int share_len = hex_to_bytes(sig_share_hex, share_bytes, sizeof(share_bytes));
     if (share_len < 0) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signature share hex");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signature share hex");
         return;
     }
 
     int idx = s->session.sig_share_count;
     if (idx >= MAX_PARTICIPANTS) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Too many signature shares");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Too many signature shares");
         return;
     }
 
@@ -475,31 +475,31 @@ void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint
 
 void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
     if (strlen(session_id_hex) != SESSION_ID_HEX_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
         return;
     }
 
     uint8_t session_id[SESSION_ID_LEN];
     if (hex_to_bytes(session_id_hex, session_id, SESSION_ID_LEN) != SESSION_ID_LEN) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return;
     }
 
     signing_session_t *s = find_session(session_id);
     if (!s) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
         return;
     }
 
     if (s->session.sig_share_count < s->session.threshold) {
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough shares");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough shares");
         return;
     }
 
     uint8_t signature[SIGNATURE_LEN];
     if (frost_aggregate(&s->frost_state, &s->session, s->session.message, s->session.message_len, signature) != 0) {
         free_session(s);
-        protocol_error(resp, resp->id, PROTOCOL_ERR_SIGN, "Aggregation failed");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Aggregation failed");
         return;
     }
 

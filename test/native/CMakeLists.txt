@@ -21,7 +21,7 @@ set_target_properties(test_frost PROPERTIES
 )
 
 if(EXISTS ${CJSON_DIR}/cJSON.c)
-    add_executable(test_protocol test_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c)
+    add_executable(test_protocol test_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c ${MAIN_DIR}/error_context.c)
     target_include_directories(test_protocol PRIVATE
         ${CJSON_DIR}
         ${MAIN_DIR}

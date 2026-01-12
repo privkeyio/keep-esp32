@@ -151,12 +151,12 @@ int policy_check_hash(const policy_bundle_t *bundle, const uint8_t expected_hash
 void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
     size_t hex_len = strlen(req->policy_bundle);
     if (hex_len == 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing bundle parameter");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing bundle parameter");
         return;
     }
 
     if (hex_len != sizeof(policy_bundle_t) * 2) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid bundle length");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid bundle length");
         return;
     }
 
@@ -164,7 +164,7 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
     int byte_len = hex_to_bytes(req->policy_bundle, (uint8_t *)&bundle, sizeof(bundle));
     if (byte_len != (int)sizeof(policy_bundle_t)) {
         secure_memzero(&bundle, sizeof(bundle));
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid bundle hex");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid bundle hex");
         return;
     }
 
@@ -172,15 +172,15 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
     secure_memzero(&bundle, sizeof(bundle));
 
     if (ret == POLICY_ERR_INVALID_SIG) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid signature");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid signature");
         return;
     }
     if (ret == POLICY_ERR_VERSION) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_PARAMS, "Unsupported version");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Unsupported version");
         return;
     }
     if (ret != 0) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
         return;
     }
 
@@ -197,7 +197,7 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     int ret = policy_load_bundle(&bundle);
     if (ret != 0) {
         secure_memzero(&bundle, sizeof(bundle));
-        protocol_error(resp, req->id, PROTOCOL_ERR_STORAGE, "Load error");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Load error");
         return;
     }
 
@@ -216,7 +216,7 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     secure_memzero(&bundle, sizeof(bundle));
 
     if (written < 0 || (size_t)written >= sizeof(result)) {
-        protocol_error(resp, req->id, PROTOCOL_ERR_INTERNAL, "Response buffer overflow");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "Response buffer overflow");
         return;
     }
 

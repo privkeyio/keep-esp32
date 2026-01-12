@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "error_context.h"
 
 #define PROTOCOL_MAX_MESSAGE_LEN 16384
 #define PROTOCOL_MAX_GROUP_LEN 64
@@ -68,6 +69,7 @@ typedef struct {
     int error_code;
     char error_msg[128];
     char result[PROTOCOL_MAX_PSBT_LEN + 256];
+    error_context_t error_ctx;
 } rpc_response_t;
 
 int protocol_parse_request(const char *json, rpc_request_t *req);
@@ -75,5 +77,10 @@ void protocol_free_request(rpc_request_t *req);
 int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len);
 void protocol_success(rpc_response_t *resp, int id, const char *result);
 void protocol_error(rpc_response_t *resp, int id, int code, const char *message);
+void protocol_error_ctx(rpc_response_t *resp, int id, int code, const char *message,
+                        const char *file, uint16_t line, const char *func);
+
+#define PROTOCOL_ERROR(resp, id, code, msg) \
+    protocol_error_ctx((resp), (id), (code), (msg), __FILE__, __LINE__, __func__)
 
 #endif

@@ -160,6 +160,14 @@ int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) 
         }
         cJSON_AddNumberToObject(error, "code", resp->error_code);
         cJSON_AddStringToObject(error, "message", resp->error_msg);
+        if (resp->error_ctx.file[0] != '\0') {
+            cJSON *ctx = cJSON_AddObjectToObject(error, "context");
+            if (ctx) {
+                cJSON_AddStringToObject(ctx, "file", resp->error_ctx.file);
+                cJSON_AddNumberToObject(ctx, "line", resp->error_ctx.line);
+                cJSON_AddStringToObject(ctx, "func", resp->error_ctx.func);
+            }
+        }
     }
 
     cJSON_bool ok = cJSON_PrintPreallocated(root, buf, (int)len, 0);
@@ -175,6 +183,7 @@ void protocol_success(rpc_response_t *resp, int id, const char *result) {
     resp->error_msg[0] = '\0';
     strncpy(resp->result, result, sizeof(resp->result) - 1);
     resp->result[sizeof(resp->result) - 1] = '\0';
+    memset(&resp->error_ctx, 0, sizeof(resp->error_ctx));
 }
 
 void protocol_error(rpc_response_t *resp, int id, int code, const char *message) {
@@ -184,4 +193,11 @@ void protocol_error(rpc_response_t *resp, int id, int code, const char *message)
     strncpy(resp->error_msg, message, sizeof(resp->error_msg) - 1);
     resp->error_msg[sizeof(resp->error_msg) - 1] = '\0';
     resp->result[0] = '\0';
+    memset(&resp->error_ctx, 0, sizeof(resp->error_ctx));
+}
+
+void protocol_error_ctx(rpc_response_t *resp, int id, int code, const char *message,
+                        const char *file, uint16_t line, const char *func) {
+    protocol_error(resp, id, code, message);
+    error_context_set(&resp->error_ctx, code, file, line, func);
 }
