@@ -17,3 +17,6 @@ tests/*.o
 
 # Web flasher (built by CI)
 docs/keep-merged.bin
+
+# Generated documentation
+docs/html/

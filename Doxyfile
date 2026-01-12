@@ -1,0 +1,16 @@
+PROJECT_NAME           = "keep-esp32"
+PROJECT_BRIEF          = "FROST threshold signing for ESP32"
+OUTPUT_DIRECTORY       = docs
+INPUT                  = main
+FILE_PATTERNS          = *.h
+RECURSIVE              = NO
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = NO
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = html
+OPTIMIZE_OUTPUT_FOR_C  = YES
+TYPEDEF_HIDES_STRUCT   = YES
+WARN_IF_UNDOCUMENTED   = NO
+QUIET                  = YES
+HAVE_DOT               = NO
