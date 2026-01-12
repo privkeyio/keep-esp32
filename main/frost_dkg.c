@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "crypto_asm.h"
 #include "hex_utils.h"
+#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +18,7 @@
 #define TAG "frost_dkg"
 
 typedef struct {
-    bool active;
+    dkg_state_t state;
     char group[65];
     uint8_t threshold;
     uint8_t participant_count;
@@ -33,7 +34,53 @@ typedef struct {
 
 static dkg_session_t g_session;
 
+static const char *dkg_state_name(dkg_state_t state) {
+    switch (state) {
+    case DKG_IDLE:     return "IDLE";
+    case DKG_ROUND1:   return "ROUND1";
+    case DKG_ROUND2:   return "ROUND2";
+    case DKG_COMPLETE: return "COMPLETE";
+    }
+    return "UNKNOWN";
+}
+
+static bool check_state(dkg_state_t expected, const char *func_name,
+                        const rpc_request_t *req, rpc_response_t *resp) {
+    if (g_session.state == expected) {
+        return true;
+    }
+    char err[64];
+    snprintf(err, sizeof(err), "Invalid state %s for %s",
+             dkg_state_name(g_session.state), func_name);
+    PROTOCOL_ERROR(resp, req->id, -1, err);
+    return false;
+}
+
+static bool check_can_init(const rpc_request_t *req, rpc_response_t *resp) {
+    if (g_session.state == DKG_IDLE || g_session.state == DKG_COMPLETE) {
+        return true;
+    }
+    char err[64];
+    snprintf(err, sizeof(err), "Invalid state %s for init",
+             dkg_state_name(g_session.state));
+    PROTOCOL_ERROR(resp, req->id, -1, err);
+    return false;
+}
+
+static void clear_sensitive_session_data(void) {
+    secure_memzero(g_session.secret_shares, sizeof(g_session.secret_shares));
+    secure_memzero(&g_session.our_round1, sizeof(g_session.our_round1));
+    secure_memzero(g_session.received_shares, sizeof(g_session.received_shares));
+    secure_memzero(g_session.peer_round1, sizeof(g_session.peer_round1));
+    g_session.peer_round1_count = 0;
+    g_session.received_share_count = 0;
+    g_session.secret_share_count = 0;
+}
+
 void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
+    if (!check_can_init(req, resp)) {
+        return;
+    }
     if (req->threshold < 2 || req->threshold > DKG_MAX_THRESHOLD) {
         PROTOCOL_ERROR(resp, req->id, -1, "Invalid threshold");
         return;
@@ -52,28 +99,28 @@ void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     memset(&g_session, 0, sizeof(g_session));
-    g_session.active = true;
+    g_session.state = DKG_ROUND1;
     strncpy(g_session.group, req->group, sizeof(g_session.group) - 1);
     g_session.threshold = req->threshold;
     g_session.participant_count = req->participant_count;
     g_session.our_index = req->our_index;
 
-    ESP_LOGI(TAG, "DKG init: group=%s t=%d n=%d our_index=%d",
-             g_session.group, g_session.threshold, g_session.participant_count, g_session.our_index);
+    ESP_LOGI(TAG, "DKG init -> ROUND1 (group=%s t=%d n=%d idx=%d)",
+             g_session.group, g_session.threshold,
+             g_session.participant_count, g_session.our_index);
 
     protocol_success(resp, req->id, "{\"ok\":true}");
 }
 
 void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!g_session.active) {
-        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
+    if (!check_state(DKG_ROUND1, "round1", req, resp)) {
         return;
     }
 
-    frost_group_t group;
-    memset(&group, 0, sizeof(group));
-    group.threshold = g_session.threshold;
-    group.participant_count = g_session.participant_count;
+    frost_group_t group = {
+        .threshold = g_session.threshold,
+        .participant_count = g_session.participant_count
+    };
 
     int ret = frost_dkg_round1_generate(&group, g_session.our_index,
                                          &g_session.our_round1,
@@ -83,6 +130,9 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
         PROTOCOL_ERROR(resp, req->id, -1, "Round 1 generation failed");
         return;
     }
+
+    g_session.state = DKG_ROUND2;
+    ESP_LOGI(TAG, "DKG state: ROUND1 -> ROUND2");
 
     char result[2400];
     char coeffs_hex[MAX_THRESHOLD * 129];
@@ -112,8 +162,7 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!g_session.active) {
-        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
+    if (!check_state(DKG_ROUND2, "round1_peer", req, resp)) {
         return;
     }
     if (g_session.peer_round1_count >= DKG_MAX_PARTICIPANTS) {
@@ -211,41 +260,38 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 void dkg_round2(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!g_session.active) {
-        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
-        return;
-    }
-    if (g_session.secret_share_count == 0) {
-        PROTOCOL_ERROR(resp, req->id, -1, "Round 1 not completed");
+    if (!check_state(DKG_ROUND2, "round2", req, resp)) {
         return;
     }
 
     char result[1600];
     size_t offset = 0;
+    bool first = true;
     offset += snprintf(result + offset, sizeof(result) - offset, "{\"shares\":[");
 
     for (uint8_t i = 0; i < g_session.participant_count && i < DKG_MAX_PARTICIPANTS; i++) {
-        if (i + 1 == g_session.our_index) continue;
+        if (i + 1 == g_session.our_index) {
+            continue;
+        }
 
         char share_hex[65];
         bytes_to_hex(g_session.secret_shares[i], 32, share_hex);
 
-        if (offset > 12) {
+        if (!first) {
             offset += snprintf(result + offset, sizeof(result) - offset, ",");
         }
+        first = false;
         offset += snprintf(result + offset, sizeof(result) - offset,
                            "{\"recipient_index\":%d,\"share\":\"%s\"}",
                            i + 1, share_hex);
     }
 
     offset += snprintf(result + offset, sizeof(result) - offset, "]}");
-
     protocol_success(resp, req->id, result);
 }
 
 void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!g_session.active) {
-        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
+    if (!check_state(DKG_ROUND2, "receive_share", req, resp)) {
         return;
     }
     if (g_session.received_share_count >= DKG_MAX_PARTICIPANTS) {
@@ -279,44 +325,40 @@ void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!g_session.active) {
-        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session");
+    if (!check_state(DKG_ROUND2, "finalize", req, resp)) {
         return;
     }
 
     frost_dkg_round1_t all_round1[DKG_MAX_PARTICIPANTS];
     size_t round1_count = 0;
-
-    memcpy(&all_round1[round1_count++], &g_session.our_round1, sizeof(frost_dkg_round1_t));
+    all_round1[round1_count++] = g_session.our_round1;
     for (uint8_t i = 0; i < g_session.peer_round1_count; i++) {
-        memcpy(&all_round1[round1_count++], &g_session.peer_round1[i], sizeof(frost_dkg_round1_t));
+        all_round1[round1_count++] = g_session.peer_round1[i];
     }
 
     frost_dkg_share_t all_shares[DKG_MAX_PARTICIPANTS];
     size_t share_count = 0;
-
-    frost_dkg_share_t our_share_entry;
-    our_share_entry.generator_index = g_session.our_index;
-    our_share_entry.receiver_index = g_session.our_index;
-    memcpy(our_share_entry.value, g_session.secret_shares[g_session.our_index - 1], 32);
-    memcpy(&all_shares[share_count++], &our_share_entry, sizeof(frost_dkg_share_t));
-
+    all_shares[share_count++] = (frost_dkg_share_t){
+        .generator_index = g_session.our_index,
+        .receiver_index = g_session.our_index
+    };
+    memcpy(all_shares[0].value, g_session.secret_shares[g_session.our_index - 1], 32);
     for (uint8_t i = 0; i < g_session.received_share_count; i++) {
-        memcpy(&all_shares[share_count++], &g_session.received_shares[i], sizeof(frost_dkg_share_t));
+        all_shares[share_count++] = g_session.received_shares[i];
     }
 
-    frost_group_t group;
-    memset(&group, 0, sizeof(group));
-    group.threshold = g_session.threshold;
-    group.participant_count = g_session.participant_count;
+    frost_group_t group = {
+        .threshold = g_session.threshold,
+        .participant_count = g_session.participant_count
+    };
 
     uint8_t final_share[32];
     uint8_t group_pubkey[33];
 
     int ret = frost_dkg_finalize(&group, all_round1, round1_count,
-                                  all_shares, share_count,
-                                  g_session.our_index,
-                                  final_share, group_pubkey);
+                                 all_shares, share_count,
+                                 g_session.our_index,
+                                 final_share, group_pubkey);
     if (ret != 0) {
         char err[64];
         snprintf(err, sizeof(err), "DKG finalize failed: %d", ret);
@@ -328,6 +370,8 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     bytes_to_hex(final_share, 32, share_hex);
 
     if (storage_save_share(g_session.group, share_hex) != 0) {
+        secure_memzero(final_share, sizeof(final_share));
+        secure_memzero(share_hex, sizeof(share_hex));
         PROTOCOL_ERROR(resp, req->id, -1, "Failed to store share");
         return;
     }
@@ -337,18 +381,10 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
 
     secure_memzero(final_share, sizeof(final_share));
     secure_memzero(share_hex, sizeof(share_hex));
-    secure_memzero(g_session.secret_shares, sizeof(g_session.secret_shares));
-    secure_memzero(&g_session.our_round1, sizeof(g_session.our_round1));
-    secure_memzero(g_session.received_shares, sizeof(g_session.received_shares));
-    for (uint8_t i = 0; i < g_session.peer_round1_count; i++) {
-        secure_memzero(&g_session.peer_round1[i], sizeof(frost_dkg_round1_t));
-    }
-    g_session.peer_round1_count = 0;
-    g_session.received_share_count = 0;
-    g_session.secret_share_count = 0;
+    clear_sensitive_session_data();
 
-    g_session.active = false;
-    ESP_LOGI(TAG, "DKG complete, share stored for group %s", g_session.group);
+    g_session.state = DKG_COMPLETE;
+    ESP_LOGI(TAG, "DKG state: ROUND2 -> COMPLETE (group=%s)", g_session.group);
 
     char result[200];
     snprintf(result, sizeof(result),
