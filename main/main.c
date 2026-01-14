@@ -15,6 +15,7 @@
 #include "policy.h"
 #include "random_utils.h"
 #include "hex_utils.h"
+#include "ux_interface.h"
 
 #define TAG "main"
 #define VERSION "0.1.2"
@@ -277,7 +278,17 @@ void app_main(void) {
         esp_restart();
     }
 
-    ESP_LOGI(TAG, "Initialization complete");
+    if (ux_init() != 0) {
+        ESP_LOGE(TAG, "UX init failed, restarting");
+        esp_restart();
+    }
+
+    const ux_backend_t *ux = ux_get_backend();
+    if (ux != NULL && ux->show_idle != NULL) {
+        ux->show_idle("keep", policy_has_bundle(), POLICY_VERSION);
+    } else {
+        ESP_LOGW(TAG, "UX backend or show_idle unavailable");
+    }
 
     static char line_buf[PROTOCOL_MAX_MESSAGE_LEN];
     static char resp_buf[PROTOCOL_MAX_MESSAGE_LEN];
