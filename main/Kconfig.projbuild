@@ -26,3 +26,43 @@ menu "FROST Participant Configuration"
             WebSocket URL of the Nostr relay to connect to.
 
 endmenu
+
+menu "Keep UX Configuration"
+
+    config KEEP_DISPLAY_ENABLED
+        bool "Enable display/touch interface"
+        default n
+        help
+            Enable LVGL display and touch input.
+            When disabled, device operates in headless serial mode.
+
+    config KEEP_QR_SCANNER_ENABLED
+        bool "Enable QR camera scanner"
+        default n
+        depends on KEEP_DISPLAY_ENABLED
+        help
+            Enable camera for QR code scanning.
+            Requires display mode for camera preview.
+
+    choice KEEP_DEFAULT_UX_MODE
+        prompt "Default UX mode"
+        default KEEP_UX_AUTO
+
+        config KEEP_UX_AUTO
+            bool "Auto-detect"
+            help
+                Automatically select display if available, otherwise serial.
+
+        config KEEP_UX_SERIAL
+            bool "Force serial (headless)"
+            help
+                Always use serial protocol, even if display available.
+
+        config KEEP_UX_DISPLAY
+            bool "Force display"
+            depends on KEEP_DISPLAY_ENABLED
+            help
+                Always use display mode. Fails if display not available.
+    endchoice
+
+endmenu
