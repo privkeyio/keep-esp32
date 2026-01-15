@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: privkeyio/libnostr-c
-          ref: v0.1.4
+          ref: v0.1.5
           path: libnostr-c
 
       - uses: actions/checkout@v4
