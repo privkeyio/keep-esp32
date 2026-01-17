@@ -43,3 +43,10 @@ target_compile_definitions(test_storage PRIVATE NATIVE_TEST=1)
 add_executable(test_session test_session.c)
 target_include_directories(test_session PRIVATE ${MAIN_DIR})
 target_compile_definitions(test_session PRIVATE NATIVE_TEST=1)
+
+add_executable(test_secure_element test_secure_element.c)
+target_include_directories(test_secure_element PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../components/secure_element/include
+)
+target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1)
