@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
 #include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include <string.h>
 
 #define RX_BUF_SIZE PROTOCOL_MAX_MESSAGE_LEN
@@ -21,6 +22,10 @@ int serial_init(void) {
         ESP_LOGE(TAG, "USB Serial JTAG init failed");
         return -1;
     }
+
+    /* Redirect VFS (stdout/stderr/ESP_LOG) through the installed driver */
+    usb_serial_jtag_vfs_use_driver();
+
     ESP_LOGI(TAG, "USB Serial JTAG initialized");
     return 0;
 }
