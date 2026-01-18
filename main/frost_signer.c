@@ -123,50 +123,6 @@ static void free_session(signing_session_t *s) {
     }
 }
 
-static int capture_policy_snapshot(bool *has_policy, uint8_t policy_hash[32]) {
-    *has_policy = false;
-    memset(policy_hash, 0, 32);
-
-    if (!policy_has_bundle()) {
-        return 0;
-    }
-
-    policy_bundle_t bundle;
-    int ret = policy_load_bundle(&bundle);
-    if (ret != 0) {
-        secure_memzero(&bundle, sizeof(bundle));
-        return ret;
-    }
-
-    ret = policy_verify_signature(&bundle);
-    if (ret != 0) {
-        secure_memzero(&bundle, sizeof(bundle));
-        return ret;
-    }
-
-    *has_policy = true;
-    memcpy(policy_hash, bundle.policy_hash, 32);
-    secure_memzero(&bundle, sizeof(bundle));
-    return 0;
-}
-
-static int verify_policy_unchanged(bool has_policy, const uint8_t policy_hash[32]) {
-    bool current_has_policy = false;
-    uint8_t current_hash[32];
-    int ret = capture_policy_snapshot(&current_has_policy, current_hash);
-
-    if (ret == 0) {
-        bool policy_mismatch = (has_policy != current_has_policy) ||
-                               (has_policy && ct_compare(policy_hash, current_hash, 32) != 0);
-        if (policy_mismatch) {
-            ret = -1;
-        }
-    }
-
-    secure_memzero(current_hash, sizeof(current_hash));
-    return ret;
-}
-
 static secresult_t capture_policy_snapshot_secure(bool *has_policy, uint8_t policy_hash[32]) {
     *has_policy = false;
     memset(policy_hash, 0, 32);

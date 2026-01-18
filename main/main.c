@@ -13,6 +13,7 @@
 #include "frost_dkg.h"
 #include "psbt.h"
 #include "policy.h"
+#include "secresult.h"
 #include "random_utils.h"
 #include "hex_utils.h"
 #include "ux_interface.h"
@@ -169,13 +170,13 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
         return;
     }
 
-    int policy_ret = policy_evaluate(summary.total_out_sats, summary.fee_sats);
-    if (policy_ret == POLICY_ERR_DENIED) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy denied");
-        return;
-    }
-    if (policy_ret != 0) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy evaluation failed");
+    secresult_t policy_ret = policy_evaluate_secure(summary.total_out_sats, summary.fee_sats);
+    if (!SECRESULT_IS_TRUE(policy_ret)) {
+        if (policy_ret == SECRESULT_ERR_POLICY_DENIED) {
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy denied");
+        } else {
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy evaluation failed");
+        }
         return;
     }
 
