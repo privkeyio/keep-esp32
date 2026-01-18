@@ -236,22 +236,46 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
         char coeff_hex[129];
         strncpy(coeff_hex, coeffs_start + coeff_offset, 128);
         coeff_hex[128] = '\0';
-        hex_to_bytes(coeff_hex, peer->coefficient_commitments[i], 64);
+        if (hex_to_bytes(coeff_hex, peer->coefficient_commitments[i], 64) != 64) {
+            free(data);
+            PROTOCOL_ERROR(resp, req->id, -1, "Invalid coefficient hex");
+            return;
+        }
         coeff_offset += 128;
         if (coeff_offset < coeffs_len && coeffs_start[coeff_offset] == ',') coeff_offset++;
     }
 
     char *zkp_r_start = zkp_r_str + 8;
+    size_t zkp_r_remaining = strlen(zkp_r_start);
+    if (zkp_r_remaining < 128) {
+        free(data);
+        PROTOCOL_ERROR(resp, req->id, -1, "zkp_r too short");
+        return;
+    }
     char zkp_r_hex[129];
     strncpy(zkp_r_hex, zkp_r_start, 128);
     zkp_r_hex[128] = '\0';
-    hex_to_bytes(zkp_r_hex, peer->zkp_r, 64);
+    if (hex_to_bytes(zkp_r_hex, peer->zkp_r, 64) != 64) {
+        free(data);
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid zkp_r hex");
+        return;
+    }
 
     char *zkp_z_start = zkp_z_str + 8;
+    size_t zkp_z_remaining = strlen(zkp_z_start);
+    if (zkp_z_remaining < 64) {
+        free(data);
+        PROTOCOL_ERROR(resp, req->id, -1, "zkp_z too short");
+        return;
+    }
     char zkp_z_hex[65];
     strncpy(zkp_z_hex, zkp_z_start, 64);
     zkp_z_hex[64] = '\0';
-    hex_to_bytes(zkp_z_hex, peer->zkp_z, 32);
+    if (hex_to_bytes(zkp_z_hex, peer->zkp_z, 32) != 32) {
+        free(data);
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid zkp_z hex");
+        return;
+    }
 
     free(data);
 
@@ -324,7 +348,10 @@ void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp) {
     frost_dkg_share_t *share = &g_session.received_shares[g_session.received_share_count];
     share->generator_index = req->peer_index;
     share->receiver_index = g_session.our_index;
-    hex_to_bytes(req->share, share->value, 32);
+    if (hex_to_bytes(req->share, share->value, 32) != 32) {
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid share hex");
+        return;
+    }
 
     g_session.received_share_count++;
     ESP_LOGI(TAG, "Received share from peer %d", req->peer_index);
@@ -342,6 +369,11 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     all_round1[round1_count++] = g_session.our_round1;
     for (uint8_t i = 0; i < g_session.peer_round1_count; i++) {
         all_round1[round1_count++] = g_session.peer_round1[i];
+    }
+
+    if (g_session.our_index < 1 || g_session.our_index > DKG_MAX_PARTICIPANTS) {
+        PROTOCOL_ERROR(resp, req->id, -1, "Invalid session state: our_index");
+        return;
     }
 
     frost_dkg_share_t all_shares[DKG_MAX_PARTICIPANTS];
