@@ -4,6 +4,15 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+
+static inline int nostr_random_bytes(uint8_t *buf, size_t len) {
+    FILE *fp = fopen("/dev/urandom", "r");
+    if (!fp) return 0;
+    size_t n = fread(buf, 1, len, fp);
+    fclose(fp);
+    return n == len ? 1 : 0;
+}
 
 static inline int hex_char_value(char c) {
     if (c >= '0' && c <= '9') return c - '0';

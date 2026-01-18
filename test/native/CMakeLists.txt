@@ -50,3 +50,17 @@ target_include_directories(test_secure_element PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../components/secure_element/include
 )
 target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1)
+
+add_executable(test_frost_signer_core test_frost_signer_core.c ${MAIN_DIR}/frost_signer_core.c ${MAIN_DIR}/frost.c ${MAIN_DIR}/random_utils.c)
+target_include_directories(test_frost_signer_core PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+    ${SECP_DIR}/include
+)
+target_link_directories(test_frost_signer_core PRIVATE ${SECP_DIR}/build/src)
+target_link_libraries(test_frost_signer_core secp256k1)
+set_target_properties(test_frost_signer_core PROPERTIES
+    BUILD_RPATH ${SECP_DIR}/build/src
+    INSTALL_RPATH ${SECP_DIR}/build/src
+)
+target_compile_definitions(test_frost_signer_core PRIVATE NATIVE_TEST=1)
