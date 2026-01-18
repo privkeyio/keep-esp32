@@ -9,8 +9,8 @@
 #include "error_codes.h"
 
 #define STORAGE_MAX_SHARES 8
-#define STORAGE_GROUP_LEN 64
-#define STORAGE_SHARE_LEN 256
+#define STORAGE_GROUP_LEN  64
+#define STORAGE_SHARE_LEN  256
 
 #define STORAGE_FORMAT_V1      1
 #define STORAGE_FORMAT_V2      2
