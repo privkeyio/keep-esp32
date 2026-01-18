@@ -8,6 +8,12 @@
 #include <stdlib.h>
 
 static void safe_str_copy(char *dest, size_t dest_size, const char *src) {
+    if (dest_size == 0)
+        return;
+    if (!src) {
+        dest[0] = '\0';
+        return;
+    }
     size_t src_len = strlen(src);
     size_t copy_len = (src_len < dest_size - 1) ? src_len : (dest_size - 1);
     memcpy(dest, src, copy_len);
@@ -38,8 +44,9 @@ static secp256k1_context *get_secp_ctx(void) {
         }
         taskEXIT_CRITICAL(&g_secp_init_spinlock);
     }
-    if (g_secp_mutex)
-        xSemaphoreTake(g_secp_mutex, portMAX_DELAY);
+    if (!g_secp_mutex)
+        return NULL;
+    xSemaphoreTake(g_secp_mutex, portMAX_DELAY);
 #else
     pthread_mutex_lock(&g_secp_mutex);
 #endif
@@ -47,8 +54,7 @@ static secp256k1_context *get_secp_ctx(void) {
         g_secp_ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
     }
 #ifdef ESP_PLATFORM
-    if (g_secp_mutex)
-        xSemaphoreGive(g_secp_mutex);
+    xSemaphoreGive(g_secp_mutex);
 #else
     pthread_mutex_unlock(&g_secp_mutex);
 #endif

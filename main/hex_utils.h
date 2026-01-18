@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if ESP_PLATFORM
+#if defined(ESP_PLATFORM) && ESP_PLATFORM
 #include <nostr.h>
 
 static inline int hex_to_bytes(const char *hex, uint8_t *out, size_t out_len) {

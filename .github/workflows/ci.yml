@@ -73,6 +73,7 @@ jobs:
           cmake ..
           make
           ./test_frost
+          ./test_frost_signer_core
           ./test_session
           ./test_storage
           ./test_secure_element

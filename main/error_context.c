@@ -14,6 +14,8 @@ static const char *path_basename(const char *path) {
 }
 
 static void safe_string_copy(char *dest, size_t dest_size, const char *src) {
+    if (dest_size == 0)
+        return;
     if (!src) {
         dest[0] = '\0';
         return;

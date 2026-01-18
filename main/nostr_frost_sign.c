@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <limits.h>
 
 int frost_parse_sign_request(const char *event_json, const frost_group_t *group,

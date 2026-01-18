@@ -25,7 +25,7 @@ static bool is_valid_base64(const char *str, size_t len) {
         }
         return false;
     }
-    return (len % 4) == 0;
+    return (len % 4) != 1;
 }
 
 static rpc_method_t parse_method(const char *method) {
