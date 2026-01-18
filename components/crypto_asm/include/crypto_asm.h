@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #ifndef CRYPTO_ASM_H
