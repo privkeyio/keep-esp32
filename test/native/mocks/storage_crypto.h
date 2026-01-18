@@ -13,6 +13,18 @@
 
 static bool mock_crypto_initialized = true;
 
+static uint8_t mock_last_encrypt_aad[128];
+static size_t mock_last_encrypt_aad_len = 0;
+static uint8_t mock_last_decrypt_aad[128];
+static size_t mock_last_decrypt_aad_len = 0;
+
+static inline void mock_crypto_reset_aad(void) {
+    memset(mock_last_encrypt_aad, 0, sizeof(mock_last_encrypt_aad));
+    mock_last_encrypt_aad_len = 0;
+    memset(mock_last_decrypt_aad, 0, sizeof(mock_last_decrypt_aad));
+    mock_last_decrypt_aad_len = 0;
+}
+
 static inline int storage_crypto_init(const char *pin) {
     (void)pin;
     mock_crypto_initialized = true;
@@ -27,20 +39,33 @@ static inline void storage_crypto_clear(void) {
     mock_crypto_initialized = false;
 }
 
-static inline int storage_crypto_encrypt(const uint8_t *plaintext, size_t len,
-                                         uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
+static inline int storage_crypto_encrypt(const uint8_t *plaintext, size_t len, const uint8_t *aad,
+                                         size_t aad_len, uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
                                          uint8_t *ciphertext,
                                          uint8_t tag[STORAGE_CRYPTO_TAG_SIZE]) {
+    if (aad && aad_len > 0 && aad_len <= sizeof(mock_last_encrypt_aad)) {
+        memcpy(mock_last_encrypt_aad, aad, aad_len);
+        mock_last_encrypt_aad_len = aad_len;
+    } else {
+        mock_last_encrypt_aad_len = 0;
+    }
     memset(nonce, 0x42, STORAGE_CRYPTO_NONCE_SIZE);
     memcpy(ciphertext, plaintext, len);
     memset(tag, 0x43, STORAGE_CRYPTO_TAG_SIZE);
     return 0;
 }
 
-static inline int storage_crypto_decrypt(const uint8_t *ciphertext, size_t len,
+static inline int storage_crypto_decrypt(const uint8_t *ciphertext, size_t len, const uint8_t *aad,
+                                         size_t aad_len,
                                          const uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
                                          const uint8_t tag[STORAGE_CRYPTO_TAG_SIZE],
                                          uint8_t *plaintext) {
+    if (aad && aad_len > 0 && aad_len <= sizeof(mock_last_decrypt_aad)) {
+        memcpy(mock_last_decrypt_aad, aad, aad_len);
+        mock_last_decrypt_aad_len = aad_len;
+    } else {
+        mock_last_decrypt_aad_len = 0;
+    }
     (void)nonce;
     (void)tag;
     memcpy(plaintext, ciphertext, len);
