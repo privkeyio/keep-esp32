@@ -3,6 +3,8 @@
 #include "hex_utils.h"
 #include "crypto_asm.h"
 #include "cJSON.h"
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>

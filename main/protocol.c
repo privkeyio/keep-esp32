@@ -1,5 +1,7 @@
 #include "protocol.h"
+#include "error_context.h"
 #include "cJSON.h"
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
