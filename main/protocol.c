@@ -4,6 +4,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static bool is_valid_base64(const char *str, size_t len) {
+    if (len == 0) return false;
+    size_t padding = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = str[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '+' || c == '/') {
+            if (padding > 0) return false;
+            continue;
+        }
+        if (c == '=') {
+            padding++;
+            if (padding > 2) return false;
+            continue;
+        }
+        return false;
+    }
+    return (len % 4) == 0;
+}
+
 static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "ping") == 0) return RPC_METHOD_PING;
     if (strcmp(method, "get_share_pubkey") == 0) return RPC_METHOD_GET_SHARE_PUBKEY;
@@ -109,6 +129,10 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (psbt && cJSON_IsString(psbt)) {
             size_t len = strlen(psbt->valuestring);
             if (len >= PROTOCOL_MAX_PSBT_LEN) {
+                cJSON_Delete(root);
+                return PROTOCOL_ERR_PARAMS;
+            }
+            if (!is_valid_base64(psbt->valuestring, len)) {
                 cJSON_Delete(root);
                 return PROTOCOL_ERR_PARAMS;
             }

@@ -254,7 +254,7 @@ int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats) {
     cJSON *rules = cJSON_Parse(rules_str);
     secure_memzero(rules_str, sizeof(rules_str));
     if (!rules) {
-        return 0;
+        return POLICY_ERR_MALFORMED;
     }
 
     cJSON *max_amount = cJSON_GetObjectItem(rules, "max_amount");

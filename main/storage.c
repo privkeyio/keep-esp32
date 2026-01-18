@@ -104,7 +104,7 @@ int storage_save_share(const char *group, const char *share_hex) {
             continue;
         }
         null_terminate_group(&slot);
-        if (slot_is_valid(&slot) && strcmp(slot.group, group) == 0) {
+        if (slot_is_valid(&slot) && ct_compare(slot.group, group, STORAGE_GROUP_LEN + 1) == 0) {
             target_slot = i;
             break;
         }
@@ -172,7 +172,7 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         }
 
         null_terminate_group(&slot);
-        if (strcmp(slot.group, group) != 0) {
+        if (ct_compare(slot.group, group, STORAGE_GROUP_LEN + 1) != 0) {
             continue;
         }
 
@@ -215,7 +215,7 @@ int storage_delete_share(const char *group) {
         }
 
         null_terminate_group(&slot);
-        if (strcmp(slot.group, group) != 0) {
+        if (ct_compare(slot.group, group, STORAGE_GROUP_LEN + 1) != 0) {
             continue;
         }
 
@@ -281,7 +281,7 @@ bool storage_has_share(const char *group) {
             continue;
         }
         null_terminate_group(&slot);
-        if (strcmp(slot.group, group) == 0) {
+        if (ct_compare(slot.group, group, STORAGE_GROUP_LEN + 1) == 0) {
             return true;
         }
     }
