@@ -372,10 +372,11 @@ int frost_coordinator_unsubscribe(const char *subscription_id) {
 static int publish_event(const char *event_json) {
     if (!g_initialized) return -1;
 
-    char *msg = malloc(strlen(event_json) + 32);
+    size_t msg_len = strlen(event_json) + 12;
+    char *msg = malloc(msg_len);
     if (!msg) return -1;
 
-    sprintf(msg, "[\"EVENT\",%s]", event_json);
+    snprintf(msg, msg_len, "[\"EVENT\",%s]", event_json);
 
     int published = 0;
 #ifdef ESP_PLATFORM
