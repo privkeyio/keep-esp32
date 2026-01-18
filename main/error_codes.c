@@ -51,7 +51,8 @@ const char *error_name(int code) {
         case ERR_STORAGE_CRYPTO:       return "STORAGE_CRYPTO";
         case ERR_STORAGE_INVALID:      return "STORAGE_INVALID";
         case ERR_STORAGE_IO:           return "STORAGE_IO";
-        case ERR_STORAGE_INVALID_DATA: return "STORAGE_INVALID_DATA";
+        case ERR_STORAGE_INVALID_DATA:  return "STORAGE_INVALID_DATA";
+        case ERR_STORAGE_INVALID_GROUP: return "STORAGE_INVALID_GROUP";
 
         case ERR_POLICY_DENIED:       return "POLICY_DENIED";
         case ERR_POLICY_INVALID_SIG:  return "POLICY_INVALID_SIG";
@@ -69,7 +70,8 @@ const char *error_name(int code) {
         case ERR_SESSION_EXPIRED:       return "SESSION_EXPIRED";
         case ERR_SESSION_DUPLICATE:     return "SESSION_DUPLICATE";
         case ERR_SESSION_INVALID_LEN:   return "SESSION_INVALID_LEN";
-        case ERR_SESSION_REPLAY:        return "SESSION_REPLAY";
+        case ERR_SESSION_REPLAY:           return "SESSION_REPLAY";
+        case ERR_SESSION_NOT_PARTICIPANT:  return "SESSION_NOT_PARTICIPANT";
 
         case ERR_CRYPTO_RNG_FAIL:    return "CRYPTO_RNG_FAIL";
         case ERR_CRYPTO_VERIFY_FAIL: return "CRYPTO_VERIFY_FAIL";
@@ -132,7 +134,8 @@ const char *error_to_string(int code) {
         case ERR_STORAGE_CRYPTO:       return "Storage crypto not initialized";
         case ERR_STORAGE_INVALID:      return "Invalid storage data";
         case ERR_STORAGE_IO:           return "Storage I/O error";
-        case ERR_STORAGE_INVALID_DATA: return "Invalid data format";
+        case ERR_STORAGE_INVALID_DATA:  return "Invalid data format";
+        case ERR_STORAGE_INVALID_GROUP: return "Invalid group name";
 
         case ERR_POLICY_DENIED:       return "Policy denied operation";
         case ERR_POLICY_INVALID_SIG:  return "Invalid policy signature";
@@ -150,7 +153,8 @@ const char *error_to_string(int code) {
         case ERR_SESSION_EXPIRED:       return "Session expired";
         case ERR_SESSION_DUPLICATE:     return "Duplicate session";
         case ERR_SESSION_INVALID_LEN:   return "Invalid session length";
-        case ERR_SESSION_REPLAY:        return "Session replay detected";
+        case ERR_SESSION_REPLAY:           return "Session replay detected";
+        case ERR_SESSION_NOT_PARTICIPANT:  return "Not a session participant";
 
         case ERR_CRYPTO_RNG_FAIL:    return "Random number generation failed";
         case ERR_CRYPTO_VERIFY_FAIL: return "Signature verification failed";
