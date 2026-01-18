@@ -43,14 +43,15 @@ const char *error_name(int code) {
         case ERR_DKG_TIMEOUT:         return "DKG_TIMEOUT";
         case ERR_DKG_INVALID_PARAMS:  return "DKG_INVALID_PARAMS";
 
-        case ERR_STORAGE_FULL:      return "STORAGE_FULL";
-        case ERR_STORAGE_NOT_FOUND: return "STORAGE_NOT_FOUND";
-        case ERR_STORAGE_CORRUPT:   return "STORAGE_CORRUPT";
-        case ERR_STORAGE_DECRYPT:   return "STORAGE_DECRYPT";
-        case ERR_STORAGE_NOT_INIT:  return "STORAGE_NOT_INIT";
-        case ERR_STORAGE_CRYPTO:    return "STORAGE_CRYPTO";
-        case ERR_STORAGE_INVALID:   return "STORAGE_INVALID";
-        case ERR_STORAGE_IO:        return "STORAGE_IO";
+        case ERR_STORAGE_FULL:         return "STORAGE_FULL";
+        case ERR_STORAGE_NOT_FOUND:    return "STORAGE_NOT_FOUND";
+        case ERR_STORAGE_CORRUPT:      return "STORAGE_CORRUPT";
+        case ERR_STORAGE_DECRYPT:      return "STORAGE_DECRYPT";
+        case ERR_STORAGE_NOT_INIT:     return "STORAGE_NOT_INIT";
+        case ERR_STORAGE_CRYPTO:       return "STORAGE_CRYPTO";
+        case ERR_STORAGE_INVALID:      return "STORAGE_INVALID";
+        case ERR_STORAGE_IO:           return "STORAGE_IO";
+        case ERR_STORAGE_INVALID_DATA: return "STORAGE_INVALID_DATA";
 
         case ERR_POLICY_DENIED:       return "POLICY_DENIED";
         case ERR_POLICY_INVALID_SIG:  return "POLICY_INVALID_SIG";
@@ -123,14 +124,15 @@ const char *error_to_string(int code) {
         case ERR_DKG_TIMEOUT:         return "DKG timed out";
         case ERR_DKG_INVALID_PARAMS:  return "Invalid DKG parameters";
 
-        case ERR_STORAGE_FULL:      return "Storage full";
-        case ERR_STORAGE_NOT_FOUND: return "Not found in storage";
-        case ERR_STORAGE_CORRUPT:   return "Storage data corrupted";
-        case ERR_STORAGE_DECRYPT:   return "Decryption failed";
-        case ERR_STORAGE_NOT_INIT:  return "Storage not initialized";
-        case ERR_STORAGE_CRYPTO:    return "Storage crypto not initialized";
-        case ERR_STORAGE_INVALID:   return "Invalid storage data";
-        case ERR_STORAGE_IO:        return "Storage I/O error";
+        case ERR_STORAGE_FULL:         return "Storage full";
+        case ERR_STORAGE_NOT_FOUND:    return "Not found in storage";
+        case ERR_STORAGE_CORRUPT:      return "Storage data corrupted";
+        case ERR_STORAGE_DECRYPT:      return "Decryption failed";
+        case ERR_STORAGE_NOT_INIT:     return "Storage not initialized";
+        case ERR_STORAGE_CRYPTO:       return "Storage crypto not initialized";
+        case ERR_STORAGE_INVALID:      return "Invalid storage data";
+        case ERR_STORAGE_IO:           return "Storage I/O error";
+        case ERR_STORAGE_INVALID_DATA: return "Invalid data format";
 
         case ERR_POLICY_DENIED:       return "Policy denied operation";
         case ERR_POLICY_INVALID_SIG:  return "Invalid policy signature";
