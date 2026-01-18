@@ -90,17 +90,15 @@ int psbt_get_sighash(const char *base64, size_t input_idx, uint8_t sighash[32]) 
         return -1;
     }
 
-    ret = wally_psbt_get_input_signature_hash(psbt, input_idx, tx,
-                                               script, script_len, 0,
-                                               sighash, SHA256_LEN);
+    ret = wally_psbt_get_input_signature_hash(psbt, input_idx, tx, script, script_len, 0, sighash,
+                                              SHA256_LEN);
     wally_tx_free(tx);
     wally_psbt_free(psbt);
     return (ret == WALLY_OK) ? 0 : -1;
 }
 
-int psbt_add_taproot_signature(const char *base64_in, size_t input_idx,
-                               const uint8_t *sig, size_t sig_len,
-                               char *base64_out, size_t out_len) {
+int psbt_add_taproot_signature(const char *base64_in, size_t input_idx, const uint8_t *sig,
+                               size_t sig_len, char *base64_out, size_t out_len) {
     if (!base64_in || !sig || !base64_out || out_len == 0) {
         return -1;
     }

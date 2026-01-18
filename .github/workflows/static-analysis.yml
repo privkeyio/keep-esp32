@@ -1,0 +1,138 @@
+name: Static Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      - name: Check formatting
+        run: find main test/native fuzz components -type f \( -name '*.c' -o -name '*.h' \) -exec clang-format --dry-run --Werror {} +
+
+  cppcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: keep-esp32
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/secp256k1-frost
+          ref: esp-idf-support
+          path: secp256k1-frost
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cppcheck cmake
+
+      - name: Build secp256k1-frost headers
+        run: |
+          cd secp256k1-frost
+          mkdir build && cd build
+          cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
+            -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
+            -DSECP256K1_ENABLE_MODULE_FROST=ON \
+            -DSECP256K1_EXPERIMENTAL=ON
+          make -j$(nproc)
+
+      - name: Run cppcheck
+        run: |
+          cd keep-esp32
+          cppcheck --enable=warning,performance,portability --error-exitcode=1 \
+            --suppress=missingIncludeSystem --inline-suppr \
+            -I main \
+            -I ../secp256k1-frost/include \
+            -I ../secp256k1-frost/build/include \
+            -I components/crypto_asm/include \
+            -I components/secure_element/include \
+            main/ test/native/ fuzz/
+
+  clang-tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: keep-esp32
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/secp256k1-frost
+          ref: esp-idf-support
+          path: secp256k1-frost
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy cmake
+
+      - name: Build secp256k1-frost headers
+        run: |
+          cd secp256k1-frost
+          mkdir build && cd build
+          cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
+            -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
+            -DSECP256K1_ENABLE_MODULE_FROST=ON \
+            -DSECP256K1_EXPERIMENTAL=ON
+          make -j$(nproc)
+
+      - name: Run clang-tidy
+        # Only analyze platform-independent files without external dependencies
+        # Excluded: Files requiring ESP-IDF, cJSON, or libwally-core headers
+        # -cert-err33-c: Embedded code commonly ignores return values for nvs/esp functions
+        # -misc-no-recursion: FROST protocol requires recursive structures
+        # -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling: strncpy used safely with explicit null termination
+        run: |
+          cd keep-esp32
+          clang-tidy \
+            main/error_context.c \
+            main/frost_signer_core.c \
+            main/frost_signer_storage.c \
+            -checks='-*,bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-bugprone-easily-swappable-parameters,-cert-err33-c,-misc-no-recursion,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' \
+            --warnings-as-errors='bugprone-*,clang-analyzer-*' \
+            -- \
+            -I main \
+            -I ../secp256k1-frost/include \
+            -I ../secp256k1-frost/build/include \
+            -I components/crypto_asm/include \
+            -I components/secure_element/include \
+            -DESP_PLATFORM=0
+
+  scan-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: keep-esp32
+
+      - uses: actions/checkout@v4
+        with:
+          repository: privkeyio/secp256k1-frost
+          ref: esp-idf-support
+          path: secp256k1-frost
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang clang-tools cmake
+
+      - name: Build secp256k1-frost
+        run: |
+          cd secp256k1-frost
+          mkdir build && cd build
+          cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
+            -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
+            -DSECP256K1_ENABLE_MODULE_FROST=ON \
+            -DSECP256K1_EXPERIMENTAL=ON
+          make -j$(nproc)
+
+      - name: Run scan-build on native tests
+        run: |
+          cd keep-esp32/test/native
+          mkdir -p build && cd build
+          scan-build --status-bugs cmake ..
+          scan-build --status-bugs make

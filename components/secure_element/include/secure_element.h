@@ -9,17 +9,17 @@
 extern "C" {
 #endif
 
-#define SE_SLOT_COUNT   16
-#define SE_SLOT_SIZE    72
-#define SE_SERIAL_SIZE  9
+#define SE_SLOT_COUNT  16
+#define SE_SLOT_SIZE   72
+#define SE_SERIAL_SIZE 9
 
 typedef enum {
-    SE_OK                   =  0,
-    SE_ERR_INVALID_PARAM    = -1,
-    SE_ERR_NOT_PROVISIONED  = -2,
-    SE_ERR_COMM_FAIL        = -3,
-    SE_ERR_LOCKED           = -4,
-    SE_ERR_NOT_INITIALIZED  = -5
+    SE_OK = 0,
+    SE_ERR_INVALID_PARAM = -1,
+    SE_ERR_NOT_PROVISIONED = -2,
+    SE_ERR_COMM_FAIL = -3,
+    SE_ERR_LOCKED = -4,
+    SE_ERR_NOT_INITIALIZED = -5
 } se_status_t;
 
 /** Initialize the secure element. Must be called before other functions. */

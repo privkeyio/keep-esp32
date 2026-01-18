@@ -6,9 +6,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#define STORAGE_CRYPTO_KEY_SIZE 32
-#define STORAGE_CRYPTO_NONCE_SIZE 12
-#define STORAGE_CRYPTO_TAG_SIZE 16
+#define STORAGE_CRYPTO_KEY_SIZE    32
+#define STORAGE_CRYPTO_NONCE_SIZE  12
+#define STORAGE_CRYPTO_TAG_SIZE    16
 #define STORAGE_CRYPTO_MAX_PIN_LEN 64
 
 static bool mock_crypto_initialized = true;

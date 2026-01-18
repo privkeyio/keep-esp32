@@ -50,7 +50,7 @@ int frost_coordinator_publish_sign_request(const frost_sign_request_t *request);
 int frost_coordinator_publish_sign_response(const frost_sign_response_t *response);
 int frost_coordinator_publish_dkg_round1(const frost_dkg_round1_t *round1);
 int frost_coordinator_publish_dkg_round2(const frost_dkg_round2_t *round2,
-                                          const uint8_t *recipient_pubkey);
+                                         const uint8_t *recipient_pubkey);
 
 void frost_coordinator_set_callbacks(const frost_coordinator_callbacks_t *callbacks);
 

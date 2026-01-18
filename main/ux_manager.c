@@ -2,7 +2,7 @@
 #include "esp_log.h"
 #include <string.h>
 
-#define TAG "ux_manager"
+#define TAG             "ux_manager"
 #define UX_MAX_BACKENDS 4
 
 static const ux_backend_t *backends[UX_MAX_BACKENDS];

@@ -15,16 +15,16 @@
 #include "session.h"
 
 #define KEYPAIR_SERIALIZED_LEN 102
-#define FROST_POINT_LEN 64
+#define FROST_POINT_LEN        64
 
 /** @brief FROST signer state. */
 typedef struct {
-    void *ctx;                  /**< secp256k1 context */
-    void *keypair;              /**< FROST keypair (secret) */
-    uint16_t share_index;       /**< Signer index (1-based) */
-    uint16_t threshold;         /**< Minimum signers */
-    uint16_t participants;      /**< Total participants */
-    uint8_t group_pubkey[33];   /**< Compressed group pubkey */
+    void *ctx;                /**< secp256k1 context */
+    void *keypair;            /**< FROST keypair (secret) */
+    uint16_t share_index;     /**< Signer index (1-based) */
+    uint16_t threshold;       /**< Minimum signers */
+    uint16_t participants;    /**< Total participants */
+    uint8_t group_pubkey[33]; /**< Compressed group pubkey */
 } frost_state_t;
 
 /**
@@ -52,8 +52,8 @@ void frost_free(frost_state_t *state);
  * @return 0 on success, negative on error
  * @warning Never reuse session for multiple signatures.
  */
-int frost_create_commitment(frost_state_t *state, session_t *session,
-                            uint8_t *commitment_out, size_t *commitment_len);
+int frost_create_commitment(frost_state_t *state, session_t *session, uint8_t *commitment_out,
+                            size_t *commitment_len);
 
 /**
  * @brief Produce signature share.
@@ -66,9 +66,8 @@ int frost_create_commitment(frost_state_t *state, session_t *session,
  * @return 0 on success, negative on error
  * @pre Session has all required commitments.
  */
-int frost_sign_share(frost_state_t *state, session_t *session,
-                     const uint8_t *msg_hash, size_t hash_len,
-                     uint8_t *sig_share_out, size_t *sig_share_len);
+int frost_sign_share(frost_state_t *state, session_t *session, const uint8_t *msg_hash,
+                     size_t hash_len, uint8_t *sig_share_out, size_t *sig_share_len);
 
 /**
  * @brief Aggregate shares into Schnorr signature.
@@ -80,9 +79,8 @@ int frost_sign_share(frost_state_t *state, session_t *session,
  * @return 0 on success, negative on error
  * @pre Session has threshold shares.
  */
-int frost_aggregate(frost_state_t *state, session_t *session,
-                    const uint8_t *msg_hash, size_t hash_len,
-                    uint8_t *signature_out);
+int frost_aggregate(frost_state_t *state, session_t *session, const uint8_t *msg_hash,
+                    size_t hash_len, uint8_t *signature_out);
 
 /**
  * @brief Verify Schnorr signature against group pubkey.
@@ -92,7 +90,7 @@ int frost_aggregate(frost_state_t *state, session_t *session,
  * @param hash_len Must be 32
  * @return 0 if valid, negative on error
  */
-int frost_verify(frost_state_t *state, const uint8_t *signature,
-                 const uint8_t *msg_hash, size_t hash_len);
+int frost_verify(frost_state_t *state, const uint8_t *signature, const uint8_t *msg_hash,
+                 size_t hash_len);
 
 #endif

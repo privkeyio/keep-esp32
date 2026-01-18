@@ -15,15 +15,15 @@
 #include "frost.h"
 #include "session.h"
 
-#define FROST_CORE_OK 0
-#define FROST_CORE_ERR_INVALID_SHARE -1
-#define FROST_CORE_ERR_INVALID_SESSION -2
+#define FROST_CORE_OK                    0
+#define FROST_CORE_ERR_INVALID_SHARE     -1
+#define FROST_CORE_ERR_INVALID_SESSION   -2
 #define FROST_CORE_ERR_COMMITMENT_FAILED -3
-#define FROST_CORE_ERR_SIGN_FAILED -4
-#define FROST_CORE_ERR_AGGREGATE_FAILED -5
-#define FROST_CORE_ERR_THRESHOLD -6
-#define FROST_CORE_ERR_PARSE -7
-#define FROST_CORE_ERR_OVERFLOW -8
+#define FROST_CORE_ERR_SIGN_FAILED       -4
+#define FROST_CORE_ERR_AGGREGATE_FAILED  -5
+#define FROST_CORE_ERR_THRESHOLD         -6
+#define FROST_CORE_ERR_PARSE             -7
+#define FROST_CORE_ERR_OVERFLOW          -8
 
 /**
  * @brief Result of a pure pubkey operation.
@@ -89,9 +89,8 @@ int frost_create_commitment_pure(frost_state_t *state, session_t *session,
  * @param result Output signature share result
  * @return 0 on success, negative on error
  */
-int frost_sign_share_pure(frost_state_t *state, session_t *session,
-                          const uint8_t *message, size_t message_len,
-                          frost_sign_result_t *result);
+int frost_sign_share_pure(frost_state_t *state, session_t *session, const uint8_t *message,
+                          size_t message_len, frost_sign_result_t *result);
 
 /**
  * @brief Aggregate signature shares (pure function).
@@ -102,9 +101,8 @@ int frost_sign_share_pure(frost_state_t *state, session_t *session,
  * @param result Output aggregate result
  * @return 0 on success, negative on error
  */
-int frost_aggregate_pure(frost_state_t *state, session_t *session,
-                         const uint8_t *message, size_t message_len,
-                         frost_aggregate_result_t *result);
+int frost_aggregate_pure(frost_state_t *state, session_t *session, const uint8_t *message,
+                         size_t message_len, frost_aggregate_result_t *result);
 
 /**
  * @brief Parse commitment from hex string into binary.
@@ -148,10 +146,7 @@ bool frost_is_session_id_valid(const uint8_t *session_id);
  * @param threshold Signing threshold
  * @return 0 on success, FROST_CORE_ERR_INVALID_SESSION if any param is NULL
  */
-int frost_init_signing_session(session_t *session,
-                               const uint8_t *session_id,
-                               const uint8_t *message,
-                               uint16_t share_index,
-                               uint16_t threshold);
+int frost_init_signing_session(session_t *session, const uint8_t *session_id,
+                               const uint8_t *message, uint16_t share_index, uint16_t threshold);
 
 #endif

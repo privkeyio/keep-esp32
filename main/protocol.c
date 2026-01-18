@@ -6,57 +6,82 @@
 #include <limits.h>
 
 static bool is_valid_base64(const char *str, size_t len) {
-    if (len == 0) return false;
+    if (len == 0)
+        return false;
     size_t padding = 0;
     for (size_t i = 0; i < len; i++) {
         char c = str[i];
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-            (c >= '0' && c <= '9') || c == '+' || c == '/') {
-            if (padding > 0) return false;
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '+' || c == '/') {
+            if (padding > 0)
+                return false;
             continue;
         }
         if (c == '=') {
             padding++;
-            if (padding > 2) return false;
+            if (padding > 2)
+                return false;
             continue;
         }
         return false;
     }
-    return (len % 4) == 0;
+    return (len % 4) != 1;
 }
 
 static rpc_method_t parse_method(const char *method) {
-    if (strcmp(method, "ping") == 0) return RPC_METHOD_PING;
-    if (strcmp(method, "get_share_pubkey") == 0) return RPC_METHOD_GET_SHARE_PUBKEY;
-    if (strcmp(method, "get_share_info") == 0) return RPC_METHOD_GET_SHARE_INFO;
-    if (strcmp(method, "frost_commit") == 0) return RPC_METHOD_FROST_COMMIT;
-    if (strcmp(method, "frost_sign") == 0) return RPC_METHOD_FROST_SIGN;
-    if (strcmp(method, "import_share") == 0) return RPC_METHOD_IMPORT_SHARE;
-    if (strcmp(method, "delete_share") == 0) return RPC_METHOD_DELETE_SHARE;
-    if (strcmp(method, "list_shares") == 0) return RPC_METHOD_LIST_SHARES;
-    if (strcmp(method, "dkg_init") == 0) return RPC_METHOD_DKG_INIT;
-    if (strcmp(method, "dkg_round1") == 0) return RPC_METHOD_DKG_ROUND1;
-    if (strcmp(method, "dkg_round1_peer") == 0) return RPC_METHOD_DKG_ROUND1_PEER;
-    if (strcmp(method, "dkg_round2") == 0) return RPC_METHOD_DKG_ROUND2;
-    if (strcmp(method, "dkg_receive_share") == 0) return RPC_METHOD_DKG_RECEIVE_SHARE;
-    if (strcmp(method, "dkg_finalize") == 0) return RPC_METHOD_DKG_FINALIZE;
-    if (strcmp(method, "bitcoin_parse") == 0) return RPC_METHOD_BITCOIN_PARSE;
-    if (strcmp(method, "bitcoin_sign") == 0) return RPC_METHOD_BITCOIN_SIGN;
-    if (strcmp(method, "policy_update") == 0) return RPC_METHOD_POLICY_UPDATE;
-    if (strcmp(method, "policy_get") == 0) return RPC_METHOD_POLICY_GET;
-    if (strcmp(method, "get_status") == 0) return RPC_METHOD_GET_STATUS;
-    if (strcmp(method, "restart") == 0) return RPC_METHOD_RESTART;
+    if (strcmp(method, "ping") == 0)
+        return RPC_METHOD_PING;
+    if (strcmp(method, "get_share_pubkey") == 0)
+        return RPC_METHOD_GET_SHARE_PUBKEY;
+    if (strcmp(method, "get_share_info") == 0)
+        return RPC_METHOD_GET_SHARE_INFO;
+    if (strcmp(method, "frost_commit") == 0)
+        return RPC_METHOD_FROST_COMMIT;
+    if (strcmp(method, "frost_sign") == 0)
+        return RPC_METHOD_FROST_SIGN;
+    if (strcmp(method, "import_share") == 0)
+        return RPC_METHOD_IMPORT_SHARE;
+    if (strcmp(method, "delete_share") == 0)
+        return RPC_METHOD_DELETE_SHARE;
+    if (strcmp(method, "list_shares") == 0)
+        return RPC_METHOD_LIST_SHARES;
+    if (strcmp(method, "dkg_init") == 0)
+        return RPC_METHOD_DKG_INIT;
+    if (strcmp(method, "dkg_round1") == 0)
+        return RPC_METHOD_DKG_ROUND1;
+    if (strcmp(method, "dkg_round1_peer") == 0)
+        return RPC_METHOD_DKG_ROUND1_PEER;
+    if (strcmp(method, "dkg_round2") == 0)
+        return RPC_METHOD_DKG_ROUND2;
+    if (strcmp(method, "dkg_receive_share") == 0)
+        return RPC_METHOD_DKG_RECEIVE_SHARE;
+    if (strcmp(method, "dkg_finalize") == 0)
+        return RPC_METHOD_DKG_FINALIZE;
+    if (strcmp(method, "bitcoin_parse") == 0)
+        return RPC_METHOD_BITCOIN_PARSE;
+    if (strcmp(method, "bitcoin_sign") == 0)
+        return RPC_METHOD_BITCOIN_SIGN;
+    if (strcmp(method, "policy_update") == 0)
+        return RPC_METHOD_POLICY_UPDATE;
+    if (strcmp(method, "policy_get") == 0)
+        return RPC_METHOD_POLICY_GET;
+    if (strcmp(method, "get_status") == 0)
+        return RPC_METHOD_GET_STATUS;
+    if (strcmp(method, "restart") == 0)
+        return RPC_METHOD_RESTART;
     return RPC_METHOD_UNKNOWN;
 }
 
 int protocol_parse_request(const char *json, rpc_request_t *req) {
-    if (!json || !req) return PROTOCOL_ERR_PARSE;
+    if (!json || !req)
+        return PROTOCOL_ERR_PARSE;
 
     memset(req, 0, sizeof(*req));
     req->method = RPC_METHOD_UNKNOWN;
 
     cJSON *root = cJSON_Parse(json);
-    if (!root) return PROTOCOL_ERR_PARSE;
+    if (!root)
+        return PROTOCOL_ERR_PARSE;
 
     cJSON *id_item = cJSON_GetObjectItem(root, "id");
     if (!id_item || !cJSON_IsNumber(id_item)) {
@@ -104,7 +129,8 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         }
         cJSON *participant_count = cJSON_GetObjectItem(params, "participant_count");
         if (participant_count && cJSON_IsNumber(participant_count)) {
-            if (participant_count->valueint < 0 || participant_count->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+            if (participant_count->valueint < 0 ||
+                participant_count->valueint > PROTOCOL_MAX_PARTICIPANTS) {
                 cJSON_Delete(root);
                 return PROTOCOL_ERR_PARAMS;
             }
@@ -153,7 +179,8 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         }
         cJSON *policy_bundle = cJSON_GetObjectItem(params, "bundle");
         if (policy_bundle && cJSON_IsString(policy_bundle)) {
-            snprintf(req->policy_bundle, sizeof(req->policy_bundle), "%s", policy_bundle->valuestring);
+            snprintf(req->policy_bundle, sizeof(req->policy_bundle), "%s",
+                     policy_bundle->valuestring);
         }
     }
 
@@ -169,11 +196,14 @@ void protocol_free_request(rpc_request_t *req) {
 }
 
 int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) {
-    if (!resp || !buf || len == 0) return -1;
-    if (len > (size_t)INT_MAX) len = (size_t)INT_MAX;
+    if (!resp || !buf || len == 0)
+        return -1;
+    if (len > (size_t)INT_MAX)
+        len = (size_t)INT_MAX;
 
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "id", resp->id);
 
@@ -182,7 +212,12 @@ int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) 
         if (result) {
             cJSON_AddItemToObject(root, "result", result);
         } else {
-            cJSON_AddRawToObject(root, "result", resp->result);
+            cJSON *str_result = cJSON_CreateString(resp->result);
+            if (!str_result) {
+                cJSON_Delete(root);
+                return -1;
+            }
+            cJSON_AddItemToObject(root, "result", str_result);
         }
     } else {
         cJSON *error = cJSON_AddObjectToObject(root, "error");

@@ -13,15 +13,15 @@
 #define FROST_KIND_NONCE_COMMIT   21106
 #define FROST_KIND_PAYMENT_NOTIFY 21110
 
-#define NIP46_KIND_NOSTR_CONNECT  24133
-#define NOSTR_P2P_KIND_EPHEMERAL  29001
+#define NIP46_KIND_NOSTR_CONNECT 24133
+#define NOSTR_P2P_KIND_EPHEMERAL 29001
 
 #define MAX_GROUP_PARTICIPANTS 16
-#define MAX_THRESHOLD MAX_GROUP_PARTICIPANTS
-#define GROUP_ID_LEN 32
-#define MAX_RELAYS 4
-#define RELAY_URL_LEN 128
-#define DKG_CONTEXT_TAG "frost-keygen"
+#define MAX_THRESHOLD          MAX_GROUP_PARTICIPANTS
+#define GROUP_ID_LEN           32
+#define MAX_RELAYS             4
+#define RELAY_URL_LEN          128
+#define DKG_CONTEXT_TAG        "frost-keygen"
 
 typedef struct {
     uint8_t npub[32];
@@ -112,76 +112,48 @@ typedef struct {
 } nip46_response_t;
 
 int frost_parse_group_event(const char *event_json, frost_group_t *group);
-int frost_create_group_event(const frost_group_t *group,
-                              const uint8_t *privkey,
-                              char *event_json, size_t max_len);
+int frost_create_group_event(const frost_group_t *group, const uint8_t *privkey, char *event_json,
+                             size_t max_len);
 int frost_get_our_index(const frost_group_t *group, const uint8_t our_npub[32]);
 
-int frost_dkg_round1_generate(const frost_group_t *group,
-                               uint8_t our_index,
-                               frost_dkg_round1_t *round1,
-                               uint8_t *secret_shares_out,
-                               size_t *share_count);
+int frost_dkg_round1_generate(const frost_group_t *group, uint8_t our_index,
+                              frost_dkg_round1_t *round1, uint8_t *secret_shares_out,
+                              size_t *share_count);
 int frost_dkg_round1_validate(const frost_dkg_round1_t *peer_round1);
-int frost_create_dkg_round1_event(const frost_group_t *group,
-                                   const frost_dkg_round1_t *round1,
-                                   const uint8_t *privkey,
-                                   char *event_json, size_t max_len);
-int frost_parse_dkg_round1_event(const char *event_json,
-                                  const frost_group_t *group,
-                                  const uint8_t *our_privkey,
-                                  frost_dkg_round1_t *round1);
+int frost_create_dkg_round1_event(const frost_group_t *group, const frost_dkg_round1_t *round1,
+                                  const uint8_t *privkey, char *event_json, size_t max_len);
+int frost_parse_dkg_round1_event(const char *event_json, const frost_group_t *group,
+                                 const uint8_t *our_privkey, frost_dkg_round1_t *round1);
 
-int frost_create_dkg_round2_event(const frost_group_t *group,
-                                   const frost_dkg_round2_t *round2,
-                                   const uint8_t *our_privkey,
-                                   const uint8_t *recipient_pubkey,
-                                   char *event_json, size_t max_len);
-int frost_parse_dkg_round2_event(const char *event_json,
-                                  const frost_group_t *group,
-                                  const uint8_t *our_privkey,
-                                  frost_dkg_round2_t *round2);
-int frost_dkg_finalize(const frost_group_t *group,
-                        const frost_dkg_round1_t *all_round1,
-                        size_t round1_count,
-                        const frost_dkg_share_t *received_shares,
-                        size_t share_count,
-                        uint8_t our_index,
-                        uint8_t our_share[32],
-                        uint8_t group_pubkey[33]);
+int frost_create_dkg_round2_event(const frost_group_t *group, const frost_dkg_round2_t *round2,
+                                  const uint8_t *our_privkey, const uint8_t *recipient_pubkey,
+                                  char *event_json, size_t max_len);
+int frost_parse_dkg_round2_event(const char *event_json, const frost_group_t *group,
+                                 const uint8_t *our_privkey, frost_dkg_round2_t *round2);
+int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all_round1,
+                       size_t round1_count, const frost_dkg_share_t *received_shares,
+                       size_t share_count, uint8_t our_index, uint8_t our_share[32],
+                       uint8_t group_pubkey[33]);
 
-int frost_create_sign_request(const frost_group_t *group,
-                               const frost_sign_request_t *request,
-                               const uint8_t *privkey,
-                               char *event_json, size_t max_len);
-int frost_parse_sign_request(const char *event_json,
-                              const frost_group_t *group,
-                              const uint8_t *our_privkey,
-                              frost_sign_request_t *request);
+int frost_create_sign_request(const frost_group_t *group, const frost_sign_request_t *request,
+                              const uint8_t *privkey, char *event_json, size_t max_len);
+int frost_parse_sign_request(const char *event_json, const frost_group_t *group,
+                             const uint8_t *our_privkey, frost_sign_request_t *request);
 
-int frost_sign_partial(const frost_group_t *group,
-                        const frost_sign_request_t *request,
-                        const uint8_t our_share[32],
-                        uint8_t our_index,
-                        frost_sign_response_t *response);
-int frost_create_sign_response(const frost_group_t *group,
-                                const frost_sign_response_t *response,
-                                const uint8_t *privkey,
-                                char *event_json, size_t max_len);
-int frost_parse_sign_response(const char *event_json,
-                               const frost_group_t *group,
-                               const uint8_t *our_privkey,
-                               frost_sign_response_t *response);
+int frost_sign_partial(const frost_group_t *group, const frost_sign_request_t *request,
+                       const uint8_t our_share[32], uint8_t our_index,
+                       frost_sign_response_t *response);
+int frost_create_sign_response(const frost_group_t *group, const frost_sign_response_t *response,
+                               const uint8_t *privkey, char *event_json, size_t max_len);
+int frost_parse_sign_response(const char *event_json, const frost_group_t *group,
+                              const uint8_t *our_privkey, frost_sign_response_t *response);
 
 void frost_sign_request_free(frost_sign_request_t *request);
 
-int frost_parse_nip46_event(const char *event_json,
-                             const uint8_t *our_privkey,
-                             nip46_request_t *request);
-int frost_create_nip46_response(const nip46_response_t *response,
-                                 const uint8_t *our_privkey,
-                                 const uint8_t *recipient_pubkey,
-                                 char *event_json, size_t max_len);
+int frost_parse_nip46_event(const char *event_json, const uint8_t *our_privkey,
+                            nip46_request_t *request);
+int frost_create_nip46_response(const nip46_response_t *response, const uint8_t *our_privkey,
+                                const uint8_t *recipient_pubkey, char *event_json, size_t max_len);
 void frost_nip46_request_free(nip46_request_t *request);
 
 #endif

@@ -22,7 +22,9 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
-static uint32_t get_time_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
+static uint32_t get_time_ms(void) {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
 #else
 #include <time.h>
 #include <stdlib.h>
@@ -33,8 +35,8 @@ static uint32_t get_time_ms(void) {
 }
 #endif
 
-#define TAG "frost_signer"
-#define MAX_SESSIONS 4
+#define TAG                        "frost_signer"
+#define MAX_SESSIONS               4
 #define CONSUMED_SESSION_RING_SIZE 32
 
 static uint8_t consumed_sessions[CONSUMED_SESSION_RING_SIZE][SESSION_ID_LEN];
@@ -42,9 +44,8 @@ static uint8_t consumed_count = 0;
 static uint8_t consumed_head = 0;
 
 static bool is_session_consumed(const uint8_t *session_id) {
-    uint8_t count = (consumed_count < CONSUMED_SESSION_RING_SIZE)
-                  ? consumed_count
-                  : CONSUMED_SESSION_RING_SIZE;
+    uint8_t count =
+        (consumed_count < CONSUMED_SESSION_RING_SIZE) ? consumed_count : CONSUMED_SESSION_RING_SIZE;
     for (uint8_t i = 0; i < count; i++) {
         if (ct_compare(consumed_sessions[i], session_id, SESSION_ID_LEN) == 0) {
             return true;
@@ -62,8 +63,12 @@ static void record_consumed_session(const uint8_t *session_id) {
 }
 
 #ifdef FROST_SIGNER_QUIET_LOGS
-#define FROST_LOGI(tag, ...) do {} while(0)
-#define FROST_LOGW(tag, ...) do {} while(0)
+#define FROST_LOGI(tag, ...) \
+    do {                     \
+    } while (0)
+#define FROST_LOGW(tag, ...) \
+    do {                     \
+    } while (0)
 #else
 #ifdef ESP_PLATFORM
 #define FROST_LOGI(tag, ...) ESP_LOGI(tag, __VA_ARGS__)
@@ -150,9 +155,9 @@ static int verify_policy_unchanged(bool has_policy, const uint8_t policy_hash[32
     int ret = capture_policy_snapshot(&current_has_policy, current_hash);
 
     if (ret == 0) {
-        if (has_policy != current_has_policy) {
-            ret = -1;
-        } else if (has_policy && ct_compare(policy_hash, current_hash, 32) != 0) {
+        bool policy_mismatch = (has_policy != current_has_policy) ||
+                               (has_policy && ct_compare(policy_hash, current_hash, 32) != 0);
+        if (policy_mismatch) {
             ret = -1;
         }
     }
@@ -209,8 +214,8 @@ void frost_get_pubkey(const char *group, rpc_response_t *resp) {
     bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
 
     char result[128];
-    snprintf(result, sizeof(result), "{\"pubkey\":\"%s\",\"index\":%d}",
-             pubkey_hex, state.share_index);
+    snprintf(result, sizeof(result), "{\"pubkey\":\"%s\",\"index\":%d}", pubkey_hex,
+             state.share_index);
     protocol_success(resp, resp->id, result);
 
     frost_free(&state);
@@ -230,17 +235,18 @@ void frost_get_share_info(const char *group, rpc_response_t *resp) {
 
     char result[192];
     snprintf(result, sizeof(result),
-             "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d}",
-             pubkey_hex, state.share_index, state.threshold, state.participants);
+             "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d}", pubkey_hex,
+             state.share_index, state.threshold, state.participants);
     protocol_success(resp, resp->id, result);
 
     frost_free(&state);
 }
 
-void frost_commit(const char *group, const char *session_id_hex,
-                  const char *message_hex, rpc_response_t *resp) {
+void frost_commit(const char *group, const char *session_id_hex, const char *message_hex,
+                  rpc_response_t *resp) {
     if (!rng_is_healthy()) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "RNG health check failed, device in safe mode");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL,
+                       "RNG health check failed, device in safe mode");
         return;
     }
 
@@ -301,8 +307,8 @@ void frost_commit(const char *group, const char *session_id_hex,
     s->group[STORAGE_GROUP_LEN] = '\0';
 
     uint16_t threshold = s->frost_state.threshold > 0 ? s->frost_state.threshold : 2;
-    if (frost_init_signing_session(&s->session, session_id, message,
-                                   s->frost_state.share_index, threshold) != 0) {
+    if (frost_init_signing_session(&s->session, session_id, message, s->frost_state.share_index,
+                                   threshold) != 0) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to init session");
         return;
@@ -316,22 +322,22 @@ void frost_commit(const char *group, const char *session_id_hex,
     }
 
     char commitment_hex[COMMITMENT_HEX_LEN + 1];
-    bytes_to_hex(commit_result.commitment, commit_result.commitment_len,
-                 commitment_hex, sizeof(commitment_hex));
+    bytes_to_hex(commit_result.commitment, commit_result.commitment_len, commitment_hex,
+                 sizeof(commitment_hex));
 
     char result[512];
-    snprintf(result, sizeof(result),
-             "{\"commitment\":\"%s\",\"index\":%d}",
-             commitment_hex, commit_result.index);
+    snprintf(result, sizeof(result), "{\"commitment\":\"%s\",\"index\":%d}", commitment_hex,
+             commit_result.index);
     protocol_success(resp, resp->id, result);
 
     FROST_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
 }
 
-void frost_sign(const char *group, const char *session_id_hex,
-                const char *commitments_hex, rpc_response_t *resp) {
+void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex,
+                rpc_response_t *resp) {
     if (!rng_is_healthy()) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "RNG health check failed, device in safe mode");
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL,
+                       "RNG health check failed, device in safe mode");
         return;
     }
 
@@ -381,8 +387,7 @@ void frost_sign(const char *group, const char *session_id_hex,
                              cached_share_hex, sizeof(cached_share_hex));
 
                 char result[192];
-                snprintf(result, sizeof(result),
-                         "{\"signature_share\":\"%s\",\"index\":%d}",
+                snprintf(result, sizeof(result), "{\"signature_share\":\"%s\",\"index\":%d}",
                          cached_share_hex, our_index);
                 protocol_success(resp, resp->id, result);
                 FROST_LOGI(TAG, "Returning cached signature share for session %.16s... (retry)",
@@ -399,9 +404,8 @@ void frost_sign(const char *group, const char *session_id_hex,
     memcpy(policy_hash_snapshot, s->policy_hash, 32);
 
     frost_sign_result_t sign_result;
-    if (frost_sign_share_pure(&s->frost_state, &s->session,
-                              s->session.message, s->session.message_len,
-                              &sign_result) != 0) {
+    if (frost_sign_share_pure(&s->frost_state, &s->session, s->session.message,
+                              s->session.message_len, &sign_result) != 0) {
         secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Signing failed");
@@ -430,13 +434,12 @@ void frost_sign(const char *group, const char *session_id_hex,
     s->session.sig_share_count++;
 
     char sig_share_hex[73];
-    bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len,
-                 sig_share_hex, sizeof(sig_share_hex));
+    bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len, sig_share_hex,
+                 sizeof(sig_share_hex));
 
     char result[192];
-    snprintf(result, sizeof(result),
-             "{\"signature_share\":\"%s\",\"index\":%d}",
-             sig_share_hex, sign_result.index);
+    snprintf(result, sizeof(result), "{\"signature_share\":\"%s\",\"index\":%d}", sig_share_hex,
+             sign_result.index);
     protocol_success(resp, resp->id, result);
 
     FROST_LOGI(TAG, "Created signature share for session %.16s...", session_id_hex);
@@ -447,7 +450,8 @@ void frost_signer_cleanup_stale(void) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
         if (sessions[i].active) {
             uint32_t created = sessions[i].session.created_at;
-            uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
+            uint32_t elapsed =
+                (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
             if (elapsed > SESSION_TIMEOUT_MS) {
                 FROST_LOGW(TAG, "Cleaning up stale session");
                 free_session(&sessions[i]);
@@ -456,8 +460,8 @@ void frost_signer_cleanup_stale(void) {
     }
 }
 
-void frost_add_share(const char *session_id_hex, const char *sig_share_hex,
-                     uint16_t share_index, rpc_response_t *resp) {
+void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index,
+                     rpc_response_t *resp) {
     uint8_t session_id[SESSION_ID_LEN];
     if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
@@ -515,9 +519,8 @@ void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
     }
 
     frost_aggregate_result_t agg_result;
-    if (frost_aggregate_pure(&s->frost_state, &s->session,
-                             s->session.message, s->session.message_len,
-                             &agg_result) != 0) {
+    if (frost_aggregate_pure(&s->frost_state, &s->session, s->session.message,
+                             s->session.message_len, &agg_result) != 0) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Aggregation failed");
         return;

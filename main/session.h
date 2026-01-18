@@ -5,23 +5,23 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define SESSION_TIMEOUT_MS 30000
+#define SESSION_TIMEOUT_MS  30000
 #define MAX_ACTIVE_SESSIONS 4
-#define MAX_PARTICIPANTS 16
-#define MAX_MESSAGE_LEN 1024
+#define MAX_PARTICIPANTS    16
+#define MAX_MESSAGE_LEN     1024
 
-#define SESSION_ID_LEN 32
+#define SESSION_ID_LEN     32
 #define SESSION_ID_HEX_LEN 64
-#define COMMITMENT_LEN 132
+#define COMMITMENT_LEN     132
 #define COMMITMENT_HEX_LEN 264
-#define SIG_SHARE_LEN 36
-#define SIGNATURE_LEN 64
-#define SCALAR_LEN 32
+#define SIG_SHARE_LEN      36
+#define SIGNATURE_LEN      64
+#define SCALAR_LEN         32
 
-#define SESSION_ERR_INVALID_STATE -1
+#define SESSION_ERR_INVALID_STATE   -1
 #define SESSION_ERR_NOT_PARTICIPANT -2
-#define SESSION_ERR_INVALID_LEN -3
-#define SESSION_ERR_DUPLICATE -4
+#define SESSION_ERR_INVALID_LEN     -3
+#define SESSION_ERR_DUPLICATE       -4
 
 typedef struct {
     uint8_t session_id[SESSION_ID_LEN];
@@ -75,8 +75,10 @@ int session_init(session_t *s, const sign_request_t *req, uint16_t threshold);
 void session_destroy(session_t *s);
 session_state_t session_state(session_t *s);
 bool session_is_participant(session_t *s, uint16_t share_index);
-int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment, size_t len);
-int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_t *share, size_t len);
+int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment,
+                           size_t len);
+int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_t *share,
+                                size_t len);
 bool session_has_all_commitments(session_t *s);
 bool session_has_all_shares(session_t *s);
 

@@ -13,7 +13,8 @@
 #include <stdio.h>
 static void secure_zero(void *buf, size_t len) {
     volatile uint8_t *p = buf;
-    while (len--) *p++ = 0;
+    while (len--)
+        *p++ = 0;
 }
 #endif
 
@@ -30,21 +31,28 @@ static void fill_random(uint8_t *buf, size_t len) {
 
 int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_len) {
     memset(state, 0, sizeof(*state));
-    if (share_len < KEYPAIR_SERIALIZED_LEN) return -1;
+    if (share_len < KEYPAIR_SERIALIZED_LEN)
+        return -1;
 
     state->ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
-    if (!state->ctx) return -2;
+    if (!state->ctx)
+        return -2;
 
     const uint8_t *p = share_bytes;
     uint8_t secret[SCALAR_LEN];
-    memcpy(secret, p, SCALAR_LEN); p += SCALAR_LEN;
+    memcpy(secret, p, SCALAR_LEN);
+    p += SCALAR_LEN;
 
     uint8_t pubkey33[33], group_pubkey33[33];
-    memcpy(pubkey33, p, 33); p += 33;
-    memcpy(group_pubkey33, p, 33); p += 33;
+    memcpy(pubkey33, p, 33);
+    p += 33;
+    memcpy(group_pubkey33, p, 33);
+    p += 33;
 
-    uint32_t index = p[0] | (p[1] << 8); p += 2;
-    uint32_t max_participants = p[0] | (p[1] << 8); p += 2;
+    uint32_t index = p[0] | (p[1] << 8);
+    p += 2;
+    uint32_t max_participants = p[0] | (p[1] << 8);
+    p += 2;
     uint32_t threshold = 2;
     if (share_len >= KEYPAIR_SERIALIZED_LEN + 2) {
         threshold = p[0] | (p[1] << 8);
@@ -63,7 +71,8 @@ int frost_init(frost_state_t *state, const uint8_t *share_bytes, size_t share_le
     memcpy(kp->secret, secret, SCALAR_LEN);
     secure_zero(secret, sizeof(secret));
 
-    if (!secp256k1_frost_pubkey_load(&kp->public_keys, index, max_participants, pubkey33, group_pubkey33)) {
+    if (!secp256k1_frost_pubkey_load(&kp->public_keys, index, max_participants, pubkey33,
+                                     group_pubkey33)) {
         secp256k1_frost_keypair_destroy(kp);
         secp256k1_context_destroy(state->ctx);
         return -4;
@@ -89,17 +98,18 @@ void frost_free(frost_state_t *state) {
     }
 }
 
-int frost_create_commitment(frost_state_t *state, session_t *session,
-                            uint8_t *commitment_out, size_t *commitment_len) {
+int frost_create_commitment(frost_state_t *state, session_t *session, uint8_t *commitment_out,
+                            size_t *commitment_len) {
     uint8_t binding_seed[SCALAR_LEN], hiding_seed[SCALAR_LEN];
     fill_random(binding_seed, SCALAR_LEN);
     fill_random(hiding_seed, SCALAR_LEN);
 
-    secp256k1_frost_nonce *nonce = secp256k1_frost_nonce_create(
-        state->ctx, state->keypair, binding_seed, hiding_seed);
+    secp256k1_frost_nonce *nonce =
+        secp256k1_frost_nonce_create(state->ctx, state->keypair, binding_seed, hiding_seed);
     secure_zero(binding_seed, sizeof(binding_seed));
     secure_zero(hiding_seed, sizeof(hiding_seed));
-    if (!nonce) return -1;
+    if (!nonce)
+        return -1;
 
     memcpy(session->our_nonce, nonce->hiding, SCALAR_LEN);
     memcpy(session->our_nonce + SCALAR_LEN, nonce->binding, SCALAR_LEN);
@@ -111,7 +121,8 @@ int frost_create_commitment(frost_state_t *state, session_t *session,
     p[2] = (c->index >> 16) & 0xff;
     p[3] = (c->index >> 24) & 0xff;
     p += 4;
-    memcpy(p, c->hiding, FROST_POINT_LEN); p += FROST_POINT_LEN;
+    memcpy(p, c->hiding, FROST_POINT_LEN);
+    p += FROST_POINT_LEN;
     memcpy(p, c->binding, FROST_POINT_LEN);
 
     *commitment_len = COMMITMENT_LEN;
@@ -128,11 +139,12 @@ static void deserialize_commitment(const uint8_t *data, secp256k1_frost_nonce_co
     memcpy(c->binding, data + 4 + FROST_POINT_LEN, FROST_POINT_LEN);
 }
 
-int frost_sign_share(frost_state_t *state, session_t *session,
-                     const uint8_t *msg_hash, size_t hash_len,
-                     uint8_t *sig_share_out, size_t *sig_share_len) {
-    if (!session_has_all_commitments(session)) return -1;
-    if (session->commitment_count >= MAX_PARTICIPANTS) return -3;
+int frost_sign_share(frost_state_t *state, session_t *session, const uint8_t *msg_hash,
+                     size_t hash_len, uint8_t *sig_share_out, size_t *sig_share_len) {
+    if (!session_has_all_commitments(session))
+        return -1;
+    if (session->commitment_count >= MAX_PARTICIPANTS)
+        return -3;
 
     secp256k1_frost_nonce nonce;
     nonce.used = 0;
@@ -148,10 +160,10 @@ int frost_sign_share(frost_state_t *state, session_t *session,
     int total_commits = session->commitment_count + 1;
 
     secp256k1_frost_signature_share share;
-    int ret = secp256k1_frost_sign(state->ctx, &share, msg_hash, hash_len,
-                                   total_commits, state->keypair,
-                                   &nonce, commits);
-    if (ret != 1) return -2;
+    int ret = secp256k1_frost_sign(state->ctx, &share, msg_hash, hash_len, total_commits,
+                                   state->keypair, &nonce, commits);
+    if (ret != 1)
+        return -2;
 
     uint8_t *p = sig_share_out;
     p[0] = share.index & 0xff;
@@ -169,12 +181,14 @@ static void deserialize_sig_share(const uint8_t *data, secp256k1_frost_signature
     memcpy(s->response, data + 4, SCALAR_LEN);
 }
 
-int frost_aggregate(frost_state_t *state, session_t *session,
-                    const uint8_t *msg_hash, size_t hash_len,
-                    uint8_t *signature_out) {
-    if (!session_has_all_shares(session)) return -1;
-    if (session->commitment_count >= MAX_PARTICIPANTS) return -3;
-    if (session->sig_share_count >= MAX_PARTICIPANTS) return -3;
+int frost_aggregate(frost_state_t *state, session_t *session, const uint8_t *msg_hash,
+                    size_t hash_len, uint8_t *signature_out) {
+    if (!session_has_all_shares(session))
+        return -1;
+    if (session->commitment_count >= MAX_PARTICIPANTS)
+        return -3;
+    if (session->sig_share_count >= MAX_PARTICIPANTS)
+        return -3;
 
     secp256k1_frost_nonce_commitment commits[MAX_PARTICIPANTS];
     for (int i = 0; i < session->commitment_count; i++) {
@@ -192,14 +206,14 @@ int frost_aggregate(frost_state_t *state, session_t *session,
         pubkeys[i].index = commits[i].index;
     }
 
-    int ret = secp256k1_frost_aggregate(state->ctx, signature_out, msg_hash, hash_len,
-                                        state->keypair, pubkeys, commits, shares,
-                                        session->threshold);
+    int ret =
+        secp256k1_frost_aggregate(state->ctx, signature_out, msg_hash, hash_len, state->keypair,
+                                  pubkeys, commits, shares, session->threshold);
     return ret == 1 ? 0 : -2;
 }
 
-int frost_verify(frost_state_t *state, const uint8_t *signature,
-                 const uint8_t *msg_hash, size_t hash_len) {
+int frost_verify(frost_state_t *state, const uint8_t *signature, const uint8_t *msg_hash,
+                 size_t hash_len) {
     secp256k1_frost_pubkey pk;
     secp256k1_frost_pubkey_from_keypair(&pk, state->keypair);
     int ret = secp256k1_frost_verify(state->ctx, signature, msg_hash, hash_len, &pk);

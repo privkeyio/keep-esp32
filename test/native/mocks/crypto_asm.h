@@ -6,7 +6,8 @@
 
 static inline void secure_memzero(void *ptr, size_t len) {
     volatile uint8_t *p = ptr;
-    while (len--) *p++ = 0;
+    while (len--)
+        *p++ = 0;
 }
 
 static inline int ct_compare(const void *a, const void *b, size_t len) {

@@ -10,9 +10,9 @@
 #include <mbedtls/sha256.h>
 #include <string.h>
 
-#define TAG "policy"
+#define TAG            "policy"
 #define PARTITION_NAME "policy"
-#define SECTOR_SIZE 4096
+#define SECTOR_SIZE    4096
 
 static const esp_partition_t *policy_partition = NULL;
 static bool initialized = false;
@@ -22,26 +22,31 @@ _Static_assert(sizeof(policy_bundle_t) <= POLICY_SLOT_SIZE, "policy_bundle_t exc
 _Static_assert(sizeof(policy_bundle_t) <= SECTOR_SIZE, "policy_bundle_t exceeds sector size");
 
 int policy_init(void) {
-    if (initialized) return 0;
+    if (initialized)
+        return 0;
 
-    policy_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, PARTITION_NAME);
+    policy_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY,
+                                                PARTITION_NAME);
     if (!policy_partition) {
         ESP_LOGE(TAG, "Policy partition '%s' not found", PARTITION_NAME);
         return -1;
     }
 
-    ESP_LOGI(TAG, "Policy storage initialized: %s at 0x%lx (%lu bytes)",
-             policy_partition->label, policy_partition->address, policy_partition->size);
+    ESP_LOGI(TAG, "Policy storage initialized: %s at 0x%lx (%lu bytes)", policy_partition->label,
+             policy_partition->address, policy_partition->size);
     initialized = true;
     return 0;
 }
 
 int policy_save_bundle(const policy_bundle_t *bundle) {
-    if (!initialized) return POLICY_ERR_STORAGE;
-    if (bundle->version != POLICY_VERSION) return POLICY_ERR_VERSION;
+    if (!initialized)
+        return POLICY_ERR_STORAGE;
+    if (bundle->version != POLICY_VERSION)
+        return POLICY_ERR_VERSION;
 
     int ret = policy_verify_signature(bundle);
-    if (ret != 0) return ret;
+    if (ret != 0)
+        return ret;
 
     esp_err_t err = esp_partition_read(policy_partition, 0, sector_buf, SECTOR_SIZE);
     if (err != ESP_OK) {
@@ -61,14 +66,16 @@ int policy_save_bundle(const policy_bundle_t *bundle) {
     err = esp_partition_write(policy_partition, 0, sector_buf, SECTOR_SIZE);
     secure_memzero(sector_buf, SECTOR_SIZE);
 
-    if (err != ESP_OK) return POLICY_ERR_STORAGE;
+    if (err != ESP_OK)
+        return POLICY_ERR_STORAGE;
 
     ESP_LOGI(TAG, "Policy bundle saved (rules_len=%lu)", (unsigned long)bundle->rules_len);
     return 0;
 }
 
 int policy_load_bundle(policy_bundle_t *bundle) {
-    if (!initialized) return POLICY_ERR_STORAGE;
+    if (!initialized)
+        return POLICY_ERR_STORAGE;
 
     esp_err_t err = esp_partition_read(policy_partition, 0, bundle, sizeof(policy_bundle_t));
     if (err != ESP_OK) {
@@ -95,7 +102,8 @@ int policy_load_bundle(policy_bundle_t *bundle) {
 }
 
 int policy_delete_bundle(void) {
-    if (!initialized) return POLICY_ERR_STORAGE;
+    if (!initialized)
+        return POLICY_ERR_STORAGE;
 
     esp_err_t err = esp_partition_erase_range(policy_partition, 0, SECTOR_SIZE);
     if (err != ESP_OK) {
@@ -107,7 +115,8 @@ int policy_delete_bundle(void) {
 }
 
 bool policy_has_bundle(void) {
-    if (!initialized) return false;
+    if (!initialized)
+        return false;
 
     policy_bundle_t bundle;
     esp_err_t err = esp_partition_read(policy_partition, 0, &bundle, sizeof(bundle));
@@ -123,7 +132,8 @@ bool policy_has_bundle(void) {
 
 int policy_verify_signature(const policy_bundle_t *bundle) {
     secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
-    if (!ctx) return POLICY_ERR_INVALID_SIG;
+    if (!ctx)
+        return POLICY_ERR_INVALID_SIG;
 
     size_t msg_len = offsetof(policy_bundle_t, signature);
     uint8_t msg_hash[32];
@@ -205,13 +215,15 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     bytes_to_hex(bundle.policy_hash, POLICY_HASH_LEN, policy_hash_hex, sizeof(policy_hash_hex));
 
     char warden_pubkey_hex[65];
-    bytes_to_hex(bundle.warden_pubkey, POLICY_PUBKEY_LEN, warden_pubkey_hex, sizeof(warden_pubkey_hex));
+    bytes_to_hex(bundle.warden_pubkey, POLICY_PUBKEY_LEN, warden_pubkey_hex,
+                 sizeof(warden_pubkey_hex));
 
     char result[512];
     int written = snprintf(result, sizeof(result),
-             "{\"has_policy\":true,\"version\":%d,\"policy_hash\":\"%s\",\"warden_pubkey\":\"%s\",\"rules_len\":%lu,\"created_at\":%llu}",
-             bundle.version, policy_hash_hex, warden_pubkey_hex,
-             (unsigned long)bundle.rules_len, (unsigned long long)bundle.created_at);
+                           "{\"has_policy\":true,\"version\":%d,\"policy_hash\":\"%s\",\"warden_"
+                           "pubkey\":\"%s\",\"rules_len\":%lu,\"created_at\":%llu}",
+                           bundle.version, policy_hash_hex, warden_pubkey_hex,
+                           (unsigned long)bundle.rules_len, (unsigned long long)bundle.created_at);
 
     secure_memzero(&bundle, sizeof(bundle));
 
@@ -272,8 +284,8 @@ int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats) {
     if (max_fee && cJSON_IsNumber(max_fee)) {
         uint64_t limit = (uint64_t)max_fee->valuedouble;
         if (fee_sats > limit) {
-            ESP_LOGW(TAG, "Policy denied: fee %llu exceeds max %llu",
-                     (unsigned long long)fee_sats, (unsigned long long)limit);
+            ESP_LOGW(TAG, "Policy denied: fee %llu exceeds max %llu", (unsigned long long)fee_sats,
+                     (unsigned long long)limit);
             cJSON_Delete(rules);
             return POLICY_ERR_DENIED;
         }

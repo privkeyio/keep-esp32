@@ -51,93 +51,111 @@ static coordinator_ctx_t g_ctx;
 static bool g_initialized = false;
 
 #ifdef ESP_PLATFORM
-static void websocket_event_handler(void *handler_args, esp_event_base_t base,
-                                     int32_t event_id, void *event_data) {
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id,
+                                    void *event_data) {
     esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
     relay_connection_t *relay = (relay_connection_t *)handler_args;
 
     switch (event_id) {
-        case WEBSOCKET_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "Relay connected: %s", relay->url);
-            relay->state = COORDINATOR_STATE_CONNECTED;
-            break;
+    case WEBSOCKET_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "Relay connected: %s", relay->url);
+        relay->state = COORDINATOR_STATE_CONNECTED;
+        break;
 
-        case WEBSOCKET_EVENT_DISCONNECTED:
-            ESP_LOGW(TAG, "Relay disconnected: %s", relay->url);
-            relay->state = COORDINATOR_STATE_IDLE;
-            break;
+    case WEBSOCKET_EVENT_DISCONNECTED:
+        ESP_LOGW(TAG, "Relay disconnected: %s", relay->url);
+        relay->state = COORDINATOR_STATE_IDLE;
+        break;
 
-        case WEBSOCKET_EVENT_DATA:
-            if (data->op_code == 0x01 && data->data_len > 0) {
-                char *msg = malloc(data->data_len + 1);
-                if (msg) {
-                    memcpy(msg, data->data_ptr, data->data_len);
-                    msg[data->data_len] = '\0';
+    case WEBSOCKET_EVENT_DATA:
+        if (data->op_code == 0x01 && data->data_len > 0) {
+            char *msg = malloc(data->data_len + 1);
+            if (msg) {
+                memcpy(msg, data->data_ptr, data->data_len);
+                msg[data->data_len] = '\0';
 
-                    cJSON *arr = cJSON_Parse(msg);
-                    if (arr && cJSON_IsArray(arr) && cJSON_GetArraySize(arr) >= 1) {
-                        cJSON *type = cJSON_GetArrayItem(arr, 0);
-                        if (type && cJSON_IsString(type)) {
-                            if (strcmp(type->valuestring, "EVENT") == 0 && cJSON_GetArraySize(arr) >= 3) {
-                                cJSON *event = cJSON_GetArrayItem(arr, 2);
-                                if (event && cJSON_IsObject(event)) {
-                                    cJSON *kind = cJSON_GetObjectItem(event, "kind");
-                                    if (kind && cJSON_IsNumber(kind)) {
-                                        char *event_str = cJSON_PrintUnformatted(event);
-                                        if (event_str) {
-                                            int k = kind->valueint;
-                                            if (k == FROST_KIND_SIGN_REQUEST && g_ctx.callbacks.on_sign_request) {
-                                                frost_sign_request_t req;
-                                                if (frost_parse_sign_request(event_str, &g_ctx.current_group,
-                                                                              g_ctx.privkey, &req) == 0) {
-                                                    g_ctx.callbacks.on_sign_request(&req, g_ctx.callbacks.user_ctx);
-                                                    frost_sign_request_free(&req);
-                                                }
-                                            } else if (k == FROST_KIND_SIGN_RESPONSE && g_ctx.callbacks.on_sign_response) {
-                                                frost_sign_response_t resp;
-                                                if (frost_parse_sign_response(event_str, &g_ctx.current_group,
-                                                                               g_ctx.privkey, &resp) == 0) {
-                                                    g_ctx.callbacks.on_sign_response(&resp, g_ctx.callbacks.user_ctx);
-                                                }
-                                            } else if (k == FROST_KIND_DKG_ROUND1 && g_ctx.callbacks.on_dkg_round1) {
-                                                frost_dkg_round1_t r1;
-                                                if (frost_parse_dkg_round1_event(event_str, &g_ctx.current_group, g_ctx.privkey, &r1) == 0) {
-                                                    g_ctx.callbacks.on_dkg_round1(&r1, g_ctx.callbacks.user_ctx);
-                                                }
-                                            } else if (k == FROST_KIND_DKG_ROUND2 && g_ctx.callbacks.on_dkg_round2) {
-                                                frost_dkg_round2_t r2;
-                                                if (frost_parse_dkg_round2_event(event_str, &g_ctx.current_group, g_ctx.privkey, &r2) == 0) {
-                                                    g_ctx.callbacks.on_dkg_round2(&r2, g_ctx.callbacks.user_ctx);
-                                                }
-                                            } else if (k == NIP46_KIND_NOSTR_CONNECT && g_ctx.callbacks.on_nip46_request) {
-                                                nip46_request_t nip46_req;
-                                                if (frost_parse_nip46_event(event_str, g_ctx.privkey, &nip46_req) == 0) {
-                                                    g_ctx.callbacks.on_nip46_request(&nip46_req, g_ctx.callbacks.user_ctx);
-                                                    frost_nip46_request_free(&nip46_req);
-                                                }
+                cJSON *arr = cJSON_Parse(msg);
+                if (arr && cJSON_IsArray(arr) && cJSON_GetArraySize(arr) >= 1) {
+                    cJSON *type = cJSON_GetArrayItem(arr, 0);
+                    if (type && cJSON_IsString(type)) {
+                        if (strcmp(type->valuestring, "EVENT") == 0 &&
+                            cJSON_GetArraySize(arr) >= 3) {
+                            cJSON *event = cJSON_GetArrayItem(arr, 2);
+                            if (event && cJSON_IsObject(event)) {
+                                cJSON *kind = cJSON_GetObjectItem(event, "kind");
+                                if (kind && cJSON_IsNumber(kind)) {
+                                    char *event_str = cJSON_PrintUnformatted(event);
+                                    if (event_str) {
+                                        int k = kind->valueint;
+                                        if (k == FROST_KIND_SIGN_REQUEST &&
+                                            g_ctx.callbacks.on_sign_request) {
+                                            frost_sign_request_t req;
+                                            if (frost_parse_sign_request(
+                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
+                                                    &req) == 0) {
+                                                g_ctx.callbacks.on_sign_request(
+                                                    &req, g_ctx.callbacks.user_ctx);
+                                                frost_sign_request_free(&req);
                                             }
-                                            free(event_str);
+                                        } else if (k == FROST_KIND_SIGN_RESPONSE &&
+                                                   g_ctx.callbacks.on_sign_response) {
+                                            frost_sign_response_t resp;
+                                            if (frost_parse_sign_response(
+                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
+                                                    &resp) == 0) {
+                                                g_ctx.callbacks.on_sign_response(
+                                                    &resp, g_ctx.callbacks.user_ctx);
+                                            }
+                                        } else if (k == FROST_KIND_DKG_ROUND1 &&
+                                                   g_ctx.callbacks.on_dkg_round1) {
+                                            frost_dkg_round1_t r1;
+                                            if (frost_parse_dkg_round1_event(
+                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
+                                                    &r1) == 0) {
+                                                g_ctx.callbacks.on_dkg_round1(
+                                                    &r1, g_ctx.callbacks.user_ctx);
+                                            }
+                                        } else if (k == FROST_KIND_DKG_ROUND2 &&
+                                                   g_ctx.callbacks.on_dkg_round2) {
+                                            frost_dkg_round2_t r2;
+                                            if (frost_parse_dkg_round2_event(
+                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
+                                                    &r2) == 0) {
+                                                g_ctx.callbacks.on_dkg_round2(
+                                                    &r2, g_ctx.callbacks.user_ctx);
+                                            }
+                                        } else if (k == NIP46_KIND_NOSTR_CONNECT &&
+                                                   g_ctx.callbacks.on_nip46_request) {
+                                            nip46_request_t nip46_req;
+                                            if (frost_parse_nip46_event(event_str, g_ctx.privkey,
+                                                                        &nip46_req) == 0) {
+                                                g_ctx.callbacks.on_nip46_request(
+                                                    &nip46_req, g_ctx.callbacks.user_ctx);
+                                                frost_nip46_request_free(&nip46_req);
+                                            }
                                         }
+                                        free(event_str);
                                     }
                                 }
                             }
                         }
-                        cJSON_Delete(arr);
-                    } else if (arr) {
-                        cJSON_Delete(arr);
                     }
-                    free(msg);
+                    cJSON_Delete(arr);
+                } else if (arr) {
+                    cJSON_Delete(arr);
                 }
+                free(msg);
             }
-            break;
+        }
+        break;
 
-        case WEBSOCKET_EVENT_ERROR:
-            ESP_LOGE(TAG, "Relay error: %s", relay->url);
-            relay->state = COORDINATOR_STATE_ERROR;
-            break;
+    case WEBSOCKET_EVENT_ERROR:
+        ESP_LOGE(TAG, "Relay error: %s", relay->url);
+        relay->state = COORDINATOR_STATE_ERROR;
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
 #endif
@@ -210,7 +228,8 @@ int frost_coordinator_init(const uint8_t privkey[32]) {
 }
 
 void frost_coordinator_deinit(void) {
-    if (!g_initialized) return;
+    if (!g_initialized)
+        return;
 
     frost_coordinator_disconnect();
 
@@ -237,8 +256,10 @@ coordinator_state_t frost_coordinator_get_state(void) {
 }
 
 int frost_coordinator_add_relay(const char *url) {
-    if (!g_initialized || !url) return -1;
-    if (g_ctx.relay_count >= COORDINATOR_MAX_RELAYS) return -2;
+    if (!g_initialized || !url)
+        return -1;
+    if (g_ctx.relay_count >= COORDINATOR_MAX_RELAYS)
+        return -2;
 
     relay_connection_t *relay = &g_ctx.relays[g_ctx.relay_count];
     strncpy(relay->url, url, RELAY_URL_LEN - 1);
@@ -252,12 +273,14 @@ int frost_coordinator_add_relay(const char *url) {
 }
 
 int frost_coordinator_connect(void) {
-    if (!g_initialized) return -1;
+    if (!g_initialized)
+        return -1;
 
 #ifdef ESP_PLATFORM
     for (int i = 0; i < g_ctx.relay_count; i++) {
         relay_connection_t *relay = &g_ctx.relays[i];
-        if (relay->state != COORDINATOR_STATE_IDLE) continue;
+        if (relay->state != COORDINATOR_STATE_IDLE)
+            continue;
 
         esp_websocket_client_config_t ws_cfg = {
             .uri = relay->url,
@@ -272,7 +295,7 @@ int frost_coordinator_connect(void) {
         }
 
         esp_websocket_register_events(relay->ws_handle, WEBSOCKET_EVENT_ANY,
-                                       websocket_event_handler, relay);
+                                      websocket_event_handler, relay);
 
         esp_err_t err = esp_websocket_client_start(relay->ws_handle);
         if (err != ESP_OK) {
@@ -293,7 +316,8 @@ int frost_coordinator_connect(void) {
 }
 
 int frost_coordinator_disconnect(void) {
-    if (!g_initialized) return -1;
+    if (!g_initialized)
+        return -1;
 
 #ifdef ESP_PLATFORM
     for (int i = 0; i < g_ctx.relay_count; i++) {
@@ -313,29 +337,28 @@ int frost_coordinator_disconnect(void) {
 }
 
 int frost_coordinator_set_group(const frost_group_t *group) {
-    if (!g_initialized || !group) return -1;
+    if (!g_initialized || !group)
+        return -1;
 
     memcpy(&g_ctx.current_group, group, sizeof(frost_group_t));
     g_ctx.has_group = true;
-    ESP_LOGI(TAG, "Group set (threshold=%d, participants=%d)",
-             group->threshold, group->participant_count);
+    ESP_LOGI(TAG, "Group set (threshold=%d, participants=%d)", group->threshold,
+             group->participant_count);
     return 0;
 }
 
 int frost_coordinator_subscribe(const char *subscription_id) {
-    if (!g_initialized || !g_ctx.has_group) return -1;
+    if (!g_initialized || !g_ctx.has_group)
+        return -1;
 
     char pubkey_hex[65];
     bytes_to_hex(g_ctx.pubkey, 32, pubkey_hex, sizeof(pubkey_hex));
 
     char filter[512];
     snprintf(filter, sizeof(filter),
-             "[\"REQ\",\"%s\",{\"kinds\":[%d,%d,%d,%d,%d],\"#p\":[\"%s\"]}]",
-             subscription_id,
-             FROST_KIND_DKG_ROUND1, FROST_KIND_DKG_ROUND2,
-             FROST_KIND_SIGN_REQUEST, FROST_KIND_SIGN_RESPONSE,
-             NIP46_KIND_NOSTR_CONNECT,
-             pubkey_hex);
+             "[\"REQ\",\"%s\",{\"kinds\":[%d,%d,%d,%d,%d],\"#p\":[\"%s\"]}]", subscription_id,
+             FROST_KIND_DKG_ROUND1, FROST_KIND_DKG_ROUND2, FROST_KIND_SIGN_REQUEST,
+             FROST_KIND_SIGN_RESPONSE, NIP46_KIND_NOSTR_CONNECT, pubkey_hex);
 
 #ifdef ESP_PLATFORM
     for (int i = 0; i < g_ctx.relay_count; i++) {
@@ -352,7 +375,8 @@ int frost_coordinator_subscribe(const char *subscription_id) {
 }
 
 int frost_coordinator_unsubscribe(const char *subscription_id) {
-    if (!g_initialized) return -1;
+    if (!g_initialized)
+        return -1;
 
     char close_msg[128];
     snprintf(close_msg, sizeof(close_msg), "[\"CLOSE\",\"%s\"]", subscription_id);
@@ -361,7 +385,8 @@ int frost_coordinator_unsubscribe(const char *subscription_id) {
     for (int i = 0; i < g_ctx.relay_count; i++) {
         relay_connection_t *relay = &g_ctx.relays[i];
         if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws_handle) {
-            esp_websocket_client_send_text(relay->ws_handle, close_msg, strlen(close_msg), portMAX_DELAY);
+            esp_websocket_client_send_text(relay->ws_handle, close_msg, strlen(close_msg),
+                                           portMAX_DELAY);
         }
     }
 #endif
@@ -370,11 +395,13 @@ int frost_coordinator_unsubscribe(const char *subscription_id) {
 }
 
 static int publish_event(const char *event_json) {
-    if (!g_initialized) return -1;
+    if (!g_initialized)
+        return -1;
 
     size_t msg_len = strlen(event_json) + 12;
     char *msg = malloc(msg_len);
-    if (!msg) return -1;
+    if (!msg)
+        return -1;
 
     snprintf(msg, msg_len, "[\"EVENT\",%s]", event_json);
 
@@ -395,11 +422,12 @@ static int publish_event(const char *event_json) {
 }
 
 int frost_coordinator_publish_sign_request(const frost_sign_request_t *request) {
-    if (!g_initialized || !g_ctx.has_group || !request) return -1;
+    if (!g_initialized || !g_ctx.has_group || !request)
+        return -1;
 
     char event_json[4096];
-    if (frost_create_sign_request(&g_ctx.current_group, request,
-                                   g_ctx.privkey, event_json, sizeof(event_json)) != 0) {
+    if (frost_create_sign_request(&g_ctx.current_group, request, g_ctx.privkey, event_json,
+                                  sizeof(event_json)) != 0) {
         return -1;
     }
 
@@ -407,11 +435,12 @@ int frost_coordinator_publish_sign_request(const frost_sign_request_t *request) 
 }
 
 int frost_coordinator_publish_sign_response(const frost_sign_response_t *response) {
-    if (!g_initialized || !g_ctx.has_group || !response) return -1;
+    if (!g_initialized || !g_ctx.has_group || !response)
+        return -1;
 
     char event_json[2048];
-    if (frost_create_sign_response(&g_ctx.current_group, response,
-                                    g_ctx.privkey, event_json, sizeof(event_json)) != 0) {
+    if (frost_create_sign_response(&g_ctx.current_group, response, g_ctx.privkey, event_json,
+                                   sizeof(event_json)) != 0) {
         return -1;
     }
 
@@ -419,11 +448,12 @@ int frost_coordinator_publish_sign_response(const frost_sign_response_t *respons
 }
 
 int frost_coordinator_publish_dkg_round1(const frost_dkg_round1_t *round1) {
-    if (!g_initialized || !g_ctx.has_group || !round1) return -1;
+    if (!g_initialized || !g_ctx.has_group || !round1)
+        return -1;
 
     char event_json[2048];
-    if (frost_create_dkg_round1_event(&g_ctx.current_group, round1,
-                                       g_ctx.privkey, event_json, sizeof(event_json)) != 0) {
+    if (frost_create_dkg_round1_event(&g_ctx.current_group, round1, g_ctx.privkey, event_json,
+                                      sizeof(event_json)) != 0) {
         return -1;
     }
 
@@ -431,13 +461,13 @@ int frost_coordinator_publish_dkg_round1(const frost_dkg_round1_t *round1) {
 }
 
 int frost_coordinator_publish_dkg_round2(const frost_dkg_round2_t *round2,
-                                          const uint8_t *recipient_pubkey) {
-    if (!g_initialized || !g_ctx.has_group || !round2 || !recipient_pubkey) return -1;
+                                         const uint8_t *recipient_pubkey) {
+    if (!g_initialized || !g_ctx.has_group || !round2 || !recipient_pubkey)
+        return -1;
 
     char event_json[2048];
-    if (frost_create_dkg_round2_event(&g_ctx.current_group, round2,
-                                       g_ctx.privkey, recipient_pubkey,
-                                       event_json, sizeof(event_json)) != 0) {
+    if (frost_create_dkg_round2_event(&g_ctx.current_group, round2, g_ctx.privkey, recipient_pubkey,
+                                      event_json, sizeof(event_json)) != 0) {
         return -1;
     }
 
@@ -445,12 +475,14 @@ int frost_coordinator_publish_dkg_round2(const frost_dkg_round2_t *round2,
 }
 
 void frost_coordinator_set_callbacks(const frost_coordinator_callbacks_t *callbacks) {
-    if (!g_initialized || !callbacks) return;
+    if (!g_initialized || !callbacks)
+        return;
     memcpy(&g_ctx.callbacks, callbacks, sizeof(frost_coordinator_callbacks_t));
 }
 
 int frost_coordinator_poll(int timeout_ms) {
-    if (!g_initialized) return -1;
+    if (!g_initialized)
+        return -1;
 
 #ifdef ESP_PLATFORM
     vTaskDelay(pdMS_TO_TICKS(timeout_ms > 0 ? timeout_ms : 10));
@@ -471,7 +503,8 @@ int frost_coordinator_poll(int timeout_ms) {
 }
 
 int frost_coordinator_get_pubkey(uint8_t pubkey[32]) {
-    if (!g_initialized) return -1;
+    if (!g_initialized)
+        return -1;
     memcpy(pubkey, g_ctx.pubkey, 32);
     return 0;
 }

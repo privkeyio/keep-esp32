@@ -17,8 +17,16 @@ static uint32_t mock_counter = 0;
 static bool mock_initialized = false;
 static uint8_t mock_serial[SE_SERIAL_SIZE] = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x01};
 
-#define CHECK_INIT() do { if (!mock_initialized) return SE_ERR_NOT_INITIALIZED; } while (0)
-#define CHECK_NULL(ptr) do { if ((ptr) == NULL) return SE_ERR_INVALID_PARAM; } while (0)
+#define CHECK_INIT()                       \
+    do {                                   \
+        if (!mock_initialized)             \
+            return SE_ERR_NOT_INITIALIZED; \
+    } while (0)
+#define CHECK_NULL(ptr)                  \
+    do {                                 \
+        if ((ptr) == NULL)               \
+            return SE_ERR_INVALID_PARAM; \
+    } while (0)
 #define MOCK_WARN() ESP_LOGW(TAG, "MOCK MODE - NOT SECURE, DEV ONLY")
 
 se_status_t se_init(void) {
