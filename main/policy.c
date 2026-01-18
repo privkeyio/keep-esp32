@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "policy.h"
 #include "hex_utils.h"
 #include "esp_partition.h"

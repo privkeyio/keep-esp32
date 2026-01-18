@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "serial.h"
 #include "protocol.h"
 #include "freertos/FreeRTOS.h"

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef SECURE_ELEMENT_H
 #define SECURE_ELEMENT_H
 

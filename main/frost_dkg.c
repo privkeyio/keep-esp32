@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "frost_dkg.h"
 #include "nostr_frost.h"
 #include "storage.h"

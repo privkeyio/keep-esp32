@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef SECP256K1_FROST_ESP_H
 #define SECP256K1_FROST_ESP_H
 

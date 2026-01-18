@@ -1,10 +1,5 @@
-/**
- * @file frost_signer_core.h
- * @brief Pure FROST signing logic with no I/O dependencies.
- *
- * Layer 1: Pure functions that are testable without mocks.
- * All functions operate on provided data - no storage, no protocol.
- */
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #ifndef FROST_SIGNER_CORE_H
 #define FROST_SIGNER_CORE_H

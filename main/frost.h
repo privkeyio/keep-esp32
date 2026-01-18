@@ -1,10 +1,5 @@
-/**
- * @file frost.h
- * @brief FROST threshold signature operations.
- *
- * @warning Nonces must never be reused. Each session requires fresh commitments.
- * @warning Share bytes contain secret material. Zeroize after use.
- */
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #ifndef FROST_H
 #define FROST_H

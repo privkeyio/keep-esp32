@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "protocol.h"
 #include "error_context.h"
 #include "cJSON.h"
@@ -76,26 +79,26 @@ static rpc_method_t parse_method(const char *method) {
 
 int protocol_parse_request(const char *json, rpc_request_t *req) {
     if (!json || !req)
-        return PROTOCOL_ERR_PARSE;
+        return ERR_PROTOCOL_PARSE;
 
     memset(req, 0, sizeof(*req));
     req->method = RPC_METHOD_UNKNOWN;
 
     cJSON *root = cJSON_Parse(json);
     if (!root)
-        return PROTOCOL_ERR_PARSE;
+        return ERR_PROTOCOL_PARSE;
 
     cJSON *id_item = cJSON_GetObjectItem(root, "id");
     if (!id_item || !cJSON_IsNumber(id_item)) {
         cJSON_Delete(root);
-        return PROTOCOL_ERR_PARSE;
+        return ERR_PROTOCOL_PARSE;
     }
     req->id = id_item->valueint;
 
     cJSON *method_item = cJSON_GetObjectItem(root, "method");
     if (!method_item || !cJSON_IsString(method_item)) {
         cJSON_Delete(root);
-        return PROTOCOL_ERR_PARSE;
+        return ERR_PROTOCOL_PARSE;
     }
     req->method = parse_method(method_item->valuestring);
 
@@ -125,7 +128,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (threshold && cJSON_IsNumber(threshold)) {
             if (threshold->valueint < 0 || threshold->valueint > PROTOCOL_MAX_PARTICIPANTS) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             req->threshold = (uint8_t)threshold->valueint;
         }
@@ -134,7 +137,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
             if (participant_count->valueint < 0 ||
                 participant_count->valueint > PROTOCOL_MAX_PARTICIPANTS) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             req->participant_count = (uint8_t)participant_count->valueint;
         }
@@ -142,7 +145,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (our_index && cJSON_IsNumber(our_index)) {
             if (our_index->valueint < 0 || our_index->valueint > PROTOCOL_MAX_PARTICIPANTS) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             req->our_index = (uint8_t)our_index->valueint;
         }
@@ -150,7 +153,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (peer_index && cJSON_IsNumber(peer_index)) {
             if (peer_index->valueint < 0 || peer_index->valueint > PROTOCOL_MAX_PARTICIPANTS) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             req->peer_index = (uint8_t)peer_index->valueint;
         }
@@ -163,16 +166,16 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
             size_t len = strlen(psbt->valuestring);
             if (len >= PROTOCOL_MAX_PSBT_LEN) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             if (!is_valid_base64(psbt->valuestring, len)) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             req->psbt = strdup(psbt->valuestring);
             if (!req->psbt) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_INTERNAL;
+                return ERR_PROTOCOL_INTERNAL;
             }
         }
         cJSON *input_idx = cJSON_GetObjectItem(params, "input_idx");
@@ -231,8 +234,10 @@ int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) 
             cJSON_Delete(root);
             return -1;
         }
-        cJSON_AddNumberToObject(error, "code", resp->error_code);
+        cJSON_AddNumberToObject(error, "code", error_to_jsonrpc_code(resp->error_code));
+        cJSON_AddStringToObject(error, "name", error_name(resp->error_code));
         cJSON_AddStringToObject(error, "message", resp->error_msg);
+        cJSON_AddStringToObject(error, "category", error_category_name(resp->error_code));
         if (resp->error_ctx.file[0] != '\0') {
             cJSON *ctx = cJSON_AddObjectToObject(error, "context");
             if (ctx) {

@@ -1,9 +1,5 @@
-/**
- * @file frost_signer_core.c
- * @brief Pure FROST signing logic with no I/O dependencies.
- *
- * Layer 1: Pure functions that are testable without mocks.
- */
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "frost_signer_core.h"
 #include "hex_utils.h"

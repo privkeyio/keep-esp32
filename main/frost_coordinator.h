@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef FROST_COORDINATOR_H
 #define FROST_COORDINATOR_H
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef NOSTR_FROST_INTERNAL_H
 #define NOSTR_FROST_INTERNAL_H
 

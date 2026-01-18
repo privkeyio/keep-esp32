@@ -1,7 +1,6 @@
-/**
- * Native tests for secure element mock implementation.
- * Compile: gcc -I../../components/secure_element/include test_secure_element.c -o test_se
- */
+// SPDX-FileCopyrightText: © 2026 Privkey Inc.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
