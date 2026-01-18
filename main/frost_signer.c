@@ -371,6 +371,29 @@ void frost_sign(const char *group, const char *session_id_hex,
     s->session.participant_count = total_participants;
     s->session.state = SESSION_AWAITING_SHARES;
 
+    uint16_t our_index = s->frost_state.share_index;
+
+    if (is_session_consumed(session_id)) {
+        for (uint8_t i = 0; i < s->session.sig_share_count && i < MAX_PARTICIPANTS; i++) {
+            if (s->session.sig_share_indices[i] == our_index) {
+                char cached_share_hex[73];
+                bytes_to_hex(s->session.sig_shares[i], s->session.sig_share_lens[i],
+                             cached_share_hex, sizeof(cached_share_hex));
+
+                char result[192];
+                snprintf(result, sizeof(result),
+                         "{\"signature_share\":\"%s\",\"index\":%d}",
+                         cached_share_hex, our_index);
+                protocol_success(resp, resp->id, result);
+                FROST_LOGI(TAG, "Returning cached signature share for session %.16s... (retry)",
+                           session_id_hex);
+                return;
+            }
+        }
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already consumed");
+        return;
+    }
+
     bool policy_snapshot = s->has_policy;
     uint8_t policy_hash_snapshot[32];
     memcpy(policy_hash_snapshot, s->policy_hash, 32);
@@ -392,27 +415,6 @@ void frost_sign(const char *group, const char *session_id_hex,
         return;
     }
     secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
-
-    if (is_session_consumed(session_id)) {
-        for (uint8_t i = 0; i < s->session.sig_share_count && i < MAX_PARTICIPANTS; i++) {
-            if (s->session.sig_share_indices[i] == sign_result.index) {
-                char cached_share_hex[73];
-                bytes_to_hex(s->session.sig_shares[i], s->session.sig_share_lens[i],
-                             cached_share_hex, sizeof(cached_share_hex));
-
-                char result[192];
-                snprintf(result, sizeof(result),
-                         "{\"signature_share\":\"%s\",\"index\":%d}",
-                         cached_share_hex, sign_result.index);
-                protocol_success(resp, resp->id, result);
-                FROST_LOGI(TAG, "Returning cached signature share for session %.16s... (retry)",
-                           session_id_hex);
-                return;
-            }
-        }
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already consumed");
-        return;
-    }
 
     int share_idx = s->session.sig_share_count;
     if (share_idx >= MAX_PARTICIPANTS) {

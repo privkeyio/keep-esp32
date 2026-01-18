@@ -125,7 +125,7 @@ def test_frost_commit(ser):
         "params": {"group": test_group}
     })
 
-    print(f"  PASS")
+    print("  PASS")
     return True
 
 def test_frost_sign(ser):
@@ -156,10 +156,10 @@ def test_frost_sign(ser):
     # With empty commitments, we expect threshold error (need 2-of-3)
     if "error" in resp:
         assert "threshold" in resp["error"]["message"].lower(), f"unexpected error: {resp}"
-        print(f"  PASS (expected threshold error)")
+        print("  PASS (expected threshold error)")
     else:
         assert "signature_share" in resp["result"], "no signature_share in result"
-        print(f"  PASS")
+        print("  PASS")
 
     send_receive(ser, {
         "id": 33, "method": "delete_share",
@@ -204,7 +204,7 @@ def test_session_replay_protection(ser):
         "params": {"group": test_group}
     })
 
-    print(f"  PASS (replay blocked)")
+    print("  PASS (replay blocked)")
     return True
 
 def reset_device(ser):
