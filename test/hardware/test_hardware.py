@@ -4,6 +4,7 @@ import json
 import time
 import sys
 import os
+import secrets
 
 DEVICE = os.environ.get("DEVICE", "/dev/ttyACM0")
 BAUD = int(os.environ.get("BAUD", "115200"))
@@ -97,17 +98,13 @@ def test_get_pubkey(ser):
     print(f"  PASS (index={resp['result']['index']})")
     return True
 
-def generate_session_id():
-    import random
-    return ''.join(random.choice('0123456789abcdef') for _ in range(64))
-
 def test_frost_commit(ser):
     print("TEST: frost_commit")
 
     test_group = "npub1commit"
     test_share = generate_test_share()
     message = "b" * 64
-    session_id = generate_session_id()
+    session_id = secrets.token_hex(32)
 
     send_receive(ser, {
         "id": 20, "method": "import_share",
@@ -121,6 +118,7 @@ def test_frost_commit(ser):
     assert resp is not None, "no response"
     assert "result" in resp, f"commit failed: {resp}"
     assert "commitment" in resp["result"], "no commitment in result"
+    assert "index" in resp["result"], "no index in result"
 
     send_receive(ser, {
         "id": 22, "method": "delete_share",
@@ -136,7 +134,7 @@ def test_frost_sign(ser):
     test_group = "npub1sign"
     test_share = generate_test_share()
     message = "d" * 64
-    session_id = generate_session_id()
+    session_id = secrets.token_hex(32)
 
     send_receive(ser, {
         "id": 30, "method": "import_share",
@@ -170,8 +168,57 @@ def test_frost_sign(ser):
 
     return True
 
+def test_session_replay_protection(ser):
+    print("TEST: session_id replay protection")
+
+    test_group = "npub1replay"
+    test_share = generate_test_share()
+    message = "e" * 64
+    session_id = secrets.token_hex(32)
+
+    send_receive(ser, {
+        "id": 40, "method": "import_share",
+        "params": {"group": test_group, "share": test_share}
+    })
+
+    # First commit should succeed
+    resp1 = send_receive(ser, {
+        "id": 41, "method": "frost_commit",
+        "params": {"group": test_group, "session_id": session_id, "message": message}
+    })
+    assert resp1 is not None, "no response to first commit"
+    assert "result" in resp1, f"first commit failed: {resp1}"
+
+    # Second commit with SAME session_id should fail (replay protection)
+    resp2 = send_receive(ser, {
+        "id": 42, "method": "frost_commit",
+        "params": {"group": test_group, "session_id": session_id, "message": message}
+    })
+    assert resp2 is not None, "no response to second commit"
+    assert "error" in resp2, f"second commit should fail but got: {resp2}"
+    msg = resp2["error"]["message"].lower()
+    assert "already" in msg or "duplicate" in msg, f"expected replay error: {resp2}"
+
+    send_receive(ser, {
+        "id": 43, "method": "delete_share",
+        "params": {"group": test_group}
+    })
+
+    print(f"  PASS (replay blocked)")
+    return True
+
+def reset_device(ser):
+    ser.dtr = False
+    ser.rts = True
+    time.sleep(0.1)
+    ser.rts = False
+    time.sleep(2)
+    ser.reset_input_buffer()
+
 def main():
-    device = sys.argv[1] if len(sys.argv) > 1 else DEVICE
+    do_reset = "--reset" in sys.argv or "-r" in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    device = args[0] if args else DEVICE
 
     print(f"\n=== Hardware Tests ({device}) ===\n")
 
@@ -179,6 +226,9 @@ def main():
         ser = serial.Serial(device, BAUD, timeout=TIMEOUT)
         time.sleep(2)
         ser.reset_input_buffer()
+        if do_reset:
+            print("Resetting device...")
+            reset_device(ser)
     except Exception as e:
         print(f"Failed to open {device}: {e}")
         sys.exit(1)
@@ -189,6 +239,7 @@ def main():
         test_get_pubkey,
         test_frost_commit,
         test_frost_sign,
+        test_session_replay_protection,
     ]
 
     passed = 0
