@@ -1,4 +1,5 @@
 #include "psbt.h"
+#include <stdint.h>
 #include <wally_core.h>
 #include <wally_psbt.h>
 #include <wally_transaction.h>

@@ -1,4 +1,5 @@
 #include "error_context.h"
+#include <stdint.h>
 #include <string.h>
 
 static const char *path_basename(const char *path) {

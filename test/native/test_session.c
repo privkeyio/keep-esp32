@@ -547,6 +547,40 @@ static int test_commitment_null_pointer(void) {
     return 0;
 }
 
+static int test_is_participant_secure(void) {
+    TEST("session_is_participant_secure");
+    session_t s;
+    sign_request_t req;
+    setup_request(&req, 3);
+    mock_time_ms = 1000;
+    if (session_init(&s, &req, 2) != 0)
+        FAIL("session_init failed");
+
+    secresult_t r1 = session_is_participant_secure(&s, 1);
+    if (!SECRESULT_IS_TRUE(r1))
+        FAIL("participant 1 should be found");
+
+    secresult_t r2 = session_is_participant_secure(&s, 2);
+    if (!SECRESULT_IS_TRUE(r2))
+        FAIL("participant 2 should be found");
+
+    secresult_t r3 = session_is_participant_secure(&s, 3);
+    if (!SECRESULT_IS_TRUE(r3))
+        FAIL("participant 3 should be found");
+
+    secresult_t r99 = session_is_participant_secure(&s, 99);
+    if (!SECRESULT_IS_FALSE(r99))
+        FAIL("participant 99 should not be found");
+
+    secresult_t rnull = session_is_participant_secure(NULL, 1);
+    if (rnull != SECRESULT_ERR_SESSION_INVALID)
+        FAIL("NULL session should return error");
+
+    session_destroy(&s);
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== Session Native Tests ===\n\n");
 
@@ -574,6 +608,7 @@ int main(void) {
     failures += test_init_null_params();
     failures += test_init_overflow_protection();
     failures += test_commitment_null_pointer();
+    failures += test_is_participant_secure();
 
     printf("\n");
     if (failures == 0) {

@@ -16,6 +16,7 @@
 #include "hex_utils.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
+#include "secresult.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
@@ -122,48 +123,48 @@ static void free_session(signing_session_t *s) {
     }
 }
 
-static int capture_policy_snapshot(bool *has_policy, uint8_t policy_hash[32]) {
+static secresult_t capture_policy_snapshot_secure(bool *has_policy, uint8_t policy_hash[32]) {
     *has_policy = false;
     memset(policy_hash, 0, 32);
 
     if (!policy_has_bundle()) {
-        return 0;
+        return SECRESULT_TRUE;
     }
 
     policy_bundle_t bundle;
     int ret = policy_load_bundle(&bundle);
     if (ret != 0) {
         secure_memzero(&bundle, sizeof(bundle));
-        return ret;
+        return SECRESULT_ERR_LOAD_FAILED;
     }
 
-    ret = policy_verify_signature(&bundle);
-    if (ret != 0) {
+    secresult_t sig_result = policy_verify_signature_secure(&bundle);
+    if (!SECRESULT_IS_TRUE(sig_result)) {
         secure_memzero(&bundle, sizeof(bundle));
-        return ret;
+        return sig_result;
     }
 
     *has_policy = true;
     memcpy(policy_hash, bundle.policy_hash, 32);
     secure_memzero(&bundle, sizeof(bundle));
-    return 0;
+    return SECRESULT_TRUE;
 }
 
-static int verify_policy_unchanged(bool has_policy, const uint8_t policy_hash[32]) {
+static secresult_t verify_policy_unchanged_secure(bool has_policy, const uint8_t policy_hash[32]) {
     bool current_has_policy = false;
     uint8_t current_hash[32];
-    int ret = capture_policy_snapshot(&current_has_policy, current_hash);
+    secresult_t result = capture_policy_snapshot_secure(&current_has_policy, current_hash);
 
-    if (ret == 0) {
-        bool policy_mismatch = (has_policy != current_has_policy) ||
-                               (has_policy && ct_compare(policy_hash, current_hash, 32) != 0);
-        if (policy_mismatch) {
-            ret = -1;
-        }
+    if (!SECRESULT_IS_TRUE(result)) {
+        secure_memzero(current_hash, sizeof(current_hash));
+        return result;
     }
 
+    bool policy_changed = (has_policy != current_has_policy) ||
+                          (has_policy && ct_compare(policy_hash, current_hash, 32) != 0);
     secure_memzero(current_hash, sizeof(current_hash));
-    return ret;
+
+    return policy_changed ? SECRESULT_ERR_POLICY_CHANGED : SECRESULT_TRUE;
 }
 
 static int parse_session_id(const char *hex, uint8_t *out, rpc_response_t *resp) {
@@ -278,8 +279,8 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
 
     bool has_policy = false;
     uint8_t policy_hash[32];
-    int policy_ret = capture_policy_snapshot(&has_policy, policy_hash);
-    if (policy_ret != 0) {
+    secresult_t policy_ret = capture_policy_snapshot_secure(&has_policy, policy_hash);
+    if (!SECRESULT_IS_TRUE(policy_ret)) {
         secure_memzero(policy_hash, sizeof(policy_hash));
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
         return;
@@ -357,7 +358,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
-    if (verify_policy_unchanged(s->has_policy, s->policy_hash) != 0) {
+    if (!SECRESULT_IS_TRUE(verify_policy_unchanged_secure(s->has_policy, s->policy_hash))) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during session");
         return;
@@ -412,7 +413,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
-    if (verify_policy_unchanged(policy_snapshot, policy_hash_snapshot) != 0) {
+    if (!SECRESULT_IS_TRUE(verify_policy_unchanged_secure(policy_snapshot, policy_hash_snapshot))) {
         secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during signing");

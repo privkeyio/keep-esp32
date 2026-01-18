@@ -212,10 +212,22 @@ int frost_aggregate(frost_state_t *state, session_t *session, const uint8_t *msg
     return ret == 1 ? 0 : -2;
 }
 
-int frost_verify(frost_state_t *state, const uint8_t *signature, const uint8_t *msg_hash,
-                 size_t hash_len) {
+static int frost_verify(frost_state_t *state, const uint8_t *signature, const uint8_t *msg_hash,
+                        size_t hash_len) {
     secp256k1_frost_pubkey pk;
     secp256k1_frost_pubkey_from_keypair(&pk, state->keypair);
     int ret = secp256k1_frost_verify(state->ctx, signature, msg_hash, hash_len, &pk);
     return ret == 1 ? 0 : -1;
+}
+
+secresult_t frost_verify_secure(frost_state_t *state, const uint8_t *signature,
+                                const uint8_t *msg_hash, size_t hash_len) {
+    if (!state || !signature || !msg_hash)
+        return SECRESULT_ERR_INVALID_SIG;
+    if (!state->ctx || !state->keypair)
+        return SECRESULT_ERR_INVALID_SIG;
+    secp256k1_frost_pubkey pk;
+    secp256k1_frost_pubkey_from_keypair(&pk, state->keypair);
+    int ret = secp256k1_frost_verify(state->ctx, signature, msg_hash, hash_len, &pk);
+    return (ret == 1) ? SECRESULT_TRUE : SECRESULT_ERR_INVALID_SIG;
 }

@@ -41,7 +41,10 @@ target_include_directories(test_storage PRIVATE
 target_compile_definitions(test_storage PRIVATE NATIVE_TEST=1)
 
 add_executable(test_session test_session.c)
-target_include_directories(test_session PRIVATE ${MAIN_DIR})
+target_include_directories(test_session PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
 target_compile_definitions(test_session PRIVATE NATIVE_TEST=1)
 
 add_executable(test_secure_element test_secure_element.c)
@@ -64,4 +67,10 @@ set_target_properties(test_frost_signer_core PROPERTIES
     INSTALL_RPATH ${SECP_DIR}/build/src
 )
 target_compile_definitions(test_frost_signer_core PRIVATE NATIVE_TEST=1)
+
+add_executable(test_secresult test_secresult.c)
+target_include_directories(test_secresult PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+)
+target_compile_definitions(test_secresult PRIVATE NATIVE_TEST=1)
 
