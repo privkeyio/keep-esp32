@@ -94,9 +94,10 @@ int frost_dkg_round1_generate(const frost_group_t *group,
 int frost_dkg_round1_validate(const frost_dkg_round1_t *peer_round1) {
     secp256k1_context *ctx = get_secp_ctx();
     if (!ctx || !peer_round1) return -1;
+    if (peer_round1->num_coefficients == 0 || peer_round1->num_coefficients > MAX_THRESHOLD) return -2;
 
     secp256k1_frost_vss_commitments *vss = secp256k1_frost_vss_commitments_create(peer_round1->num_coefficients);
-    if (!vss) return -2;
+    if (!vss) return -3;
 
     vss->index = peer_round1->participant_index;
     vss->num_coefficients = peer_round1->num_coefficients;
@@ -110,7 +111,7 @@ int frost_dkg_round1_validate(const frost_dkg_round1_t *peer_round1) {
         (const unsigned char *)DKG_CONTEXT_TAG, strlen(DKG_CONTEXT_TAG));
 
     secp256k1_frost_vss_commitments_destroy(vss);
-    return ret == 1 ? 0 : -3;
+    return ret == 1 ? 0 : -4;
 }
 
 int frost_dkg_finalize(const frost_group_t *group,
@@ -130,11 +131,16 @@ int frost_dkg_finalize(const frost_group_t *group,
     if (!commitments) return -3;
 
     for (size_t i = 0; i < round1_count; i++) {
+        if (all_round1[i].num_coefficients == 0 || all_round1[i].num_coefficients > MAX_THRESHOLD) {
+            for (size_t j = 0; j < i; j++) secp256k1_frost_vss_commitments_destroy(commitments[j]);
+            free(commitments);
+            return -4;
+        }
         commitments[i] = secp256k1_frost_vss_commitments_create(all_round1[i].num_coefficients);
         if (!commitments[i]) {
             for (size_t j = 0; j < i; j++) secp256k1_frost_vss_commitments_destroy(commitments[j]);
             free(commitments);
-            return -4;
+            return -5;
         }
         commitments[i]->index = all_round1[i].participant_index;
         commitments[i]->num_coefficients = all_round1[i].num_coefficients;
@@ -150,7 +156,7 @@ int frost_dkg_finalize(const frost_group_t *group,
     if (!shares) {
         for (size_t i = 0; i < round1_count; i++) secp256k1_frost_vss_commitments_destroy(commitments[i]);
         free(commitments);
-        return -5;
+        return -6;
     }
 
     for (size_t i = 0; i < share_count; i++) {
@@ -164,7 +170,7 @@ int frost_dkg_finalize(const frost_group_t *group,
         free(shares);
         for (size_t i = 0; i < round1_count; i++) secp256k1_frost_vss_commitments_destroy(commitments[i]);
         free(commitments);
-        return -6;
+        return -7;
     }
 
     int ret = secp256k1_frost_keygen_dkg_finalize(ctx, keypair, our_index,
@@ -183,7 +189,7 @@ int frost_dkg_finalize(const frost_group_t *group,
     for (size_t i = 0; i < round1_count; i++) secp256k1_frost_vss_commitments_destroy(commitments[i]);
     free(commitments);
 
-    return ret == 1 ? 0 : -7;
+    return ret == 1 ? 0 : -8;
 }
 
 int frost_sign_partial(const frost_group_t *group,

@@ -340,6 +340,27 @@ static int test_negative_id(void) {
     return 0;
 }
 
+static int test_parse_null_input(void) {
+    TEST("parse null input");
+    rpc_request_t req;
+    if (protocol_parse_request(NULL, &req) != PROTOCOL_ERR_PARSE) FAIL("NULL json should fail");
+    if (protocol_parse_request("{\"id\":1,\"method\":\"ping\"}", NULL) != PROTOCOL_ERR_PARSE) FAIL("NULL req should fail");
+    PASS();
+    return 0;
+}
+
+static int test_format_null_input(void) {
+    TEST("format null input");
+    rpc_response_t resp;
+    char buf[256];
+    protocol_success(&resp, 1, "{\"ok\":true}");
+    if (protocol_format_response(NULL, buf, sizeof(buf)) != -1) FAIL("NULL resp should fail");
+    if (protocol_format_response(&resp, NULL, sizeof(buf)) != -1) FAIL("NULL buf should fail");
+    if (protocol_format_response(&resp, buf, 0) != -1) FAIL("zero len should fail");
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== Protocol Native Tests ===\n\n");
 
@@ -371,6 +392,8 @@ int main(void) {
     failures += test_empty_params();
     failures += test_null_params();
     failures += test_negative_id();
+    failures += test_parse_null_input();
+    failures += test_format_null_input();
 
     printf("\n");
     if (failures == 0) {

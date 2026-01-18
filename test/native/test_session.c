@@ -36,7 +36,7 @@ static int test_init_and_destroy(void) {
     setup_request(&req, 3);
     mock_time_ms = 1000;
 
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
     if (s.state != SESSION_AWAITING_COMMITMENTS) FAIL("wrong initial state");
     if (s.threshold != 2) FAIL("wrong threshold");
     if (s.participant_count != 3) FAIL("wrong participant count");
@@ -57,7 +57,7 @@ static int test_is_participant(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     if (!session_is_participant(&s, 1)) FAIL("1 should be participant");
     if (!session_is_participant(&s, 2)) FAIL("2 should be participant");
@@ -77,7 +77,7 @@ static int test_add_commitment(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64];
     memset(commit, 0xBB, sizeof(commit));
@@ -101,7 +101,7 @@ static int test_commitment_wrong_state(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     session_add_commitment(&s, 1, commit, sizeof(commit));
@@ -120,7 +120,7 @@ static int test_commitment_not_participant(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     if (session_add_commitment(&s, 99, commit, sizeof(commit)) != SESSION_ERR_NOT_PARTICIPANT) FAIL("should fail for non-participant");
@@ -136,7 +136,7 @@ static int test_commitment_too_long(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[256];
     memset(commit, 0, sizeof(commit));
@@ -153,7 +153,7 @@ static int test_commitment_duplicate(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     if (session_add_commitment(&s, 1, commit, sizeof(commit)) != 0) FAIL("first add failed");
@@ -170,7 +170,7 @@ static int test_add_signature_share(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     session_add_commitment(&s, 1, commit, sizeof(commit));
@@ -193,7 +193,7 @@ static int test_signature_share_wrong_state(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t share[32] = {0};
     if (session_add_signature_share(&s, 1, share, sizeof(share)) != SESSION_ERR_INVALID_STATE) FAIL("should fail in wrong state");
@@ -209,7 +209,7 @@ static int test_signature_share_not_participant(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     session_add_commitment(&s, 1, commit, sizeof(commit));
@@ -229,7 +229,7 @@ static int test_signature_share_too_long(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     session_add_commitment(&s, 1, commit, sizeof(commit));
@@ -249,7 +249,7 @@ static int test_signature_share_duplicate(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     session_add_commitment(&s, 1, commit, sizeof(commit));
@@ -270,7 +270,7 @@ static int test_timeout(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     if (session_state(&s) != SESSION_AWAITING_COMMITMENTS) FAIL("should be awaiting");
 
@@ -292,7 +292,7 @@ static int test_timeout_wraparound(void) {
     setup_request(&req, 3);
 
     mock_time_ms = UINT32_MAX - 10000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     mock_time_ms = UINT32_MAX - 5000;
     if (session_state(&s) != SESSION_AWAITING_COMMITMENTS) FAIL("should be awaiting mid-way");
@@ -311,7 +311,7 @@ static int test_has_all_commitments(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     if (session_has_all_commitments(&s)) FAIL("should not have all initially");
@@ -333,7 +333,7 @@ static int test_has_all_shares(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     uint8_t commit[64] = {0};
     session_add_commitment(&s, 1, commit, sizeof(commit));
@@ -359,7 +359,7 @@ static int test_max_participants(void) {
     sign_request_t req;
     setup_request(&req, MAX_PARTICIPANTS);
     mock_time_ms = 1000;
-    session_init(&s, &req, MAX_PARTICIPANTS);
+    if (session_init(&s, &req, MAX_PARTICIPANTS) != 0) FAIL("session_init failed");
 
     if (s.participant_count != MAX_PARTICIPANTS) FAIL("wrong participant count");
 
@@ -380,7 +380,7 @@ static int test_complete_state_no_timeout(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     s.state = SESSION_COMPLETE;
     mock_time_ms = 1000 + SESSION_TIMEOUT_MS + 10000;
@@ -398,7 +398,7 @@ static int test_failed_state_no_timeout(void) {
     sign_request_t req;
     setup_request(&req, 3);
     mock_time_ms = 1000;
-    session_init(&s, &req, 2);
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
 
     s.state = SESSION_FAILED;
     mock_time_ms = 1000 + SESSION_TIMEOUT_MS + 10000;
@@ -416,10 +416,54 @@ static int test_zero_participants(void) {
     sign_request_t req;
     setup_request(&req, 0);
     mock_time_ms = 1000;
-    session_init(&s, &req, 0);
+    if (session_init(&s, &req, 0) != 0) FAIL("session_init failed");
 
     if (session_has_all_commitments(&s)) FAIL("should return false with 0 participants");
     if (session_has_all_shares(&s)) FAIL("should return false with 0 participants");
+
+    session_destroy(&s);
+    PASS();
+    return 0;
+}
+
+static int test_init_null_params(void) {
+    TEST("session_init null params");
+    session_t s;
+    sign_request_t req;
+    memset(&req, 0, sizeof(req));
+
+    if (session_init(NULL, &req, 2) != -1) FAIL("NULL session should fail");
+    if (session_init(&s, NULL, 2) != -1) FAIL("NULL request should fail");
+    PASS();
+    return 0;
+}
+
+static int test_init_overflow_protection(void) {
+    TEST("session_init overflow protection");
+    session_t s;
+    sign_request_t req;
+    memset(&req, 0, sizeof(req));
+
+    req.message_len = MAX_MESSAGE_LEN + 1;
+    if (session_init(&s, &req, 2) != -2) FAIL("should reject oversized message");
+
+    req.message_len = 0;
+    req.participant_count = MAX_PARTICIPANTS + 1;
+    if (session_init(&s, &req, 2) != -3) FAIL("should reject too many participants");
+
+    PASS();
+    return 0;
+}
+
+static int test_commitment_null_pointer(void) {
+    TEST("commitment null pointer");
+    session_t s;
+    sign_request_t req;
+    setup_request(&req, 3);
+    mock_time_ms = 1000;
+    if (session_init(&s, &req, 2) != 0) FAIL("session_init failed");
+
+    if (session_add_commitment(&s, 1, NULL, 64) != SESSION_ERR_INVALID_LEN) FAIL("NULL should fail");
 
     session_destroy(&s);
     PASS();
@@ -450,6 +494,9 @@ int main(void) {
     failures += test_complete_state_no_timeout();
     failures += test_failed_state_no_timeout();
     failures += test_zero_participants();
+    failures += test_init_null_params();
+    failures += test_init_overflow_protection();
+    failures += test_commitment_null_pointer();
 
     printf("\n");
     if (failures == 0) {

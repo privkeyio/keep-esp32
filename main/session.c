@@ -27,7 +27,11 @@ static uint32_t now_ms(void) {
 }
 #endif
 
-void session_init(session_t *s, const sign_request_t *req, uint16_t threshold) {
+int session_init(session_t *s, const sign_request_t *req, uint16_t threshold) {
+    if (!s || !req) return -1;
+    if (req->message_len > MAX_MESSAGE_LEN) return -2;
+    if (req->participant_count > MAX_PARTICIPANTS) return -3;
+
     memset(s, 0, sizeof(*s));
     memcpy(s->session_id, req->session_id, SESSION_ID_LEN);
     memcpy(s->message, req->message, req->message_len);
@@ -37,14 +41,19 @@ void session_init(session_t *s, const sign_request_t *req, uint16_t threshold) {
     s->participant_count = req->participant_count;
     s->state = SESSION_AWAITING_COMMITMENTS;
     s->created_at = now_ms();
+    return 0;
 }
 
 void session_destroy(session_t *s) {
     secure_zero(s, sizeof(session_t));
 }
 
+static bool is_terminal_state(session_state_t state) {
+    return state == SESSION_COMPLETE || state == SESSION_FAILED || state == SESSION_EXPIRED;
+}
+
 session_state_t session_state(session_t *s) {
-    if (s->state != SESSION_COMPLETE && s->state != SESSION_FAILED && s->state != SESSION_EXPIRED) {
+    if (!is_terminal_state(s->state)) {
         uint32_t now = now_ms();
         uint32_t created = s->created_at;
         uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
@@ -52,7 +61,7 @@ session_state_t session_state(session_t *s) {
             s->state = SESSION_EXPIRED;
         }
     }
-    if (s->state == SESSION_COMPLETE || s->state == SESSION_FAILED || s->state == SESSION_EXPIRED) {
+    if (is_terminal_state(s->state)) {
         session_state_t final_state = s->state;
         secure_zero(s->message, sizeof(s->message));
         secure_zero(s->commitments, sizeof(s->commitments));
@@ -71,6 +80,7 @@ bool session_is_participant(session_t *s, uint16_t share_index) {
 }
 
 int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment, size_t len) {
+    if (!s || !commitment) return SESSION_ERR_INVALID_LEN;
     if (s->state != SESSION_AWAITING_COMMITMENTS) return SESSION_ERR_INVALID_STATE;
     if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
     if (len == 0 || len > COMMITMENT_LEN) return SESSION_ERR_INVALID_LEN;
@@ -93,6 +103,7 @@ int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *co
 }
 
 int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_t *share, size_t len) {
+    if (!s || !share) return SESSION_ERR_INVALID_LEN;
     if (s->state != SESSION_AWAITING_SHARES) return SESSION_ERR_INVALID_STATE;
     if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
     if (len == 0 || len > SIGNATURE_LEN) return SESSION_ERR_INVALID_LEN;

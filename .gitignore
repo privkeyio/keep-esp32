@@ -13,6 +13,8 @@ test_native_frost
 test_frost_native
 test_firmware_flow
 test/native/build/
+test/native/test_*
+!test/native/test_*.c
 tests/*.o
 
 # Web flasher (built by CI)
