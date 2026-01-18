@@ -383,7 +383,7 @@ python3 test/hardware/test_hardware.py
 python3 scripts/monitor_serial.py
 ```
 
-### Native Tests (FROST crypto, no device needed)
+### Native Tests (no device needed)
 
 Requires secp256k1-frost to be built first:
 
@@ -398,6 +398,9 @@ cd ~/projects/keep-esp32/test/native
 mkdir -p build && cd build
 cmake .. && make
 ./test_frost
+./test_session
+./test_storage
+./test_secure_element
 ```
 
 ---

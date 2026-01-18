@@ -1,0 +1,18 @@
+menu "Secure Element Configuration"
+
+    config SE_MOCK_MODE
+        bool "Use mock secure element (DEV ONLY)"
+        default n
+        help
+            Software simulation of ATECC608B for development.
+            WARNING: Provides NO security. Never enable in production.
+
+    config PRODUCTION_BUILD
+        bool "Production build"
+        default n
+        help
+            Enable production build mode. This enforces security
+            requirements and disables development-only features.
+            Mock secure element cannot be used with this enabled.
+
+endmenu
