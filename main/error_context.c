@@ -14,6 +14,10 @@ static const char *path_basename(const char *path) {
 }
 
 static void safe_string_copy(char *dest, size_t dest_size, const char *src) {
+    if (!src) {
+        dest[0] = '\0';
+        return;
+    }
     size_t src_len = strlen(src);
     size_t copy_len = (src_len < dest_size - 1) ? src_len : (dest_size - 1);
     memcpy(dest, src, copy_len);

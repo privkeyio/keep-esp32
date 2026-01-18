@@ -209,7 +209,16 @@ int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) 
 
     if (resp->success) {
         cJSON *result = cJSON_Parse(resp->result);
-        cJSON_AddItemToObject(root, "result", result ? result : cJSON_CreateRaw(resp->result));
+        if (result) {
+            cJSON_AddItemToObject(root, "result", result);
+        } else {
+            cJSON *str_result = cJSON_CreateString(resp->result);
+            if (!str_result) {
+                cJSON_Delete(root);
+                return -1;
+            }
+            cJSON_AddItemToObject(root, "result", str_result);
+        }
     } else {
         cJSON *error = cJSON_AddObjectToObject(root, "error");
         if (!error) {
