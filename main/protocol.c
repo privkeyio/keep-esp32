@@ -43,6 +43,8 @@ static rpc_method_t parse_method(const char *method) {
     if (strcmp(method, "bitcoin_sign") == 0) return RPC_METHOD_BITCOIN_SIGN;
     if (strcmp(method, "policy_update") == 0) return RPC_METHOD_POLICY_UPDATE;
     if (strcmp(method, "policy_get") == 0) return RPC_METHOD_POLICY_GET;
+    if (strcmp(method, "get_status") == 0) return RPC_METHOD_GET_STATUS;
+    if (strcmp(method, "restart") == 0) return RPC_METHOD_RESTART;
     return RPC_METHOD_UNKNOWN;
 }
 
