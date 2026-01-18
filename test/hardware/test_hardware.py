@@ -97,12 +97,17 @@ def test_get_pubkey(ser):
     print(f"  PASS (index={resp['result']['index']})")
     return True
 
+def generate_session_id():
+    import random
+    return ''.join(random.choice('0123456789abcdef') for _ in range(64))
+
 def test_frost_commit(ser):
     print("TEST: frost_commit")
 
     test_group = "npub1commit"
     test_share = generate_test_share()
     message = "b" * 64
+    session_id = generate_session_id()
 
     send_receive(ser, {
         "id": 20, "method": "import_share",
@@ -111,12 +116,11 @@ def test_frost_commit(ser):
 
     resp = send_receive(ser, {
         "id": 21, "method": "frost_commit",
-        "params": {"group": test_group, "message": message}
+        "params": {"group": test_group, "session_id": session_id, "message": message}
     })
     assert resp is not None, "no response"
     assert "result" in resp, f"commit failed: {resp}"
     assert "commitment" in resp["result"], "no commitment in result"
-    assert "session_id" in resp["result"], "no session_id in result"
 
     send_receive(ser, {
         "id": 22, "method": "delete_share",
@@ -132,20 +136,19 @@ def test_frost_sign(ser):
     test_group = "npub1sign"
     test_share = generate_test_share()
     message = "d" * 64
+    session_id = generate_session_id()
 
     send_receive(ser, {
         "id": 30, "method": "import_share",
         "params": {"group": test_group, "share": test_share}
     })
 
-    # frost_commit generates session_id on device
     commit_resp = send_receive(ser, {
         "id": 31, "method": "frost_commit",
-        "params": {"group": test_group, "message": message}
+        "params": {"group": test_group, "session_id": session_id, "message": message}
     })
     assert commit_resp is not None, "no commit response"
     assert "result" in commit_resp, f"commit failed: {commit_resp}"
-    session_id = commit_resp["result"]["session_id"]
 
     resp = send_receive(ser, {
         "id": 32, "method": "frost_sign",

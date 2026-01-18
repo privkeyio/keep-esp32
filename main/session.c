@@ -44,13 +44,21 @@ void session_destroy(session_t *s) {
 }
 
 session_state_t session_state(session_t *s) {
-    if (s->state != SESSION_COMPLETE && s->state != SESSION_FAILED) {
+    if (s->state != SESSION_COMPLETE && s->state != SESSION_FAILED && s->state != SESSION_EXPIRED) {
         uint32_t now = now_ms();
         uint32_t created = s->created_at;
         uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
         if (elapsed > SESSION_TIMEOUT_MS) {
             s->state = SESSION_EXPIRED;
         }
+    }
+    if (s->state == SESSION_COMPLETE || s->state == SESSION_FAILED || s->state == SESSION_EXPIRED) {
+        session_state_t final_state = s->state;
+        secure_zero(s->message, sizeof(s->message));
+        secure_zero(s->commitments, sizeof(s->commitments));
+        secure_zero(s->sig_shares, sizeof(s->sig_shares));
+        secure_zero(s->our_nonce, sizeof(s->our_nonce));
+        return final_state;
     }
     return s->state;
 }
@@ -66,6 +74,7 @@ int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *co
     if (s->state != SESSION_AWAITING_COMMITMENTS) return SESSION_ERR_INVALID_STATE;
     if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
     if (len == 0 || len > COMMITMENT_LEN) return SESSION_ERR_INVALID_LEN;
+    if (s->commitment_count >= MAX_PARTICIPANTS) return SESSION_ERR_INVALID_STATE;
 
     for (int i = 0; i < s->commitment_count; i++) {
         if (s->commitment_indices[i] == share_index) return SESSION_ERR_DUPLICATE;
@@ -87,6 +96,7 @@ int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_
     if (s->state != SESSION_AWAITING_SHARES) return SESSION_ERR_INVALID_STATE;
     if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
     if (len == 0 || len > SIGNATURE_LEN) return SESSION_ERR_INVALID_LEN;
+    if (s->sig_share_count >= MAX_PARTICIPANTS) return SESSION_ERR_INVALID_STATE;
 
     for (int i = 0; i < s->sig_share_count; i++) {
         if (s->sig_share_indices[i] == share_index) return SESSION_ERR_DUPLICATE;

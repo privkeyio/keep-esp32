@@ -20,6 +20,7 @@
 #define POLICY_ERR_NO_BUNDLE -5
 #define POLICY_ERR_HASH_MISMATCH -6
 #define POLICY_ERR_DENIED -7
+#define POLICY_ERR_MALFORMED -8
 
 typedef struct {
     uint8_t version;

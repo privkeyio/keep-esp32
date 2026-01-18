@@ -75,6 +75,11 @@ static void null_terminate_group(share_slot_t *slot) {
     slot->group[STORAGE_GROUP_LEN] = '\0';
 }
 
+static void pad_group_name(char padded[STORAGE_GROUP_LEN + 1], const char *group) {
+    memset(padded, 0, STORAGE_GROUP_LEN + 1);
+    strncpy(padded, group, STORAGE_GROUP_LEN);
+}
+
 int storage_save_share(const char *group, const char *share_hex) {
     if (!initialized) {
         return STORAGE_ERR_NOT_INIT;
@@ -96,6 +101,9 @@ int storage_save_share(const char *group, const char *share_hex) {
         return STORAGE_ERR_INVALID_DATA;
     }
 
+    char padded_group[STORAGE_GROUP_LEN + 1];
+    pad_group_name(padded_group, group);
+
     int target_slot = -1;
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
@@ -104,7 +112,7 @@ int storage_save_share(const char *group, const char *share_hex) {
             continue;
         }
         null_terminate_group(&slot);
-        if (slot_is_valid(&slot) && strcmp(slot.group, group) == 0) {
+        if (slot_is_valid(&slot) && ct_compare(slot.group, padded_group, STORAGE_GROUP_LEN + 1) == 0) {
             target_slot = i;
             break;
         }
@@ -164,6 +172,9 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         return STORAGE_ERR_CRYPTO_NOT_INIT;
     }
 
+    char padded_group[STORAGE_GROUP_LEN + 1];
+    pad_group_name(padded_group, group);
+
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
@@ -172,7 +183,7 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         }
 
         null_terminate_group(&slot);
-        if (strcmp(slot.group, group) != 0) {
+        if (ct_compare(slot.group, padded_group, STORAGE_GROUP_LEN + 1) != 0) {
             continue;
         }
 
@@ -207,6 +218,9 @@ int storage_delete_share(const char *group) {
         return STORAGE_ERR_NOT_INIT;
     }
 
+    char padded_group[STORAGE_GROUP_LEN + 1];
+    pad_group_name(padded_group, group);
+
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
@@ -215,7 +229,7 @@ int storage_delete_share(const char *group) {
         }
 
         null_terminate_group(&slot);
-        if (strcmp(slot.group, group) != 0) {
+        if (ct_compare(slot.group, padded_group, STORAGE_GROUP_LEN + 1) != 0) {
             continue;
         }
 
@@ -274,6 +288,9 @@ bool storage_has_share(const char *group) {
         return false;
     }
 
+    char padded_group[STORAGE_GROUP_LEN + 1];
+    pad_group_name(padded_group, group);
+
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
         esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
@@ -281,7 +298,7 @@ bool storage_has_share(const char *group) {
             continue;
         }
         null_terminate_group(&slot);
-        if (strcmp(slot.group, group) == 0) {
+        if (ct_compare(slot.group, padded_group, STORAGE_GROUP_LEN + 1) == 0) {
             return true;
         }
     }
