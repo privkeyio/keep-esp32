@@ -75,7 +75,6 @@ typedef struct {
 int session_init(session_t *s, const sign_request_t *req, uint16_t threshold);
 void session_destroy(session_t *s);
 session_state_t session_state(session_t *s);
-bool session_is_participant(session_t *s, uint16_t share_index);
 secresult_t session_is_participant_secure(session_t *s, uint16_t share_index);
 int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment,
                            size_t len);

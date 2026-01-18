@@ -1,12 +1,13 @@
 #ifndef SECRESULT_H
 #define SECRESULT_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef uint32_t secresult_t;
 
-#define SECRESULT_TRUE        ((secresult_t)0xAAAAAAAAu)
-#define SECRESULT_FALSE       ((secresult_t)0x55555555u)
+#define SECRESULT_TRUE  ((secresult_t)0xAAAAAAAAu)
+#define SECRESULT_FALSE ((secresult_t)0x55555555u)
 
 #define SECRESULT_ERR_INVALID_SIG     ((secresult_t)0x1E1E1E1Eu)
 #define SECRESULT_ERR_POLICY_DENIED   ((secresult_t)0x2D2D2D2Du)

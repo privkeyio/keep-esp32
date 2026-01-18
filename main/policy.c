@@ -22,6 +22,11 @@ static uint8_t sector_buf[SECTOR_SIZE];
 _Static_assert(sizeof(policy_bundle_t) <= POLICY_SLOT_SIZE, "policy_bundle_t exceeds slot size");
 _Static_assert(sizeof(policy_bundle_t) <= SECTOR_SIZE, "policy_bundle_t exceeds sector size");
 
+static int policy_verify_signature(const policy_bundle_t *bundle);
+static int policy_check_hash(const policy_bundle_t *bundle,
+                             const uint8_t expected_hash[POLICY_HASH_LEN]);
+static int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats);
+
 int policy_init(void) {
     if (initialized)
         return 0;
@@ -131,7 +136,7 @@ bool policy_has_bundle(void) {
     return has;
 }
 
-int policy_verify_signature(const policy_bundle_t *bundle) {
+static int policy_verify_signature(const policy_bundle_t *bundle) {
     secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
     if (!ctx)
         return POLICY_ERR_INVALID_SIG;
@@ -153,37 +158,26 @@ int policy_verify_signature(const policy_bundle_t *bundle) {
 }
 
 secresult_t policy_verify_signature_secure(const policy_bundle_t *bundle) {
-    secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
-    if (!ctx) return SECRESULT_ERR_INVALID_SIG;
-
-    size_t msg_len = offsetof(policy_bundle_t, signature);
-    uint8_t msg_hash[32];
-    mbedtls_sha256((const uint8_t *)bundle, msg_len, msg_hash, 0);
-
-    secp256k1_xonly_pubkey xonly_pk;
-    if (!secp256k1_xonly_pubkey_parse(ctx, &xonly_pk, bundle->warden_pubkey)) {
-        secp256k1_context_destroy(ctx);
-        return SECRESULT_ERR_INVALID_SIG;
-    }
-
-    int valid = secp256k1_schnorrsig_verify(ctx, bundle->signature, msg_hash, 32, &xonly_pk);
-    secp256k1_context_destroy(ctx);
-
-    return (valid == 1) ? SECRESULT_TRUE : SECRESULT_ERR_INVALID_SIG;
+    int ret = policy_verify_signature(bundle);
+    if (ret == 0)
+        return SECRESULT_TRUE;
+    return SECRESULT_ERR_INVALID_SIG;
 }
 
-int policy_check_hash(const policy_bundle_t *bundle, const uint8_t expected_hash[POLICY_HASH_LEN]) {
+static int policy_check_hash(const policy_bundle_t *bundle,
+                             const uint8_t expected_hash[POLICY_HASH_LEN]) {
     if (ct_compare(bundle->policy_hash, expected_hash, POLICY_HASH_LEN) != 0) {
         return POLICY_ERR_HASH_MISMATCH;
     }
     return 0;
 }
 
-secresult_t policy_check_hash_secure(const policy_bundle_t *bundle, const uint8_t expected_hash[POLICY_HASH_LEN]) {
-    if (ct_compare(bundle->policy_hash, expected_hash, POLICY_HASH_LEN) != 0) {
-        return SECRESULT_ERR_HASH_MISMATCH;
-    }
-    return SECRESULT_TRUE;
+secresult_t policy_check_hash_secure(const policy_bundle_t *bundle,
+                                     const uint8_t expected_hash[POLICY_HASH_LEN]) {
+    int ret = policy_check_hash(bundle, expected_hash);
+    if (ret == 0)
+        return SECRESULT_TRUE;
+    return SECRESULT_ERR_HASH_MISMATCH;
 }
 
 void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
@@ -263,7 +257,7 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     protocol_success(resp, req->id, result);
 }
 
-int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats) {
+static int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats) {
     if (!policy_has_bundle()) {
         return 0;
     }

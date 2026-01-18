@@ -153,18 +153,18 @@ static secresult_t capture_policy_snapshot_secure(bool *has_policy, uint8_t poli
 static secresult_t verify_policy_unchanged_secure(bool has_policy, const uint8_t policy_hash[32]) {
     bool current_has_policy = false;
     uint8_t current_hash[32];
-    secresult_t ret = capture_policy_snapshot_secure(&current_has_policy, current_hash);
+    secresult_t result = capture_policy_snapshot_secure(&current_has_policy, current_hash);
 
-    if (SECRESULT_IS_TRUE(ret)) {
-        if (has_policy != current_has_policy) {
-            ret = SECRESULT_ERR_POLICY_CHANGED;
-        } else if (has_policy && ct_compare(policy_hash, current_hash, 32) != 0) {
-            ret = SECRESULT_ERR_POLICY_CHANGED;
-        }
+    if (!SECRESULT_IS_TRUE(result)) {
+        secure_memzero(current_hash, sizeof(current_hash));
+        return result;
     }
 
+    bool policy_changed = (has_policy != current_has_policy) ||
+                          (has_policy && ct_compare(policy_hash, current_hash, 32) != 0);
     secure_memzero(current_hash, sizeof(current_hash));
-    return ret;
+
+    return policy_changed ? SECRESULT_ERR_POLICY_CHANGED : SECRESULT_TRUE;
 }
 
 static int parse_session_id(const char *hex, uint8_t *out, rpc_response_t *resp) {

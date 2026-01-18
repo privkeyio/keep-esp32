@@ -38,15 +38,13 @@ int policy_save_bundle(const policy_bundle_t *bundle);
 int policy_load_bundle(policy_bundle_t *bundle);
 int policy_delete_bundle(void);
 bool policy_has_bundle(void);
-int policy_verify_signature(const policy_bundle_t *bundle);
 secresult_t policy_verify_signature_secure(const policy_bundle_t *bundle);
-int policy_check_hash(const policy_bundle_t *bundle, const uint8_t expected_hash[POLICY_HASH_LEN]);
-secresult_t policy_check_hash_secure(const policy_bundle_t *bundle, const uint8_t expected_hash[POLICY_HASH_LEN]);
+secresult_t policy_check_hash_secure(const policy_bundle_t *bundle,
+                                     const uint8_t expected_hash[POLICY_HASH_LEN]);
 
 void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp);
 void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp);
 
-int policy_evaluate(uint64_t total_out_sats, uint64_t fee_sats);
 secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats);
 
 #endif
