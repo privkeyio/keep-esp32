@@ -32,6 +32,26 @@ static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
     protocol_success(resp, req->id, result);
 }
 
+static void handle_get_status(const rpc_request_t *req, rpc_response_t *resp) {
+    rng_health_stats_t rng_stats;
+    rng_get_health(&rng_stats);
+    char result[256];
+    snprintf(result, sizeof(result),
+             "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_total_calls\":%lu,\"rng_failed_checks\":%lu,\"rng_retries\":%lu}",
+             VERSION,
+             rng_stats.healthy ? "true" : "false",
+             (unsigned long)rng_stats.total_calls,
+             (unsigned long)rng_stats.failed_checks,
+             (unsigned long)rng_stats.retries);
+    protocol_success(resp, req->id, result);
+}
+
+static void handle_restart(const rpc_request_t *req, rpc_response_t *resp) {
+    protocol_success(resp, req->id, "{\"restarting\":true}");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+}
+
 static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
     char groups[STORAGE_MAX_SHARES][STORAGE_GROUP_LEN + 1];
     int count = storage_list_shares(groups, STORAGE_MAX_SHARES);
@@ -234,6 +254,12 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
             break;
         case RPC_METHOD_POLICY_GET:
             policy_handle_get(req, resp);
+            break;
+        case RPC_METHOD_GET_STATUS:
+            handle_get_status(req, resp);
+            break;
+        case RPC_METHOD_RESTART:
+            handle_restart(req, resp);
             break;
         default:
             PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");

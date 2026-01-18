@@ -114,3 +114,7 @@ void rng_get_health(rng_health_stats_t *stats) {
         *stats = g_rng_stats;
     }
 }
+
+bool rng_is_healthy(void) {
+    return g_rng_stats.healthy;
+}

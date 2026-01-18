@@ -14,6 +14,7 @@
 #include "session.h"
 #include "policy.h"
 #include "hex_utils.h"
+#include "random_utils.h"
 #include "crypto_asm.h"
 #include "esp_log.h"
 #include <string.h>
@@ -210,6 +211,11 @@ void frost_get_share_info(const char *group, rpc_response_t *resp) {
 
 void frost_commit(const char *group, const char *session_id_hex,
                   const char *message_hex, rpc_response_t *resp) {
+    if (!rng_is_healthy()) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "RNG health check failed, device in safe mode");
+        return;
+    }
+
     uint8_t session_id[SESSION_ID_LEN];
     if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
@@ -292,6 +298,11 @@ void frost_commit(const char *group, const char *session_id_hex,
 
 void frost_sign(const char *group, const char *session_id_hex,
                 const char *commitments_hex, rpc_response_t *resp) {
+    if (!rng_is_healthy()) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "RNG health check failed, device in safe mode");
+        return;
+    }
+
     uint8_t session_id[SESSION_ID_LEN];
     if (parse_session_id(session_id_hex, session_id, resp) != 0) {
         return;
