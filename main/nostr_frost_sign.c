@@ -83,6 +83,12 @@ int frost_parse_sign_request(const char *event_json,
                 cJSON *payload_hex = cJSON_GetObjectItem(inner, "payload");
                 if (payload_hex && cJSON_IsString(payload_hex)) {
                     size_t hex_len = strlen(payload_hex->valuestring);
+                    if (hex_len > SIZE_MAX - 2) {
+                        cJSON_Delete(inner);
+                        free(decrypted);
+                        cJSON_Delete(root);
+                        return -7;
+                    }
                     request->payload = malloc(hex_len / 2 + 1);
                     if (request->payload) {
                         int decoded = hex_to_bytes(payload_hex->valuestring, request->payload, hex_len / 2 + 1);
@@ -372,11 +378,15 @@ int frost_parse_sign_response(const char *event_json,
         if (inner) {
             cJSON *psig = cJSON_GetObjectItem(inner, "partial_signature");
             if (psig && cJSON_IsString(psig)) {
-                hex_to_bytes(psig->valuestring, response->partial_signature, 32);
+                if (hex_to_bytes(psig->valuestring, response->partial_signature, 32) != 32) {
+                    memset(response->partial_signature, 0, 32);
+                }
             }
             cJSON *nc = cJSON_GetObjectItem(inner, "nonce_commitment");
             if (nc && cJSON_IsString(nc)) {
-                hex_to_bytes(nc->valuestring, response->nonce_commitment, 33);
+                if (hex_to_bytes(nc->valuestring, response->nonce_commitment, 33) != 33) {
+                    memset(response->nonce_commitment, 0, 33);
+                }
             }
             cJSON *reason = cJSON_GetObjectItem(inner, "reason");
             if (reason && cJSON_IsString(reason)) {

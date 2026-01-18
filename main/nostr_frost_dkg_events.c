@@ -2,6 +2,7 @@
 #include "nostr_frost_internal.h"
 #include "hex_utils.h"
 #include "cJSON.h"
+#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -78,6 +79,7 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
         return -5;
     }
 
+    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
@@ -133,7 +135,10 @@ int frost_parse_dkg_round1_event(const char *event_json,
     uint8_t sender_pubkey[32] = {0};
     cJSON *pubkey_obj = cJSON_GetObjectItem(root, "pubkey");
     if (pubkey_obj && cJSON_IsString(pubkey_obj)) {
-        hex_to_bytes(pubkey_obj->valuestring, sender_pubkey, 32);
+        if (hex_to_bytes(pubkey_obj->valuestring, sender_pubkey, 32) != 32) {
+            cJSON_Delete(root);
+            return -6;
+        }
     }
 
     cJSON *content = cJSON_GetObjectItem(root, "content");
@@ -154,17 +159,23 @@ int frost_parse_dkg_round1_event(const char *event_json,
                 for (int i = 0; i < arr_size && i < MAX_THRESHOLD; i++) {
                     cJSON *c = cJSON_GetArrayItem(coeffs, i);
                     if (c && cJSON_IsString(c)) {
-                        hex_to_bytes(c->valuestring, round1->coefficient_commitments[i], 64);
+                        if (hex_to_bytes(c->valuestring, round1->coefficient_commitments[i], 64) != 64) {
+                            memset(round1->coefficient_commitments[i], 0, 64);
+                        }
                     }
                 }
             }
             cJSON *zkp_r = cJSON_GetObjectItem(inner, "zkp_r");
             if (zkp_r && cJSON_IsString(zkp_r)) {
-                hex_to_bytes(zkp_r->valuestring, round1->zkp_r, 64);
+                if (hex_to_bytes(zkp_r->valuestring, round1->zkp_r, 64) != 64) {
+                    memset(round1->zkp_r, 0, 64);
+                }
             }
             cJSON *zkp_z = cJSON_GetObjectItem(inner, "zkp_z");
             if (zkp_z && cJSON_IsString(zkp_z)) {
-                hex_to_bytes(zkp_z->valuestring, round1->zkp_z, 32);
+                if (hex_to_bytes(zkp_z->valuestring, round1->zkp_z, 32) != 32) {
+                    memset(round1->zkp_z, 0, 32);
+                }
             }
             cJSON_Delete(inner);
         }
@@ -249,6 +260,7 @@ int frost_create_dkg_round2_event(const frost_group_t *group,
         return -2;
     }
 
+    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
@@ -310,7 +322,10 @@ int frost_parse_dkg_round2_event(const char *event_json,
     uint8_t sender_pubkey[32] = {0};
     cJSON *pubkey_obj = cJSON_GetObjectItem(root, "pubkey");
     if (pubkey_obj && cJSON_IsString(pubkey_obj)) {
-        hex_to_bytes(pubkey_obj->valuestring, sender_pubkey, 32);
+        if (hex_to_bytes(pubkey_obj->valuestring, sender_pubkey, 32) != 32) {
+            cJSON_Delete(root);
+            return -6;
+        }
     }
 
     cJSON *content = cJSON_GetObjectItem(root, "content");
@@ -331,7 +346,9 @@ int frost_parse_dkg_round2_event(const char *event_json,
 
         cJSON *share = cJSON_GetObjectItem(inner, "share");
         if (share && cJSON_IsString(share)) {
-            hex_to_bytes(share->valuestring, round2->encrypted_share, 48);
+            if (hex_to_bytes(share->valuestring, round2->encrypted_share, 48) != 48) {
+                memset(round2->encrypted_share, 0, 48);
+            }
         }
         cJSON *si = cJSON_GetObjectItem(inner, "sender_index");
         if (si && cJSON_IsNumber(si)) {

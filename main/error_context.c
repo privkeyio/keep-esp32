@@ -2,13 +2,14 @@
 #include <string.h>
 
 static const char *path_basename(const char *path) {
-    const char *last = path;
-    for (; *path; path++) {
-        if (*path == '/' || *path == '\\') {
-            last = path + 1;
+    if (!path) return "";
+    const char *basename = path;
+    for (const char *p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            basename = p + 1;
         }
     }
-    return last;
+    return basename;
 }
 
 void error_context_set(error_context_t *ctx, int code, const char *file,

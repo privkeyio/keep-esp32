@@ -10,7 +10,10 @@
 #ifdef ESP_PLATFORM
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+static StaticSemaphore_t g_secp_mutex_buf;
 static SemaphoreHandle_t g_secp_mutex = NULL;
+static volatile int g_secp_mutex_init = 0;
+static portMUX_TYPE g_secp_init_spinlock = portMUX_INITIALIZER_UNLOCKED;
 #else
 #include <pthread.h>
 static pthread_mutex_t g_secp_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -20,8 +23,13 @@ static secp256k1_context *g_secp_ctx = NULL;
 
 static secp256k1_context *get_secp_ctx(void) {
 #ifdef ESP_PLATFORM
-    if (!g_secp_mutex) {
-        g_secp_mutex = xSemaphoreCreateMutex();
+    if (!g_secp_mutex_init) {
+        taskENTER_CRITICAL(&g_secp_init_spinlock);
+        if (!g_secp_mutex_init) {
+            g_secp_mutex = xSemaphoreCreateMutexStatic(&g_secp_mutex_buf);
+            g_secp_mutex_init = 1;
+        }
+        taskEXIT_CRITICAL(&g_secp_init_spinlock);
     }
     if (g_secp_mutex) xSemaphoreTake(g_secp_mutex, portMAX_DELAY);
 #else
