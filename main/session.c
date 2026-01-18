@@ -86,7 +86,7 @@ int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *co
     s->commitment_indices[idx] = share_index;
     s->commitment_count++;
 
-    if (s->commitment_count >= s->threshold) {
+    if (session_has_all_commitments(s)) {
         s->state = SESSION_AWAITING_SHARES;
     }
     return 0;

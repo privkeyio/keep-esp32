@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "crypto_asm.h"
 #include "hex_utils.h"
+#include "random_utils.h"
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
@@ -113,6 +114,11 @@ void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
+    if (!rng_is_healthy()) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "RNG health check failed, device in safe mode");
+        return;
+    }
+
     if (!check_state(DKG_ROUND1, "round1", req, resp)) {
         return;
     }
