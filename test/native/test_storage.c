@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "esp_partition.h"
 #include "esp_log.h"
@@ -329,6 +330,159 @@ static int test_max_group_name_len(void) {
     return 0;
 }
 
+static int test_format_version_set(void) {
+    TEST("format_version is set on new shares");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    if (storage_save_share("test", "aabbccdd") != 0)
+        FAIL("save failed");
+
+    share_slot_t slot;
+    memcpy(&slot, mock_flash, sizeof(slot));
+    if (slot.format_version != STORAGE_FORMAT_CURRENT)
+        FAIL("format_version not set");
+
+    PASS();
+    return 0;
+}
+
+static int test_migrate_v1_to_v2(void) {
+    TEST("migrate V1 slot to V2");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    share_slot_t v1_slot;
+    memset(&v1_slot, 0, sizeof(v1_slot));
+    strncpy(v1_slot.group, "test", STORAGE_GROUP_LEN);
+    v1_slot.format_version = STORAGE_FORMAT_V1;
+    v1_slot.flags = 0;
+
+    uint8_t plaintext[] = {0xde, 0xad, 0xbe, 0xef};
+    uint8_t encrypted[STORAGE_SHARE_LEN];
+    if (storage_crypto_encrypt(plaintext, sizeof(plaintext), NULL, 0, v1_slot.nonce, encrypted,
+                               v1_slot.tag) != 0) {
+        FAIL("V1 encryption failed");
+    }
+    v1_slot.share_len = sizeof(plaintext) | ENCRYPTED_FLAG;
+    memcpy(v1_slot.share_data, encrypted, sizeof(plaintext));
+
+    memcpy(mock_flash, &v1_slot, sizeof(v1_slot));
+
+    share_slot_t slot_before;
+    memcpy(&slot_before, mock_flash, sizeof(slot_before));
+    if (!slot_is_v1(&slot_before))
+        FAIL("slot should be detected as V1");
+    if (mock_flash[offsetof(share_slot_t, format_version)] != STORAGE_FORMAT_V1) {
+        FAIL("format_version byte not at expected offset");
+    }
+
+    mock_crypto_reset_aad();
+    if (storage_migrate_if_needed() != 0)
+        FAIL("migration failed");
+
+    if (mock_last_decrypt_aad_len != 0)
+        FAIL("V1 decrypt should use no AAD");
+    if (mock_last_encrypt_aad_len != STORAGE_GROUP_LEN + 1)
+        FAIL("V2 encrypt should use AAD");
+
+    share_slot_t slot_after;
+    memcpy(&slot_after, mock_flash, sizeof(slot_after));
+    if (slot_after.format_version != STORAGE_FORMAT_CURRENT)
+        FAIL("format_version not updated");
+    if (slot_is_v1(&slot_after))
+        FAIL("slot should be V2 after migration");
+
+    char loaded[128];
+    if (storage_load_share("test", loaded, sizeof(loaded)) != 0)
+        FAIL("load after migration failed");
+    if (strcmp(loaded, "deadbeef") != 0)
+        FAIL("data mismatch after migration");
+
+    PASS();
+    return 0;
+}
+
+static int test_no_migration_for_v2(void) {
+    TEST("no migration needed for V2 slots");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    if (storage_save_share("test", "cafebabe") != 0)
+        FAIL("save failed");
+
+    uint8_t snapshot[512];
+    memcpy(snapshot, mock_flash, sizeof(snapshot));
+
+    if (storage_migrate_if_needed() != 0)
+        FAIL("migration failed");
+
+    if (memcmp(snapshot, mock_flash, sizeof(snapshot)) != 0)
+        FAIL("V2 slot was modified");
+
+    PASS();
+    return 0;
+}
+
+static int test_aad_passed_to_crypto(void) {
+    TEST("AAD passed correctly to crypto functions");
+    reset_flash();
+    mock_crypto_reset_aad();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    const char *group = "test_aad";
+    const char *share_hex = "deadbeef";
+    if (storage_save_share(group, share_hex) != 0)
+        FAIL("save failed");
+
+    if (mock_last_encrypt_aad_len != STORAGE_GROUP_LEN + 1)
+        FAIL("encrypt AAD length wrong");
+
+    char expected_aad[STORAGE_GROUP_LEN + 1];
+    memset(expected_aad, 0, sizeof(expected_aad));
+    strncpy(expected_aad, group, STORAGE_GROUP_LEN);
+    if (memcmp(mock_last_encrypt_aad, expected_aad, STORAGE_GROUP_LEN + 1) != 0)
+        FAIL("encrypt AAD content wrong");
+
+    mock_crypto_reset_aad();
+    char loaded[128];
+    if (storage_load_share(group, loaded, sizeof(loaded)) != 0)
+        FAIL("load failed");
+
+    if (mock_last_decrypt_aad_len != STORAGE_GROUP_LEN + 1)
+        FAIL("decrypt AAD length wrong");
+    if (memcmp(mock_last_decrypt_aad, expected_aad, STORAGE_GROUP_LEN + 1) != 0)
+        FAIL("decrypt AAD content wrong");
+
+    PASS();
+    return 0;
+}
+
+static int test_corrupt_format_version_zero(void) {
+    TEST("corrupt format_version=0x00 treated as invalid");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    if (storage_save_share("test", "aabbccdd") != 0)
+        FAIL("save failed");
+
+    mock_flash[offsetof(share_slot_t, format_version)] = 0x00;
+
+    char buf[128];
+    if (storage_load_share("test", buf, sizeof(buf)) != STORAGE_ERR_NOT_FOUND)
+        FAIL("should not find corrupted slot");
+    if (storage_has_share("test"))
+        FAIL("corrupted slot should not be found");
+
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== Storage Native Tests ===\n\n");
 
@@ -348,6 +502,11 @@ int main(void) {
     failures += test_uninitialized();
     failures += test_corrupt_share_len();
     failures += test_max_group_name_len();
+    failures += test_format_version_set();
+    failures += test_migrate_v1_to_v2();
+    failures += test_no_migration_for_v2();
+    failures += test_aad_passed_to_crypto();
+    failures += test_corrupt_format_version_zero();
 
     printf("\n");
     if (failures == 0) {

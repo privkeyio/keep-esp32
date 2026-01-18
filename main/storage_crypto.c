@@ -53,6 +53,8 @@ static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {
 #endif
 }
 
+// The "v1" in the salt is the HKDF key derivation version, not the storage format version.
+// Do not change this value - it would invalidate all existing encrypted data.
 static const uint8_t HKDF_SALT[] = "keep-esp32-share-storage-v1";
 static const uint8_t HKDF_INFO[] = "share-encryption-key";
 
@@ -68,7 +70,7 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
 
     if (pin && pin_len > 0) {
         size_t copy_len =
-            (pin_len < STORAGE_CRYPTO_MAX_PIN_LEN) ? pin_len : STORAGE_CRYPTO_MAX_PIN_LEN;
+            pin_len < STORAGE_CRYPTO_MAX_PIN_LEN ? pin_len : STORAGE_CRYPTO_MAX_PIN_LEN;
         memcpy(ikm + device_id_len, pin, copy_len);
         ikm_len += copy_len;
     }
@@ -119,10 +121,13 @@ static int gcm_init_with_key(mbedtls_gcm_context *gcm) {
     return mbedtls_gcm_setkey(gcm, MBEDTLS_CIPHER_ID_AES, storage_key, STORAGE_CRYPTO_KEY_SIZE * 8);
 }
 
-int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len,
-                           uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE], uint8_t *ciphertext,
-                           uint8_t tag[STORAGE_CRYPTO_TAG_SIZE]) {
+int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len, const uint8_t *aad,
+                           size_t aad_len, uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
+                           uint8_t *ciphertext, uint8_t tag[STORAGE_CRYPTO_TAG_SIZE]) {
     if (!key_initialized || !plaintext || !nonce || !ciphertext || !tag) {
+        return -1;
+    }
+    if (aad_len > 0 && !aad) {
         return -1;
     }
     if (rng_fill_checked(nonce, STORAGE_CRYPTO_NONCE_SIZE) != 0) {
@@ -136,16 +141,19 @@ int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len,
     }
 
     int ret = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, plaintext_len, nonce,
-                                        STORAGE_CRYPTO_NONCE_SIZE, NULL, 0, plaintext, ciphertext,
-                                        STORAGE_CRYPTO_TAG_SIZE, tag);
+                                        STORAGE_CRYPTO_NONCE_SIZE, aad, aad_len, plaintext,
+                                        ciphertext, STORAGE_CRYPTO_TAG_SIZE, tag);
     mbedtls_gcm_free(&gcm);
     return (ret == 0) ? 0 : -1;
 }
 
-int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len,
-                           const uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
+int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, const uint8_t *aad,
+                           size_t aad_len, const uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
                            const uint8_t tag[STORAGE_CRYPTO_TAG_SIZE], uint8_t *plaintext) {
     if (!key_initialized || !ciphertext || !nonce || !tag || !plaintext) {
+        return -1;
+    }
+    if (aad_len > 0 && !aad) {
         return -1;
     }
 
@@ -155,8 +163,9 @@ int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len,
         return -1;
     }
 
-    int ret = mbedtls_gcm_auth_decrypt(&gcm, ciphertext_len, nonce, STORAGE_CRYPTO_NONCE_SIZE, NULL,
-                                       0, tag, STORAGE_CRYPTO_TAG_SIZE, ciphertext, plaintext);
+    int ret =
+        mbedtls_gcm_auth_decrypt(&gcm, ciphertext_len, nonce, STORAGE_CRYPTO_NONCE_SIZE, aad,
+                                 aad_len, tag, STORAGE_CRYPTO_TAG_SIZE, ciphertext, plaintext);
     mbedtls_gcm_free(&gcm);
     return (ret == 0) ? 0 : -1;
 }

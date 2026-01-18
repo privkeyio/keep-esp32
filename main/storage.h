@@ -28,7 +28,13 @@
 #define STORAGE_ERR_IO              -6
 #define STORAGE_ERR_NOT_FOUND       -7
 #define STORAGE_ERR_DECRYPT         -8
+#define STORAGE_ERR_MIGRATION       -9
+#define STORAGE_ERR_ENCRYPT         -10
 /** @} */
+
+#define STORAGE_FORMAT_V1      1
+#define STORAGE_FORMAT_V2      2
+#define STORAGE_FORMAT_CURRENT STORAGE_FORMAT_V2
 
 /**
  * @brief Initialize storage subsystem.
@@ -37,9 +43,8 @@
  */
 int storage_init(void);
 
-/**
- * @brief Cleanup storage subsystem.
- */
+int storage_migrate_if_needed(void);
+
 void storage_cleanup(void);
 
 /**
