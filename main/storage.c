@@ -7,12 +7,12 @@
 #include <string.h>
 #include <ctype.h>
 
-#define TAG "storage"
-#define PARTITION_NAME "storage"
-#define MAX_SHARES 8
+#define TAG             "storage"
+#define PARTITION_NAME  "storage"
+#define MAX_SHARES      8
 #define SHARE_SLOT_SIZE 512
-#define SECTOR_SIZE 4096
-#define ENCRYPTED_FLAG 0x8000
+#define SECTOR_SIZE     4096
+#define ENCRYPTED_FLAG  0x8000
 
 typedef struct {
     char group[STORAGE_GROUP_LEN + 1];
@@ -33,8 +33,7 @@ static uint16_t slot_data_len(const share_slot_t *slot) {
 }
 
 static bool slot_is_empty(const share_slot_t *slot) {
-    return slot->share_len == 0xFFFF ||
-           (unsigned char)slot->group[0] == 0xFF ||
+    return slot->share_len == 0xFFFF || (unsigned char)slot->group[0] == 0xFF ||
            slot_data_len(slot) == 0;
 }
 
@@ -57,16 +56,18 @@ static bool validate_group_name(const char *group) {
 }
 
 int storage_init(void) {
-    if (initialized) return 0;
+    if (initialized)
+        return 0;
 
-    storage_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, PARTITION_NAME);
+    storage_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY,
+                                                 PARTITION_NAME);
     if (!storage_partition) {
         ESP_LOGE(TAG, "Storage partition '%s' not found", PARTITION_NAME);
         return -1;
     }
 
-    ESP_LOGI(TAG, "Storage initialized: %s at 0x%lx (%lu bytes)",
-             storage_partition->label, storage_partition->address, storage_partition->size);
+    ESP_LOGI(TAG, "Storage initialized: %s at 0x%lx (%lu bytes)", storage_partition->label,
+             storage_partition->address, storage_partition->size);
     initialized = true;
     return 0;
 }
@@ -107,12 +108,14 @@ int storage_save_share(const char *group, const char *share_hex) {
     int target_slot = -1;
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err =
+            esp_partition_read(storage_partition, (size_t)i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK) {
             continue;
         }
         null_terminate_group(&slot);
-        if (slot_is_valid(&slot) && ct_compare(slot.group, padded_group, STORAGE_GROUP_LEN + 1) == 0) {
+        if (slot_is_valid(&slot) &&
+            ct_compare(slot.group, padded_group, STORAGE_GROUP_LEN + 1) == 0) {
             target_slot = i;
             break;
         }
@@ -126,7 +129,7 @@ int storage_save_share(const char *group, const char *share_hex) {
         return STORAGE_ERR_NO_SLOT;
     }
 
-    size_t sector_offset = (target_slot * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
+    size_t sector_offset = ((size_t)target_slot * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
     esp_err_t err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
     if (err != ESP_OK) {
         secure_memzero(share_bytes, sizeof(share_bytes));
@@ -138,7 +141,8 @@ int storage_save_share(const char *group, const char *share_hex) {
     work_slot.group[STORAGE_GROUP_LEN] = '\0';
 
     uint8_t encrypted[STORAGE_SHARE_LEN];
-    if (storage_crypto_encrypt(share_bytes, share_len, work_slot.nonce, encrypted, work_slot.tag) != 0) {
+    if (storage_crypto_encrypt(share_bytes, share_len, work_slot.nonce, encrypted, work_slot.tag) !=
+        0) {
         secure_memzero(share_bytes, sizeof(share_bytes));
         secure_memzero(&work_slot, sizeof(work_slot));
         return STORAGE_ERR_IO;
@@ -149,7 +153,7 @@ int storage_save_share(const char *group, const char *share_hex) {
     memcpy(work_slot.share_data, encrypted, share_len);
     secure_memzero(encrypted, sizeof(encrypted));
 
-    size_t slot_offset_in_sector = (target_slot * SHARE_SLOT_SIZE) % SECTOR_SIZE;
+    size_t slot_offset_in_sector = ((size_t)target_slot * SHARE_SLOT_SIZE) % SECTOR_SIZE;
     memcpy(sector_buf + slot_offset_in_sector, &work_slot, sizeof(work_slot));
     secure_memzero(&work_slot, sizeof(work_slot));
 
@@ -177,7 +181,8 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err =
+            esp_partition_read(storage_partition, (size_t)i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
@@ -196,7 +201,8 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
 
         if (slot.share_len & ENCRYPTED_FLAG) {
             uint8_t decrypted[STORAGE_SHARE_LEN];
-            if (storage_crypto_decrypt(slot.share_data, actual_len, slot.nonce, slot.tag, decrypted) != 0) {
+            if (storage_crypto_decrypt(slot.share_data, actual_len, slot.nonce, slot.tag,
+                                       decrypted) != 0) {
                 ESP_LOGE(TAG, "Share decryption failed - tampered or wrong PIN");
                 secure_memzero(&slot, sizeof(slot));
                 return STORAGE_ERR_DECRYPT;
@@ -223,7 +229,8 @@ int storage_delete_share(const char *group) {
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err =
+            esp_partition_read(storage_partition, (size_t)i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
@@ -233,14 +240,14 @@ int storage_delete_share(const char *group) {
             continue;
         }
 
-        size_t sector_offset = (i * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
+        size_t sector_offset = ((size_t)i * SHARE_SLOT_SIZE / SECTOR_SIZE) * SECTOR_SIZE;
         err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
         if (err != ESP_OK) {
             secure_memzero(sector_buf, SECTOR_SIZE);
             return STORAGE_ERR_IO;
         }
 
-        size_t slot_offset_in_sector = (i * SHARE_SLOT_SIZE) % SECTOR_SIZE;
+        size_t slot_offset_in_sector = ((size_t)i * SHARE_SLOT_SIZE) % SECTOR_SIZE;
         memset(sector_buf + slot_offset_in_sector, 0xFF, sizeof(share_slot_t));
 
         err = esp_partition_erase_range(storage_partition, sector_offset, SECTOR_SIZE);
@@ -270,7 +277,8 @@ int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
     int count = 0;
     for (int i = 0; i < MAX_SHARES && count < max_groups; i++) {
         share_slot_t slot;
-        esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err =
+            esp_partition_read(storage_partition, (size_t)i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
@@ -293,7 +301,8 @@ bool storage_has_share(const char *group) {
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err = esp_partition_read(storage_partition, i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err =
+            esp_partition_read(storage_partition, (size_t)i * SHARE_SLOT_SIZE, &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }

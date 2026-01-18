@@ -10,37 +10,28 @@
 #include "crypto_asm.h"
 #include <string.h>
 
-static share_store_t default_store = {
-    .load = storage_load_share,
-    .save = storage_save_share,
-    .delete_share = storage_delete_share,
-    .exists = storage_has_share
-};
+static share_store_t default_store = {.load = storage_load_share,
+                                      .save = storage_save_share,
+                                      .delete_share = storage_delete_share,
+                                      .exists = storage_has_share};
 
 const share_store_t *share_store_default(void) {
     return &default_store;
 }
 
-share_store_t share_store_create(share_load_fn load,
-                                  share_save_fn save,
-                                  share_delete_fn delete_share,
-                                  share_exists_fn exists,
-                                  bool *valid) {
+share_store_t share_store_create(share_load_fn load, share_save_fn save,
+                                 share_delete_fn delete_share, share_exists_fn exists,
+                                 bool *valid) {
     share_store_t store = {
-        .load = load,
-        .save = save,
-        .delete_share = delete_share,
-        .exists = exists
-    };
+        .load = load, .save = save, .delete_share = delete_share, .exists = exists};
     if (valid) {
         *valid = (load != NULL && save != NULL && delete_share != NULL && exists != NULL);
     }
     return store;
 }
 
-int share_store_load_frost_state(const share_store_t *store,
-                                  const char *group,
-                                  frost_state_t *state) {
+int share_store_load_frost_state(const share_store_t *store, const char *group,
+                                 frost_state_t *state) {
     if (!store || !store->load || !group || !state) {
         return SHARE_STORE_ERR_NOT_FOUND;
     }
@@ -70,11 +61,8 @@ int share_store_load_frost_state(const share_store_t *store,
     return SHARE_STORE_OK;
 }
 
-int share_store_load_share_bytes(const share_store_t *store,
-                                  const char *group,
-                                  uint8_t *share_bytes,
-                                  size_t max_len,
-                                  size_t *out_len) {
+int share_store_load_share_bytes(const share_store_t *store, const char *group,
+                                 uint8_t *share_bytes, size_t max_len, size_t *out_len) {
     if (!store || !store->load || !group || !share_bytes || !out_len) {
         return SHARE_STORE_ERR_NOT_FOUND;
     }

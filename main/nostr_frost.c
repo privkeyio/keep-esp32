@@ -16,7 +16,8 @@ int compute_event_id(cJSON *event, uint8_t id_out[32]) {
     cJSON *kind = cJSON_GetObjectItem(event, "kind");
     cJSON *tags = cJSON_GetObjectItem(event, "tags");
     cJSON *content = cJSON_GetObjectItem(event, "content");
-    if (!pubkey || !created_at || !kind || !tags || !content) return -1;
+    if (!pubkey || !created_at || !kind || !tags || !content)
+        return -1;
 
     cJSON *arr = cJSON_CreateArray();
     cJSON_AddItemToArray(arr, cJSON_CreateNumber(0));
@@ -28,7 +29,8 @@ int compute_event_id(cJSON *event, uint8_t id_out[32]) {
 
     char *serialized = cJSON_PrintUnformatted(arr);
     cJSON_Delete(arr);
-    if (!serialized) return -1;
+    if (!serialized)
+        return -1;
 
     mbedtls_sha256((uint8_t *)serialized, strlen(serialized), id_out, 0);
     free(serialized);
@@ -134,16 +136,19 @@ char *nip44_decrypt_content(const char *ciphertext, const uint8_t recipient_priv
 }
 
 static int parse_tags(cJSON *tags, frost_group_t *group) {
-    if (!cJSON_IsArray(tags)) return -1;
+    if (!cJSON_IsArray(tags))
+        return -1;
 
     int size = cJSON_GetArraySize(tags);
     for (int i = 0; i < size; i++) {
         cJSON *tag = cJSON_GetArrayItem(tags, i);
-        if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2) continue;
+        if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2)
+            continue;
 
         cJSON *tag_name = cJSON_GetArrayItem(tag, 0);
         cJSON *tag_val = cJSON_GetArrayItem(tag, 1);
-        if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val)) continue;
+        if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val))
+            continue;
 
         const char *name = tag_name->valuestring;
         const char *val = tag_val->valuestring;
@@ -178,7 +183,8 @@ static int parse_tags(cJSON *tags, frost_group_t *group) {
                         break;
                     }
                 }
-                if (!p) continue;
+                if (!p)
+                    continue;
 
                 memset(p, 0, sizeof(*p));
                 hex_to_bytes(val, p->npub, 32);
@@ -194,7 +200,8 @@ static int parse_tags(cJSON *tags, frost_group_t *group) {
                     if (cJSON_IsString(idx)) {
                         char *endptr;
                         long tmp = strtol(idx->valuestring, &endptr, 10);
-                        if (endptr != idx->valuestring && *endptr == '\0' && tmp > 0 && tmp <= UINT8_MAX) {
+                        if (endptr != idx->valuestring && *endptr == '\0' && tmp > 0 &&
+                            tmp <= UINT8_MAX) {
                             p->index = (uint8_t)tmp;
                         }
                     }
@@ -216,7 +223,8 @@ int frost_parse_group_event(const char *event_json, frost_group_t *group) {
     memset(group, 0, sizeof(*group));
 
     cJSON *root = cJSON_Parse(event_json);
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!kind || !cJSON_IsNumber(kind) || kind->valueint != FROST_KIND_GROUP) {
@@ -238,11 +246,11 @@ int frost_parse_group_event(const char *event_json, frost_group_t *group) {
     return 0;
 }
 
-int frost_create_group_event(const frost_group_t *group,
-                              const uint8_t *privkey,
-                              char *event_json, size_t max_len) {
+int frost_create_group_event(const frost_group_t *group, const uint8_t *privkey, char *event_json,
+                             size_t max_len) {
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "kind", FROST_KIND_GROUP);
 

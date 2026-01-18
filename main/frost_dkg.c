@@ -37,22 +37,26 @@ static dkg_session_t g_session;
 
 static const char *dkg_state_name(dkg_state_t state) {
     switch (state) {
-    case DKG_IDLE:     return "IDLE";
-    case DKG_ROUND1:   return "ROUND1";
-    case DKG_ROUND2:   return "ROUND2";
-    case DKG_COMPLETE: return "COMPLETE";
+    case DKG_IDLE:
+        return "IDLE";
+    case DKG_ROUND1:
+        return "ROUND1";
+    case DKG_ROUND2:
+        return "ROUND2";
+    case DKG_COMPLETE:
+        return "COMPLETE";
     }
     return "UNKNOWN";
 }
 
-static bool check_state(dkg_state_t expected, const char *func_name,
-                        const rpc_request_t *req, rpc_response_t *resp) {
+static bool check_state(dkg_state_t expected, const char *func_name, const rpc_request_t *req,
+                        rpc_response_t *resp) {
     if (g_session.state == expected) {
         return true;
     }
     char err[64];
-    snprintf(err, sizeof(err), "Invalid state %s for %s",
-             dkg_state_name(g_session.state), func_name);
+    snprintf(err, sizeof(err), "Invalid state %s for %s", dkg_state_name(g_session.state),
+             func_name);
     PROTOCOL_ERROR(resp, req->id, -1, err);
     return false;
 }
@@ -62,8 +66,7 @@ static bool check_can_init(const rpc_request_t *req, rpc_response_t *resp) {
         return true;
     }
     char err[64];
-    snprintf(err, sizeof(err), "Invalid state %s for init",
-             dkg_state_name(g_session.state));
+    snprintf(err, sizeof(err), "Invalid state %s for init", dkg_state_name(g_session.state));
     PROTOCOL_ERROR(resp, req->id, -1, err);
     return false;
 }
@@ -106,16 +109,16 @@ void dkg_init(const rpc_request_t *req, rpc_response_t *resp) {
     g_session.participant_count = req->participant_count;
     g_session.our_index = req->our_index;
 
-    ESP_LOGI(TAG, "DKG init -> ROUND1 (group=%s t=%d n=%d idx=%d)",
-             g_session.group, g_session.threshold,
-             g_session.participant_count, g_session.our_index);
+    ESP_LOGI(TAG, "DKG init -> ROUND1 (group=%s t=%d n=%d idx=%d)", g_session.group,
+             g_session.threshold, g_session.participant_count, g_session.our_index);
 
     protocol_success(resp, req->id, "{\"ok\":true}");
 }
 
 void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
     if (!rng_is_healthy()) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "RNG health check failed, device in safe mode");
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL,
+                       "RNG health check failed, device in safe mode");
         return;
     }
 
@@ -123,15 +126,12 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
         return;
     }
 
-    frost_group_t group = {
-        .threshold = g_session.threshold,
-        .participant_count = g_session.participant_count
-    };
+    frost_group_t group = {.threshold = g_session.threshold,
+                           .participant_count = g_session.participant_count};
 
-    int ret = frost_dkg_round1_generate(&group, g_session.our_index,
-                                         &g_session.our_round1,
-                                         (uint8_t*)g_session.secret_shares,
-                                         &g_session.secret_share_count);
+    int ret = frost_dkg_round1_generate(&group, g_session.our_index, &g_session.our_round1,
+                                        (uint8_t *)g_session.secret_shares,
+                                        &g_session.secret_share_count);
     if (ret != 0) {
         PROTOCOL_ERROR(resp, req->id, -1, "Round 1 generation failed");
         return;
@@ -144,7 +144,8 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
     char coeffs_hex[MAX_THRESHOLD * 129];
     size_t offset = 0;
     for (uint8_t i = 0; i < g_session.our_round1.num_coefficients && i < MAX_THRESHOLD; i++) {
-        bytes_to_hex(g_session.our_round1.coefficient_commitments[i], 64, coeffs_hex + offset, sizeof(coeffs_hex) - offset);
+        bytes_to_hex(g_session.our_round1.coefficient_commitments[i], 64, coeffs_hex + offset,
+                     sizeof(coeffs_hex) - offset);
         offset += 128;
         if (i < g_session.our_round1.num_coefficients - 1) {
             coeffs_hex[offset++] = ',';
@@ -160,9 +161,8 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
              "{\"participant_index\":%d,\"num_coefficients\":%d,"
              "\"coefficient_commitments\":\"%s\","
              "\"zkp_r\":\"%s\",\"zkp_z\":\"%s\"}",
-             g_session.our_index,
-             g_session.our_round1.num_coefficients,
-             coeffs_hex, zkp_r_hex, zkp_z_hex);
+             g_session.our_index, g_session.our_round1.num_coefficients, coeffs_hex, zkp_r_hex,
+             zkp_z_hex);
 
     protocol_success(resp, req->id, result);
 }
@@ -232,7 +232,8 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     size_t coeffs_len = strlen(coeffs_start);
     size_t coeff_offset = 0;
     for (uint8_t i = 0; i < peer->num_coefficients; i++) {
-        if (coeff_offset + 128 > coeffs_len) break;
+        if (coeff_offset + 128 > coeffs_len)
+            break;
         char coeff_hex[129];
         strncpy(coeff_hex, coeffs_start + coeff_offset, 128);
         coeff_hex[128] = '\0';
@@ -242,7 +243,8 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
             return;
         }
         coeff_offset += 128;
-        if (coeff_offset < coeffs_len && coeffs_start[coeff_offset] == ',') coeff_offset++;
+        if (coeff_offset < coeffs_len && coeffs_start[coeff_offset] == ',')
+            coeff_offset++;
     }
 
     char *zkp_r_start = zkp_r_str + 8;
@@ -314,8 +316,7 @@ void dkg_round2(const rpc_request_t *req, rpc_response_t *resp) {
         }
         first = false;
         offset += snprintf(result + offset, sizeof(result) - offset,
-                           "{\"recipient_index\":%d,\"share\":\"%s\"}",
-                           i + 1, share_hex);
+                           "{\"recipient_index\":%d,\"share\":\"%s\"}", i + 1, share_hex);
     }
 
     offset += snprintf(result + offset, sizeof(result) - offset, "]}");
@@ -378,27 +379,21 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
 
     frost_dkg_share_t all_shares[DKG_MAX_PARTICIPANTS];
     size_t share_count = 0;
-    all_shares[share_count++] = (frost_dkg_share_t){
-        .generator_index = g_session.our_index,
-        .receiver_index = g_session.our_index
-    };
+    all_shares[share_count++] = (frost_dkg_share_t){.generator_index = g_session.our_index,
+                                                    .receiver_index = g_session.our_index};
     memcpy(all_shares[0].value, g_session.secret_shares[g_session.our_index - 1], 32);
     for (uint8_t i = 0; i < g_session.received_share_count; i++) {
         all_shares[share_count++] = g_session.received_shares[i];
     }
 
-    frost_group_t group = {
-        .threshold = g_session.threshold,
-        .participant_count = g_session.participant_count
-    };
+    frost_group_t group = {.threshold = g_session.threshold,
+                           .participant_count = g_session.participant_count};
 
     uint8_t final_share[32];
     uint8_t group_pubkey[33];
 
-    int ret = frost_dkg_finalize(&group, all_round1, round1_count,
-                                 all_shares, share_count,
-                                 g_session.our_index,
-                                 final_share, group_pubkey);
+    int ret = frost_dkg_finalize(&group, all_round1, round1_count, all_shares, share_count,
+                                 g_session.our_index, final_share, group_pubkey);
     if (ret != 0) {
         char err[64];
         snprintf(err, sizeof(err), "DKG finalize failed: %d", ret);
@@ -427,8 +422,7 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     ESP_LOGI(TAG, "DKG state: ROUND2 -> COMPLETE (group=%s)", g_session.group);
 
     char result[200];
-    snprintf(result, sizeof(result),
-             "{\"ok\":true,\"group_pubkey\":\"%s\",\"our_index\":%d}",
+    snprintf(result, sizeof(result), "{\"ok\":true,\"group_pubkey\":\"%s\",\"our_index\":%d}",
              pubkey_hex, g_session.our_index);
 
     protocol_success(resp, req->id, result);

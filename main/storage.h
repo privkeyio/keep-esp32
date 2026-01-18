@@ -13,21 +13,21 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define STORAGE_MAX_SHARES 8    /**< Max stored shares */
-#define STORAGE_GROUP_LEN 64    /**< Max group ID length */
-#define STORAGE_SHARE_LEN 256   /**< Max share hex length */
+#define STORAGE_MAX_SHARES 8   /**< Max stored shares */
+#define STORAGE_GROUP_LEN  64  /**< Max group ID length */
+#define STORAGE_SHARE_LEN  256 /**< Max share hex length */
 
 /** @name Storage Error Codes */
 /** @{ */
-#define STORAGE_OK 0
-#define STORAGE_ERR_NOT_INIT -1
+#define STORAGE_OK                  0
+#define STORAGE_ERR_NOT_INIT        -1
 #define STORAGE_ERR_CRYPTO_NOT_INIT -2
-#define STORAGE_ERR_INVALID_GROUP -3
-#define STORAGE_ERR_INVALID_DATA -4
-#define STORAGE_ERR_NO_SLOT -5
-#define STORAGE_ERR_IO -6
-#define STORAGE_ERR_NOT_FOUND -7
-#define STORAGE_ERR_DECRYPT -8
+#define STORAGE_ERR_INVALID_GROUP   -3
+#define STORAGE_ERR_INVALID_DATA    -4
+#define STORAGE_ERR_NO_SLOT         -5
+#define STORAGE_ERR_IO              -6
+#define STORAGE_ERR_NOT_FOUND       -7
+#define STORAGE_ERR_DECRYPT         -8
 /** @} */
 
 /**

@@ -17,26 +17,26 @@
 
 /** @name Protocol Limits */
 /** @{ */
-#define PROTOCOL_MAX_MESSAGE_LEN 16384
-#define PROTOCOL_MAX_GROUP_LEN 64
-#define PROTOCOL_MAX_HEX_LEN 512
-#define PROTOCOL_MAX_PSBT_LEN 8192
-#define PROTOCOL_VERSION "0.1.2"
-#define PROTOCOL_API_VERSION 1
-#define PROTOCOL_MAX_PARTICIPANTS 16
+#define PROTOCOL_MAX_MESSAGE_LEN    16384
+#define PROTOCOL_MAX_GROUP_LEN      64
+#define PROTOCOL_MAX_HEX_LEN        512
+#define PROTOCOL_MAX_PSBT_LEN       8192
+#define PROTOCOL_VERSION            "0.1.2"
+#define PROTOCOL_API_VERSION        1
+#define PROTOCOL_MAX_PARTICIPANTS   16
 #define PROTOCOL_COMMITMENT_HEX_LEN 264
-#define MAX_COMMITMENTS_SIZE ((PROTOCOL_MAX_PARTICIPANTS - 1) * PROTOCOL_COMMITMENT_HEX_LEN + 1)
+#define MAX_COMMITMENTS_SIZE        ((PROTOCOL_MAX_PARTICIPANTS - 1) * PROTOCOL_COMMITMENT_HEX_LEN + 1)
 /** @} */
 
 /** @name JSON-RPC Error Codes */
 /** @{ */
-#define PROTOCOL_ERR_PARSE       -32700  /**< Invalid JSON */
-#define PROTOCOL_ERR_INTERNAL    -32603  /**< Internal error */
-#define PROTOCOL_ERR_METHOD      -32601  /**< Unknown method */
-#define PROTOCOL_ERR_PARAMS      -32602  /**< Invalid params */
-#define PROTOCOL_ERR_SHARE       -1      /**< Share error */
-#define PROTOCOL_ERR_SIGN        -2      /**< Signing error */
-#define PROTOCOL_ERR_STORAGE     -3      /**< Storage error */
+#define PROTOCOL_ERR_PARSE    -32700 /**< Invalid JSON */
+#define PROTOCOL_ERR_INTERNAL -32603 /**< Internal error */
+#define PROTOCOL_ERR_METHOD   -32601 /**< Unknown method */
+#define PROTOCOL_ERR_PARAMS   -32602 /**< Invalid params */
+#define PROTOCOL_ERR_SHARE    -1     /**< Share error */
+#define PROTOCOL_ERR_SIGN     -2     /**< Signing error */
+#define PROTOCOL_ERR_STORAGE  -3     /**< Storage error */
 /** @} */
 
 /** @brief RPC method identifiers. */
@@ -85,12 +85,12 @@ typedef struct {
 
 /** @brief RPC response. */
 typedef struct {
-    int id;                                     /**< Request ID */
-    bool success;                               /**< true=result, false=error */
-    int error_code;                             /**< Error code */
-    char error_msg[128];                        /**< Error message */
-    char result[PROTOCOL_MAX_PSBT_LEN + 256];   /**< Result JSON */
-    error_context_t error_ctx;                  /**< Extended error context */
+    int id;                                   /**< Request ID */
+    bool success;                             /**< true=result, false=error */
+    int error_code;                           /**< Error code */
+    char error_msg[128];                      /**< Error message */
+    char result[PROTOCOL_MAX_PSBT_LEN + 256]; /**< Result JSON */
+    error_context_t error_ctx;                /**< Extended error context */
 } rpc_response_t;
 
 /**

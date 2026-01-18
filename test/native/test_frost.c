@@ -8,15 +8,20 @@
 #include "secp256k1_frost.h"
 
 #define TEST(name) printf("  TEST: %s\n", name)
-#define PASS() printf("    PASS\n")
-#define FAIL(msg) do { printf("    FAIL: %s\n", msg); return 1; } while(0)
+#define PASS()     printf("    PASS\n")
+#define FAIL(msg)                      \
+    do {                               \
+        printf("    FAIL: %s\n", msg); \
+        return 1;                      \
+    } while (0)
 
 static void fill_random(uint8_t *buf, size_t len) {
     FILE *fp = fopen("/dev/urandom", "r");
     if (fp) {
         size_t n = fread(buf, 1, len, fp);
         fclose(fp);
-        if (n == len) return;
+        if (n == len)
+            return;
     }
     unsigned int seed = (unsigned int)time(NULL);
     srand(seed);
@@ -27,10 +32,10 @@ static void fill_random(uint8_t *buf, size_t len) {
 
 static int test_context_create(void) {
     TEST("secp256k1 context creation");
-    secp256k1_context *ctx = secp256k1_context_create(
-        SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY
-    );
-    if (ctx == NULL) FAIL("context is NULL");
+    secp256k1_context *ctx =
+        secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    if (ctx == NULL)
+        FAIL("context is NULL");
     secp256k1_context_destroy(ctx);
     PASS();
     return 0;
@@ -39,10 +44,10 @@ static int test_context_create(void) {
 static int test_keygen_with_dealer(void) {
     TEST("FROST key generation with dealer");
 
-    secp256k1_context *ctx = secp256k1_context_create(
-        SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY
-    );
-    if (!ctx) FAIL("failed to create context");
+    secp256k1_context *ctx =
+        secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    if (!ctx)
+        FAIL("failed to create context");
 
     uint32_t n = 3, t = 2;
     secp256k1_frost_vss_commitments *vss = secp256k1_frost_vss_commitments_create(t);
@@ -78,10 +83,10 @@ static int test_keygen_with_dealer(void) {
 static int test_two_round_signing(void) {
     TEST("FROST two-round signing protocol");
 
-    secp256k1_context *ctx = secp256k1_context_create(
-        SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY
-    );
-    if (!ctx) FAIL("failed to create context");
+    secp256k1_context *ctx =
+        secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    if (!ctx)
+        FAIL("failed to create context");
 
     uint32_t n = 3, t = 2;
     secp256k1_frost_vss_commitments *vss = secp256k1_frost_vss_commitments_create(t);
@@ -111,7 +116,8 @@ static int test_two_round_signing(void) {
         fill_random(hiding, 32);
         nonces[i] = secp256k1_frost_nonce_create(ctx, &keypairs[i], binding, hiding);
         if (!nonces[i]) {
-            for (int j = 0; j < i; j++) secp256k1_frost_nonce_destroy(nonces[j]);
+            for (int j = 0; j < i; j++)
+                secp256k1_frost_nonce_destroy(nonces[j]);
             secp256k1_frost_vss_commitments_destroy(vss);
             secp256k1_context_destroy(ctx);
             FAIL("failed to create nonce");
@@ -121,9 +127,11 @@ static int test_two_round_signing(void) {
 
     secp256k1_frost_signature_share sig_shares[2];
     for (int i = 0; i < 2; i++) {
-        int ret = secp256k1_frost_sign(ctx, &sig_shares[i], message, 32, 2, &keypairs[i], nonces[i], commits);
+        int ret = secp256k1_frost_sign(ctx, &sig_shares[i], message, 32, 2, &keypairs[i], nonces[i],
+                                       commits);
         if (ret != 1) {
-            for (int j = 0; j < 2; j++) secp256k1_frost_nonce_destroy(nonces[j]);
+            for (int j = 0; j < 2; j++)
+                secp256k1_frost_nonce_destroy(nonces[j]);
             secp256k1_frost_vss_commitments_destroy(vss);
             secp256k1_context_destroy(ctx);
             FAIL("signing failed");
@@ -136,9 +144,11 @@ static int test_two_round_signing(void) {
     }
 
     uint8_t signature[64];
-    int ret = secp256k1_frost_aggregate(ctx, signature, message, 32, &keypairs[0], pubkeys, commits, sig_shares, 2);
+    int ret = secp256k1_frost_aggregate(ctx, signature, message, 32, &keypairs[0], pubkeys, commits,
+                                        sig_shares, 2);
     if (ret != 1) {
-        for (int i = 0; i < 2; i++) secp256k1_frost_nonce_destroy(nonces[i]);
+        for (int i = 0; i < 2; i++)
+            secp256k1_frost_nonce_destroy(nonces[i]);
         secp256k1_frost_vss_commitments_destroy(vss);
         secp256k1_context_destroy(ctx);
         FAIL("aggregation failed");
@@ -146,13 +156,15 @@ static int test_two_round_signing(void) {
 
     ret = secp256k1_frost_verify(ctx, signature, message, 32, &pubkeys[0]);
     if (ret != 1) {
-        for (int i = 0; i < 2; i++) secp256k1_frost_nonce_destroy(nonces[i]);
+        for (int i = 0; i < 2; i++)
+            secp256k1_frost_nonce_destroy(nonces[i]);
         secp256k1_frost_vss_commitments_destroy(vss);
         secp256k1_context_destroy(ctx);
         FAIL("verification failed");
     }
 
-    for (int i = 0; i < 2; i++) secp256k1_frost_nonce_destroy(nonces[i]);
+    for (int i = 0; i < 2; i++)
+        secp256k1_frost_nonce_destroy(nonces[i]);
     secp256k1_frost_vss_commitments_destroy(vss);
     secp256k1_context_destroy(ctx);
     PASS();
@@ -162,10 +174,10 @@ static int test_two_round_signing(void) {
 static int test_pubkey_serialization(void) {
     TEST("public key serialization roundtrip");
 
-    secp256k1_context *ctx = secp256k1_context_create(
-        SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY
-    );
-    if (!ctx) FAIL("failed to create context");
+    secp256k1_context *ctx =
+        secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    if (!ctx)
+        FAIL("failed to create context");
 
     secp256k1_frost_vss_commitments *vss = secp256k1_frost_vss_commitments_create(2);
     if (!vss) {
@@ -190,10 +202,8 @@ static int test_pubkey_serialization(void) {
     }
 
     secp256k1_frost_pubkey loaded;
-    int ret = secp256k1_frost_pubkey_load(&loaded,
-        keypairs[0].public_keys.index,
-        keypairs[0].public_keys.max_participants,
-        pk33, gpk33);
+    int ret = secp256k1_frost_pubkey_load(&loaded, keypairs[0].public_keys.index,
+                                          keypairs[0].public_keys.max_participants, pk33, gpk33);
 
     if (ret != 1) {
         secp256k1_frost_vss_commitments_destroy(vss);

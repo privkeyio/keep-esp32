@@ -15,12 +15,12 @@
 #include "frost.h"
 #include "storage.h"
 
-#define SHARE_STORE_OK 0
+#define SHARE_STORE_OK            0
 #define SHARE_STORE_ERR_NOT_FOUND -1
-#define SHARE_STORE_ERR_DECODE -2
-#define SHARE_STORE_ERR_INIT -3
-#define SHARE_STORE_ERR_SAVE -4
-#define SHARE_STORE_ERR_DELETE -5
+#define SHARE_STORE_ERR_DECODE    -2
+#define SHARE_STORE_ERR_INIT      -3
+#define SHARE_STORE_ERR_SAVE      -4
+#define SHARE_STORE_ERR_DELETE    -5
 
 /**
  * @brief Function pointer type for loading share hex from storage.
@@ -81,11 +81,8 @@ const share_store_t *share_store_default(void);
  * @param valid Output: set to true if all pointers valid, false otherwise
  * @return Initialized store struct (check valid before use)
  */
-share_store_t share_store_create(share_load_fn load,
-                                  share_save_fn save,
-                                  share_delete_fn delete_share,
-                                  share_exists_fn exists,
-                                  bool *valid);
+share_store_t share_store_create(share_load_fn load, share_save_fn save,
+                                 share_delete_fn delete_share, share_exists_fn exists, bool *valid);
 
 /**
  * @brief Load and initialize FROST state from storage.
@@ -95,9 +92,8 @@ share_store_t share_store_create(share_load_fn load,
  * @return 0 on success, negative on error
  * @note Caller must call frost_free() when done.
  */
-int share_store_load_frost_state(const share_store_t *store,
-                                  const char *group,
-                                  frost_state_t *state);
+int share_store_load_frost_state(const share_store_t *store, const char *group,
+                                 frost_state_t *state);
 
 /**
  * @brief Load raw share bytes from storage.
@@ -108,10 +104,7 @@ int share_store_load_frost_state(const share_store_t *store,
  * @param out_len Output: actual share length
  * @return 0 on success, negative on error
  */
-int share_store_load_share_bytes(const share_store_t *store,
-                                  const char *group,
-                                  uint8_t *share_bytes,
-                                  size_t max_len,
-                                  size_t *out_len);
+int share_store_load_share_bytes(const share_store_t *store, const char *group,
+                                 uint8_t *share_bytes, size_t max_len, size_t *out_len);
 
 #endif

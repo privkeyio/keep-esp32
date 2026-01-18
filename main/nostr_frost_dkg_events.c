@@ -7,12 +7,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-int frost_create_dkg_round1_event(const frost_group_t *group,
-                                   const frost_dkg_round1_t *round1,
-                                   const uint8_t *privkey,
-                                   char *event_json, size_t max_len) {
+int frost_create_dkg_round1_event(const frost_group_t *group, const frost_dkg_round1_t *round1,
+                                  const uint8_t *privkey, char *event_json, size_t max_len) {
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "kind", FROST_KIND_DKG_ROUND1);
 
@@ -79,20 +78,20 @@ int frost_create_dkg_round1_event(const frost_group_t *group,
         return -5;
     }
 
-    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
+    if (max_len > (size_t)INT_MAX)
+        max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
 }
 
-int frost_parse_dkg_round1_event(const char *event_json,
-                                  const frost_group_t *group,
-                                  const uint8_t *our_privkey,
-                                  frost_dkg_round1_t *round1) {
+int frost_parse_dkg_round1_event(const char *event_json, const frost_group_t *group,
+                                 const uint8_t *our_privkey, frost_dkg_round1_t *round1) {
     memset(round1, 0, sizeof(*round1));
 
     cJSON *root = cJSON_Parse(event_json);
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!kind || !cJSON_IsNumber(kind) || kind->valueint != FROST_KIND_DKG_ROUND1) {
@@ -105,11 +104,13 @@ int frost_parse_dkg_round1_event(const char *event_json,
         int size = cJSON_GetArraySize(tags);
         for (int i = 0; i < size; i++) {
             cJSON *tag = cJSON_GetArrayItem(tags, i);
-            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2) continue;
+            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2)
+                continue;
 
             cJSON *tag_name = cJSON_GetArrayItem(tag, 0);
             cJSON *tag_val = cJSON_GetArrayItem(tag, 1);
-            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val)) continue;
+            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val))
+                continue;
 
             const char *name = tag_name->valuestring;
             const char *val = tag_val->valuestring;
@@ -159,7 +160,8 @@ int frost_parse_dkg_round1_event(const char *event_json,
                 for (int i = 0; i < arr_size && i < MAX_THRESHOLD; i++) {
                     cJSON *c = cJSON_GetArrayItem(coeffs, i);
                     if (c && cJSON_IsString(c)) {
-                        if (hex_to_bytes(c->valuestring, round1->coefficient_commitments[i], 64) != 64) {
+                        if (hex_to_bytes(c->valuestring, round1->coefficient_commitments[i], 64) !=
+                            64) {
                             memset(round1->coefficient_commitments[i], 0, 64);
                         }
                     }
@@ -187,13 +189,12 @@ int frost_parse_dkg_round1_event(const char *event_json,
     return 0;
 }
 
-int frost_create_dkg_round2_event(const frost_group_t *group,
-                                   const frost_dkg_round2_t *round2,
-                                   const uint8_t *our_privkey,
-                                   const uint8_t *recipient_pubkey,
-                                   char *event_json, size_t max_len) {
+int frost_create_dkg_round2_event(const frost_group_t *group, const frost_dkg_round2_t *round2,
+                                  const uint8_t *our_privkey, const uint8_t *recipient_pubkey,
+                                  char *event_json, size_t max_len) {
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "kind", FROST_KIND_DKG_ROUND2);
 
@@ -260,20 +261,20 @@ int frost_create_dkg_round2_event(const frost_group_t *group,
         return -2;
     }
 
-    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
+    if (max_len > (size_t)INT_MAX)
+        max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
 }
 
-int frost_parse_dkg_round2_event(const char *event_json,
-                                  const frost_group_t *group,
-                                  const uint8_t *our_privkey,
-                                  frost_dkg_round2_t *round2) {
+int frost_parse_dkg_round2_event(const char *event_json, const frost_group_t *group,
+                                 const uint8_t *our_privkey, frost_dkg_round2_t *round2) {
     memset(round2, 0, sizeof(*round2));
 
     cJSON *root = cJSON_Parse(event_json);
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!kind || !cJSON_IsNumber(kind) || kind->valueint != FROST_KIND_DKG_ROUND2) {
@@ -286,11 +287,13 @@ int frost_parse_dkg_round2_event(const char *event_json,
         int size = cJSON_GetArraySize(tags);
         for (int i = 0; i < size; i++) {
             cJSON *tag = cJSON_GetArrayItem(tags, i);
-            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2) continue;
+            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2)
+                continue;
 
             cJSON *tag_name = cJSON_GetArrayItem(tag, 0);
             cJSON *tag_val = cJSON_GetArrayItem(tag, 1);
-            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val)) continue;
+            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val))
+                continue;
 
             const char *name = tag_name->valuestring;
             const char *val = tag_val->valuestring;

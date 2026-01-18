@@ -1,7 +1,7 @@
 #include "random_utils.h"
 #include <string.h>
 
-#define RNG_SELF_TEST_SIZE 64
+#define RNG_SELF_TEST_SIZE        64
 #define RNG_DEGRADATION_THRESHOLD 5
 
 static rng_health_stats_t g_rng_stats = {0};
@@ -10,16 +10,17 @@ static rng_health_stats_t g_rng_stats = {0};
 #include "esp_log.h"
 static const char *TAG = "rng";
 #define RNG_LOG_ERROR(fmt, ...) ESP_LOGE(TAG, fmt, ##__VA_ARGS__)
-#define RNG_LOG_WARN(fmt, ...) ESP_LOGW(TAG, fmt, ##__VA_ARGS__)
-#define RNG_LOG_INFO(fmt, ...) ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
+#define RNG_LOG_WARN(fmt, ...)  ESP_LOGW(TAG, fmt, ##__VA_ARGS__)
+#define RNG_LOG_INFO(fmt, ...)  ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
 #else
 #define RNG_LOG_ERROR(fmt, ...) ((void)0)
-#define RNG_LOG_WARN(fmt, ...) ((void)0)
-#define RNG_LOG_INFO(fmt, ...) ((void)0)
+#define RNG_LOG_WARN(fmt, ...)  ((void)0)
+#define RNG_LOG_INFO(fmt, ...)  ((void)0)
 #endif
 
 int rng_health_check(const uint8_t *buf, size_t len) {
-    if (len < 8) return 0;
+    if (len < 8)
+        return 0;
 
     uint32_t zeros = 0, ones = 0;
     uint32_t bit_count = 0;
@@ -28,8 +29,10 @@ int rng_health_check(const uint8_t *buf, size_t len) {
 
     for (size_t i = 0; i < len; i++) {
         uint8_t b = buf[i];
-        if (b == 0x00) zeros++;
-        if (b == 0xFF) ones++;
+        if (b == 0x00)
+            zeros++;
+        if (b == 0xFF)
+            ones++;
         bit_count += __builtin_popcount(b);
         for (int j = (i == 0 ? 1 : 0); j < 8; j++) {
             uint8_t curr_bit = (b >> j) & 1;
@@ -51,7 +54,8 @@ int rng_health_check(const uint8_t *buf, size_t len) {
 
     uint32_t expected_trans = (total_bits - 1) / 2;
     uint32_t trans_tolerance = expected_trans / 4;
-    if (transitions < expected_trans - trans_tolerance || transitions > expected_trans + trans_tolerance) {
+    if (transitions < expected_trans - trans_tolerance ||
+        transitions > expected_trans + trans_tolerance) {
         return -3;
     }
 

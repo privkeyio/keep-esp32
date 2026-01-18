@@ -17,10 +17,10 @@
 #include "hex_utils.h"
 #include "ux_interface.h"
 
-#define TAG "main"
-#define VERSION "0.1.2"
+#define TAG                  "main"
+#define VERSION              "0.1.2"
 #define RATE_LIMIT_THRESHOLD 5
-#define RATE_LIMIT_DELAY_MS 1000
+#define RATE_LIMIT_DELAY_MS  1000
 
 static int consecutive_errors = 0;
 static bool psbt_initialized = false;
@@ -37,12 +37,10 @@ static void handle_get_status(const rpc_request_t *req, rpc_response_t *resp) {
     rng_get_health(&rng_stats);
     char result[256];
     snprintf(result, sizeof(result),
-             "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_total_calls\":%lu,\"rng_failed_checks\":%lu,\"rng_retries\":%lu}",
-             VERSION,
-             rng_stats.healthy ? "true" : "false",
-             (unsigned long)rng_stats.total_calls,
-             (unsigned long)rng_stats.failed_checks,
-             (unsigned long)rng_stats.retries);
+             "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_total_calls\":%lu,\"rng_failed_checks\":"
+             "%lu,\"rng_retries\":%lu}",
+             VERSION, rng_stats.healthy ? "true" : "false", (unsigned long)rng_stats.total_calls,
+             (unsigned long)rng_stats.failed_checks, (unsigned long)rng_stats.retries);
     protocol_success(resp, req->id, result);
 }
 
@@ -68,8 +66,8 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
     offset = (size_t)ret;
 
     for (int i = 0; i < count; i++) {
-        ret = snprintf(result + offset, buf_size - offset,
-                       "%s\"%s\"", (i > 0) ? "," : "", groups[i]);
+        ret =
+            snprintf(result + offset, buf_size - offset, "%s\"%s\"", (i > 0) ? "," : "", groups[i]);
         if (ret < 0 || (size_t)ret >= buf_size - offset) {
             PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
             return;
@@ -148,11 +146,10 @@ static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp)
 
     char result[256];
     snprintf(result, sizeof(result),
-             "{\"inputs\":%zu,\"outputs\":%zu,\"total_in_sats\":%llu,\"total_out_sats\":%llu,\"fee_sats\":%llu}",
-             summary.input_count, summary.output_count,
-             (unsigned long long)summary.total_in_sats,
-             (unsigned long long)summary.total_out_sats,
-             (unsigned long long)summary.fee_sats);
+             "{\"inputs\":%zu,\"outputs\":%zu,\"total_in_sats\":%llu,\"total_out_sats\":%llu,\"fee_"
+             "sats\":%llu}",
+             summary.input_count, summary.output_count, (unsigned long long)summary.total_in_sats,
+             (unsigned long long)summary.total_out_sats, (unsigned long long)summary.fee_sats);
     protocol_success(resp, req->id, result);
 }
 
@@ -201,68 +198,68 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     frost_signer_cleanup_stale();
 
     switch (req->method) {
-        case RPC_METHOD_PING:
-            handle_ping(req, resp);
-            break;
-        case RPC_METHOD_GET_SHARE_PUBKEY:
-            frost_get_pubkey(req->group, resp);
-            break;
-        case RPC_METHOD_GET_SHARE_INFO:
-            frost_get_share_info(req->group, resp);
-            break;
-        case RPC_METHOD_FROST_COMMIT:
-            frost_commit(req->group, req->session_id, req->message, resp);
-            break;
-        case RPC_METHOD_FROST_SIGN:
-            frost_sign(req->group, req->session_id, req->commitments, resp);
-            break;
-        case RPC_METHOD_IMPORT_SHARE:
-            handle_import_share(req, resp);
-            break;
-        case RPC_METHOD_DELETE_SHARE:
-            handle_delete_share(req, resp);
-            break;
-        case RPC_METHOD_LIST_SHARES:
-            handle_list_shares(req, resp);
-            break;
-        case RPC_METHOD_DKG_INIT:
-            dkg_init(req, resp);
-            break;
-        case RPC_METHOD_DKG_ROUND1:
-            dkg_round1(req, resp);
-            break;
-        case RPC_METHOD_DKG_ROUND1_PEER:
-            dkg_round1_peer(req, resp);
-            break;
-        case RPC_METHOD_DKG_ROUND2:
-            dkg_round2(req, resp);
-            break;
-        case RPC_METHOD_DKG_RECEIVE_SHARE:
-            dkg_receive_share(req, resp);
-            break;
-        case RPC_METHOD_DKG_FINALIZE:
-            dkg_finalize(req, resp);
-            break;
-        case RPC_METHOD_BITCOIN_PARSE:
-            handle_bitcoin_parse(req, resp);
-            break;
-        case RPC_METHOD_BITCOIN_SIGN:
-            handle_bitcoin_sign(req, resp);
-            break;
-        case RPC_METHOD_POLICY_UPDATE:
-            policy_handle_update(req, resp);
-            break;
-        case RPC_METHOD_POLICY_GET:
-            policy_handle_get(req, resp);
-            break;
-        case RPC_METHOD_GET_STATUS:
-            handle_get_status(req, resp);
-            break;
-        case RPC_METHOD_RESTART:
-            handle_restart(req, resp);
-            break;
-        default:
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
+    case RPC_METHOD_PING:
+        handle_ping(req, resp);
+        break;
+    case RPC_METHOD_GET_SHARE_PUBKEY:
+        frost_get_pubkey(req->group, resp);
+        break;
+    case RPC_METHOD_GET_SHARE_INFO:
+        frost_get_share_info(req->group, resp);
+        break;
+    case RPC_METHOD_FROST_COMMIT:
+        frost_commit(req->group, req->session_id, req->message, resp);
+        break;
+    case RPC_METHOD_FROST_SIGN:
+        frost_sign(req->group, req->session_id, req->commitments, resp);
+        break;
+    case RPC_METHOD_IMPORT_SHARE:
+        handle_import_share(req, resp);
+        break;
+    case RPC_METHOD_DELETE_SHARE:
+        handle_delete_share(req, resp);
+        break;
+    case RPC_METHOD_LIST_SHARES:
+        handle_list_shares(req, resp);
+        break;
+    case RPC_METHOD_DKG_INIT:
+        dkg_init(req, resp);
+        break;
+    case RPC_METHOD_DKG_ROUND1:
+        dkg_round1(req, resp);
+        break;
+    case RPC_METHOD_DKG_ROUND1_PEER:
+        dkg_round1_peer(req, resp);
+        break;
+    case RPC_METHOD_DKG_ROUND2:
+        dkg_round2(req, resp);
+        break;
+    case RPC_METHOD_DKG_RECEIVE_SHARE:
+        dkg_receive_share(req, resp);
+        break;
+    case RPC_METHOD_DKG_FINALIZE:
+        dkg_finalize(req, resp);
+        break;
+    case RPC_METHOD_BITCOIN_PARSE:
+        handle_bitcoin_parse(req, resp);
+        break;
+    case RPC_METHOD_BITCOIN_SIGN:
+        handle_bitcoin_sign(req, resp);
+        break;
+    case RPC_METHOD_POLICY_UPDATE:
+        policy_handle_update(req, resp);
+        break;
+    case RPC_METHOD_POLICY_GET:
+        policy_handle_get(req, resp);
+        break;
+    case RPC_METHOD_GET_STATUS:
+        handle_get_status(req, resp);
+        break;
+    case RPC_METHOD_RESTART:
+        handle_restart(req, resp);
+        break;
+    default:
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
     }
 }
 

@@ -35,7 +35,8 @@ int serial_read_line(char *buf, size_t len) {
 
     while (1) {
         int n = usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(10));
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
 
         if (c == '\n' || c == '\r') {
             if (rx_pos > 0) {

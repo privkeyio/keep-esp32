@@ -7,7 +7,8 @@
 #else
 static void secure_zero(void *buf, size_t len) {
     volatile uint8_t *p = buf;
-    while (len--) *p++ = 0;
+    while (len--)
+        *p++ = 0;
 }
 #endif
 
@@ -28,9 +29,12 @@ static uint32_t now_ms(void) {
 #endif
 
 int session_init(session_t *s, const sign_request_t *req, uint16_t threshold) {
-    if (!s || !req) return -1;
-    if (req->message_len > MAX_MESSAGE_LEN) return -2;
-    if (req->participant_count > MAX_PARTICIPANTS) return -3;
+    if (!s || !req)
+        return -1;
+    if (req->message_len > MAX_MESSAGE_LEN)
+        return -2;
+    if (req->participant_count > MAX_PARTICIPANTS)
+        return -3;
 
     memset(s, 0, sizeof(*s));
     memcpy(s->session_id, req->session_id, SESSION_ID_LEN);
@@ -74,20 +78,28 @@ session_state_t session_state(session_t *s) {
 
 bool session_is_participant(session_t *s, uint16_t share_index) {
     for (int i = 0; i < s->participant_count; i++) {
-        if (s->participants[i] == share_index) return true;
+        if (s->participants[i] == share_index)
+            return true;
     }
     return false;
 }
 
-int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment, size_t len) {
-    if (!s || !commitment) return SESSION_ERR_INVALID_LEN;
-    if (s->state != SESSION_AWAITING_COMMITMENTS) return SESSION_ERR_INVALID_STATE;
-    if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
-    if (len == 0 || len > COMMITMENT_LEN) return SESSION_ERR_INVALID_LEN;
-    if (s->commitment_count >= MAX_PARTICIPANTS) return SESSION_ERR_INVALID_STATE;
+int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment,
+                           size_t len) {
+    if (!s || !commitment)
+        return SESSION_ERR_INVALID_LEN;
+    if (s->state != SESSION_AWAITING_COMMITMENTS)
+        return SESSION_ERR_INVALID_STATE;
+    if (!session_is_participant(s, share_index))
+        return SESSION_ERR_NOT_PARTICIPANT;
+    if (len == 0 || len > COMMITMENT_LEN)
+        return SESSION_ERR_INVALID_LEN;
+    if (s->commitment_count >= MAX_PARTICIPANTS)
+        return SESSION_ERR_INVALID_STATE;
 
     for (int i = 0; i < s->commitment_count; i++) {
-        if (s->commitment_indices[i] == share_index) return SESSION_ERR_DUPLICATE;
+        if (s->commitment_indices[i] == share_index)
+            return SESSION_ERR_DUPLICATE;
     }
 
     int idx = s->commitment_count;
@@ -102,15 +114,22 @@ int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *co
     return 0;
 }
 
-int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_t *share, size_t len) {
-    if (!s || !share) return SESSION_ERR_INVALID_LEN;
-    if (s->state != SESSION_AWAITING_SHARES) return SESSION_ERR_INVALID_STATE;
-    if (!session_is_participant(s, share_index)) return SESSION_ERR_NOT_PARTICIPANT;
-    if (len == 0 || len > SIGNATURE_LEN) return SESSION_ERR_INVALID_LEN;
-    if (s->sig_share_count >= MAX_PARTICIPANTS) return SESSION_ERR_INVALID_STATE;
+int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_t *share,
+                                size_t len) {
+    if (!s || !share)
+        return SESSION_ERR_INVALID_LEN;
+    if (s->state != SESSION_AWAITING_SHARES)
+        return SESSION_ERR_INVALID_STATE;
+    if (!session_is_participant(s, share_index))
+        return SESSION_ERR_NOT_PARTICIPANT;
+    if (len == 0 || len > SIGNATURE_LEN)
+        return SESSION_ERR_INVALID_LEN;
+    if (s->sig_share_count >= MAX_PARTICIPANTS)
+        return SESSION_ERR_INVALID_STATE;
 
     for (int i = 0; i < s->sig_share_count; i++) {
-        if (s->sig_share_indices[i] == share_index) return SESSION_ERR_DUPLICATE;
+        if (s->sig_share_indices[i] == share_index)
+            return SESSION_ERR_DUPLICATE;
     }
 
     int idx = s->sig_share_count;
@@ -123,11 +142,13 @@ int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_
 }
 
 bool session_has_all_commitments(session_t *s) {
-    if (s->participant_count == 0) return false;
+    if (s->participant_count == 0)
+        return false;
     return s->commitment_count >= s->participant_count - 1;
 }
 
 bool session_has_all_shares(session_t *s) {
-    if (s->participant_count == 0) return false;
+    if (s->participant_count == 0)
+        return false;
     return s->sig_share_count >= s->participant_count - 1;
 }

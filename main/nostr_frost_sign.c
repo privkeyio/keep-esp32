@@ -8,14 +8,13 @@
 #include <stdio.h>
 #include <limits.h>
 
-int frost_parse_sign_request(const char *event_json,
-                              const frost_group_t *group,
-                              const uint8_t *our_privkey,
-                              frost_sign_request_t *request) {
+int frost_parse_sign_request(const char *event_json, const frost_group_t *group,
+                             const uint8_t *our_privkey, frost_sign_request_t *request) {
     memset(request, 0, sizeof(*request));
 
     cJSON *root = cJSON_Parse(event_json);
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!kind || !cJSON_IsNumber(kind) || kind->valueint != FROST_KIND_SIGN_REQUEST) {
@@ -28,11 +27,13 @@ int frost_parse_sign_request(const char *event_json,
         int size = cJSON_GetArraySize(tags);
         for (int i = 0; i < size; i++) {
             cJSON *tag = cJSON_GetArrayItem(tags, i);
-            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2) continue;
+            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2)
+                continue;
 
             cJSON *tag_name = cJSON_GetArrayItem(tag, 0);
             cJSON *tag_val = cJSON_GetArrayItem(tag, 1);
-            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val)) continue;
+            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val))
+                continue;
 
             const char *name = tag_name->valuestring;
             const char *val = tag_val->valuestring;
@@ -91,7 +92,8 @@ int frost_parse_sign_request(const char *event_json,
                     }
                     request->payload = malloc(hex_len / 2 + 1);
                     if (request->payload) {
-                        int decoded = hex_to_bytes(payload_hex->valuestring, request->payload, hex_len / 2 + 1);
+                        int decoded = hex_to_bytes(payload_hex->valuestring, request->payload,
+                                                   hex_len / 2 + 1);
                         if (decoded > 0) {
                             request->payload_len = (size_t)decoded;
                         } else {
@@ -115,12 +117,11 @@ int frost_parse_sign_request(const char *event_json,
     return 0;
 }
 
-int frost_create_sign_request(const frost_group_t *group,
-                               const frost_sign_request_t *request,
-                               const uint8_t *privkey,
-                               char *event_json, size_t max_len) {
+int frost_create_sign_request(const frost_group_t *group, const frost_sign_request_t *request,
+                              const uint8_t *privkey, char *event_json, size_t max_len) {
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "kind", FROST_KIND_SIGN_REQUEST);
 
@@ -153,9 +154,15 @@ int frost_create_sign_request(const frost_group_t *group,
 
     const char *msg_type_str;
     switch (request->message_type) {
-    case FROST_MSG_TYPE_PSBT:        msg_type_str = "psbt";        break;
-    case FROST_MSG_TYPE_NOSTR_EVENT: msg_type_str = "nostr_event"; break;
-    default:                         msg_type_str = "raw";         break;
+    case FROST_MSG_TYPE_PSBT:
+        msg_type_str = "psbt";
+        break;
+    case FROST_MSG_TYPE_NOSTR_EVENT:
+        msg_type_str = "nostr_event";
+        break;
+    default:
+        msg_type_str = "raw";
+        break;
     }
     cJSON *mt_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(mt_tag, cJSON_CreateString("message_type"));
@@ -212,20 +219,21 @@ int frost_create_sign_request(const frost_group_t *group,
         return -5;
     }
 
-    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
+    if (max_len > (size_t)INT_MAX)
+        max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
 }
 
-int frost_create_sign_response(const frost_group_t *group,
-                                const frost_sign_response_t *response,
-                                const uint8_t *privkey,
-                                char *event_json, size_t max_len) {
-    if (!group || !response || !privkey || !event_json || max_len == 0) return -1;
+int frost_create_sign_response(const frost_group_t *group, const frost_sign_response_t *response,
+                               const uint8_t *privkey, char *event_json, size_t max_len) {
+    if (!group || !response || !privkey || !event_json || max_len == 0)
+        return -1;
 
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "kind", FROST_KIND_SIGN_RESPONSE);
 
@@ -256,10 +264,18 @@ int frost_create_sign_response(const frost_group_t *group,
 
     const char *status_str;
     switch (response->status) {
-    case FROST_SIGN_STATUS_REJECTED: status_str = "rejected"; break;
-    case FROST_SIGN_STATUS_PENDING:  status_str = "pending";  break;
-    case FROST_SIGN_STATUS_TIMEOUT:  status_str = "timeout";  break;
-    default:                         status_str = "signed";   break;
+    case FROST_SIGN_STATUS_REJECTED:
+        status_str = "rejected";
+        break;
+    case FROST_SIGN_STATUS_PENDING:
+        status_str = "pending";
+        break;
+    case FROST_SIGN_STATUS_TIMEOUT:
+        status_str = "timeout";
+        break;
+    default:
+        status_str = "signed";
+        break;
     }
     cJSON *st_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(st_tag, cJSON_CreateString("status"));
@@ -303,20 +319,20 @@ int frost_create_sign_response(const frost_group_t *group,
         return -5;
     }
 
-    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
+    if (max_len > (size_t)INT_MAX)
+        max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
 }
 
-int frost_parse_sign_response(const char *event_json,
-                               const frost_group_t *group,
-                               const uint8_t *our_privkey,
-                               frost_sign_response_t *response) {
+int frost_parse_sign_response(const char *event_json, const frost_group_t *group,
+                              const uint8_t *our_privkey, frost_sign_response_t *response) {
     memset(response, 0, sizeof(*response));
 
     cJSON *root = cJSON_Parse(event_json);
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!kind || !cJSON_IsNumber(kind) || kind->valueint != FROST_KIND_SIGN_RESPONSE) {
@@ -329,11 +345,13 @@ int frost_parse_sign_response(const char *event_json,
         int size = cJSON_GetArraySize(tags);
         for (int i = 0; i < size; i++) {
             cJSON *tag = cJSON_GetArrayItem(tags, i);
-            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2) continue;
+            if (!cJSON_IsArray(tag) || cJSON_GetArraySize(tag) < 2)
+                continue;
 
             cJSON *tag_name = cJSON_GetArrayItem(tag, 0);
             cJSON *tag_val = cJSON_GetArrayItem(tag, 1);
-            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val)) continue;
+            if (!cJSON_IsString(tag_name) || !cJSON_IsString(tag_val))
+                continue;
 
             const char *name = tag_name->valuestring;
             const char *val = tag_val->valuestring;
@@ -390,7 +408,8 @@ int frost_parse_sign_response(const char *event_json,
             }
             cJSON *reason = cJSON_GetObjectItem(inner, "reason");
             if (reason && cJSON_IsString(reason)) {
-                strncpy(response->rejection_reason, reason->valuestring, sizeof(response->rejection_reason) - 1);
+                strncpy(response->rejection_reason, reason->valuestring,
+                        sizeof(response->rejection_reason) - 1);
             }
             cJSON_Delete(inner);
         }

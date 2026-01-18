@@ -11,11 +11,8 @@
 #include <string.h>
 
 static const uint8_t SESSION_ID_ALL_ONES[SESSION_ID_LEN] = {
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
-};
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 int frost_get_pubkey_pure(const uint8_t *share_bytes, size_t share_len,
                           frost_pubkey_result_t *result) {
@@ -45,8 +42,7 @@ int frost_create_commitment_pure(frost_state_t *state, session_t *session,
     }
 
     size_t commitment_len = 0;
-    int ret = frost_create_commitment(state, session,
-                                      result->commitment, &commitment_len);
+    int ret = frost_create_commitment(state, session, result->commitment, &commitment_len);
     if (ret != 0) {
         return FROST_CORE_ERR_COMMITMENT_FAILED;
     }
@@ -56,16 +52,15 @@ int frost_create_commitment_pure(frost_state_t *state, session_t *session,
     return FROST_CORE_OK;
 }
 
-int frost_sign_share_pure(frost_state_t *state, session_t *session,
-                          const uint8_t *message, size_t message_len,
-                          frost_sign_result_t *result) {
+int frost_sign_share_pure(frost_state_t *state, session_t *session, const uint8_t *message,
+                          size_t message_len, frost_sign_result_t *result) {
     if (!state || !session || !message || !result) {
         return FROST_CORE_ERR_INVALID_SESSION;
     }
 
     size_t sig_share_len = 0;
-    int ret = frost_sign_share(state, session, message, message_len,
-                               result->sig_share, &sig_share_len);
+    int ret =
+        frost_sign_share(state, session, message, message_len, result->sig_share, &sig_share_len);
     if (ret != 0) {
         return FROST_CORE_ERR_SIGN_FAILED;
     }
@@ -75,9 +70,8 @@ int frost_sign_share_pure(frost_state_t *state, session_t *session,
     return FROST_CORE_OK;
 }
 
-int frost_aggregate_pure(frost_state_t *state, session_t *session,
-                         const uint8_t *message, size_t message_len,
-                         frost_aggregate_result_t *result) {
+int frost_aggregate_pure(frost_state_t *state, session_t *session, const uint8_t *message,
+                         size_t message_len, frost_aggregate_result_t *result) {
     if (!state || !session || !message || !result) {
         return FROST_CORE_ERR_INVALID_SESSION;
     }
@@ -86,8 +80,7 @@ int frost_aggregate_pure(frost_state_t *state, session_t *session,
         return FROST_CORE_ERR_THRESHOLD;
     }
 
-    int ret = frost_aggregate(state, session, message, message_len,
-                              result->signature);
+    int ret = frost_aggregate(state, session, message, message_len, result->signature);
     if (ret != 0) {
         return FROST_CORE_ERR_AGGREGATE_FAILED;
     }
@@ -130,10 +123,10 @@ int frost_parse_commitments(const char *hex_str, session_t *session) {
         return FROST_CORE_ERR_PARSE;
     }
 
-    int num_commits = (int)(hex_len / COMMITMENT_HEX_LEN);
+    size_t num_commits = hex_len / COMMITMENT_HEX_LEN;
     int parsed = 0;
 
-    for (int i = 0; i < num_commits; i++) {
+    for (size_t i = 0; i < num_commits; i++) {
         if (session->commitment_count >= MAX_PARTICIPANTS) {
             return FROST_CORE_ERR_OVERFLOW;
         }
@@ -148,8 +141,7 @@ int frost_parse_commitments(const char *hex_str, session_t *session) {
         }
 
         int idx = session->commitment_count;
-        uint16_t commit_index = (uint16_t)commit_bytes[0] |
-                                ((uint16_t)commit_bytes[1] << 8);
+        uint16_t commit_index = (uint16_t)commit_bytes[0] | ((uint16_t)commit_bytes[1] << 8);
 
         memcpy(session->commitments[idx], commit_bytes, COMMITMENT_LEN);
         session->commitment_lens[idx] = COMMITMENT_LEN;
@@ -191,11 +183,8 @@ bool frost_is_session_id_valid(const uint8_t *session_id) {
     return !is_all_zero && !is_all_ones;
 }
 
-int frost_init_signing_session(session_t *session,
-                               const uint8_t *session_id,
-                               const uint8_t *message,
-                               uint16_t share_index,
-                               uint16_t threshold) {
+int frost_init_signing_session(session_t *session, const uint8_t *session_id,
+                               const uint8_t *message, uint16_t share_index, uint16_t threshold) {
     if (!session || !session_id || !message) {
         return FROST_CORE_ERR_INVALID_SESSION;
     }

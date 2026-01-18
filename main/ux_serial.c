@@ -12,8 +12,8 @@ static void serial_deinit(void) {
 }
 
 static void serial_show_idle(const char *device_name, bool policy_loaded, uint32_t policy_version) {
-    ESP_LOGI(TAG, "Device ready: %s, policy=%s v%lu",
-             device_name, policy_loaded ? "yes" : "no", (unsigned long)policy_version);
+    ESP_LOGI(TAG, "Device ready: %s, policy=%s v%lu", device_name, policy_loaded ? "yes" : "no",
+             (unsigned long)policy_version);
 }
 
 static void serial_show_scanning(void) {
@@ -32,8 +32,8 @@ static void serial_show_error(const char *title, const char *message) {
     ESP_LOGE(TAG, "Error [%s]: %s", title, message);
 }
 
-static void serial_confirm_transaction(const ux_tx_info_t *tx,
-                                       ux_decision_cb_t cb, void *user_data) {
+static void serial_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t cb,
+                                       void *user_data) {
     if (cb == NULL) {
         ESP_LOGE(TAG, "Null callback in confirm_transaction");
         return;

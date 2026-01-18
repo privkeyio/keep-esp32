@@ -6,21 +6,21 @@
 #include <stdbool.h>
 #include "protocol.h"
 
-#define POLICY_VERSION 1
+#define POLICY_VERSION       1
 #define POLICY_MAX_RULES_LEN 2048
 #define POLICY_SIGNATURE_LEN 64
-#define POLICY_PUBKEY_LEN 32
-#define POLICY_HASH_LEN 32
-#define POLICY_SLOT_SIZE 2560
+#define POLICY_PUBKEY_LEN    32
+#define POLICY_HASH_LEN      32
+#define POLICY_SLOT_SIZE     2560
 
-#define POLICY_ERR_NOT_FOUND -1
-#define POLICY_ERR_INVALID_SIG -2
-#define POLICY_ERR_STORAGE -3
-#define POLICY_ERR_VERSION -4
-#define POLICY_ERR_NO_BUNDLE -5
+#define POLICY_ERR_NOT_FOUND     -1
+#define POLICY_ERR_INVALID_SIG   -2
+#define POLICY_ERR_STORAGE       -3
+#define POLICY_ERR_VERSION       -4
+#define POLICY_ERR_NO_BUNDLE     -5
 #define POLICY_ERR_HASH_MISMATCH -6
-#define POLICY_ERR_DENIED -7
-#define POLICY_ERR_MALFORMED -8
+#define POLICY_ERR_DENIED        -7
+#define POLICY_ERR_MALFORMED     -8
 
 typedef struct {
     uint8_t version;

@@ -5,13 +5,13 @@
 #include <string.h>
 #include <stdlib.h>
 
-int frost_parse_nip46_event(const char *event_json,
-                             const uint8_t *our_privkey,
-                             nip46_request_t *request) {
+int frost_parse_nip46_event(const char *event_json, const uint8_t *our_privkey,
+                            nip46_request_t *request) {
     memset(request, 0, sizeof(*request));
 
     cJSON *root = cJSON_Parse(event_json);
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!kind || !cJSON_IsNumber(kind) || kind->valueint != NIP46_KIND_NOSTR_CONNECT) {
@@ -30,7 +30,8 @@ int frost_parse_nip46_event(const char *event_json,
 
     cJSON *content = cJSON_GetObjectItem(root, "content");
     if (content && cJSON_IsString(content)) {
-        char *decrypted = nip44_decrypt_content(content->valuestring, our_privkey, request->sender_pubkey);
+        char *decrypted =
+            nip44_decrypt_content(content->valuestring, our_privkey, request->sender_pubkey);
         if (!decrypted) {
             cJSON_Delete(root);
             return -3;
@@ -66,12 +67,11 @@ int frost_parse_nip46_event(const char *event_json,
     return 0;
 }
 
-int frost_create_nip46_response(const nip46_response_t *response,
-                                 const uint8_t *our_privkey,
-                                 const uint8_t *recipient_pubkey,
-                                 char *event_json, size_t max_len) {
+int frost_create_nip46_response(const nip46_response_t *response, const uint8_t *our_privkey,
+                                const uint8_t *recipient_pubkey, char *event_json, size_t max_len) {
     cJSON *root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root)
+        return -1;
 
     cJSON_AddNumberToObject(root, "kind", NIP46_KIND_NOSTR_CONNECT);
 
@@ -85,17 +85,18 @@ int frost_create_nip46_response(const nip46_response_t *response,
 
     cJSON *content_obj = cJSON_CreateObject();
     cJSON_AddStringToObject(content_obj, "id", response->id);
-    if (response->error) {
-        cJSON_AddStringToObject(content_obj, "error", response->error);
-    } else if (response->result) {
+    const char *error_msg = response->error
+                                ? response->error
+                                : (!response->result ? "internal error: empty response" : NULL);
+    if (error_msg) {
+        cJSON_AddStringToObject(content_obj, "error", error_msg);
+    } else {
         cJSON *result_json = cJSON_Parse(response->result);
         if (result_json) {
             cJSON_AddItemToObject(content_obj, "result", result_json);
         } else {
             cJSON_AddStringToObject(content_obj, "result", response->result);
         }
-    } else {
-        cJSON_AddStringToObject(content_obj, "error", "internal error: empty response");
     }
 
     char *content_str = cJSON_PrintUnformatted(content_obj);

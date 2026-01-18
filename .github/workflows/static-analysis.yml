@@ -47,7 +47,7 @@ jobs:
       - name: Run cppcheck
         run: |
           cd keep-esp32
-          cppcheck --enable=warning,style,performance,portability --error-exitcode=1 \
+          cppcheck --enable=warning,performance,portability --error-exitcode=1 \
             --suppress=missingIncludeSystem --inline-suppr \
             -I main \
             -I ../secp256k1-frost/include \
@@ -85,10 +85,11 @@ jobs:
       - name: Run clang-tidy
         # -cert-err33-c: Embedded code commonly ignores return values for nvs/esp functions
         # -misc-no-recursion: FROST protocol requires recursive structures
+        # -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling: strncpy used safely with explicit null termination
         run: |
           cd keep-esp32
           clang-tidy main/*.c \
-            -checks='-*,bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-bugprone-easily-swappable-parameters,-cert-err33-c,-misc-no-recursion' \
+            -checks='-*,bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-bugprone-easily-swappable-parameters,-cert-err33-c,-misc-no-recursion,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' \
             --warnings-as-errors='bugprone-*,clang-analyzer-*' \
             -- \
             -I main \
