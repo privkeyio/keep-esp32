@@ -71,7 +71,7 @@ typedef struct {
     bool has_signature;
 } session_t;
 
-void session_init(session_t *s, const sign_request_t *req, uint16_t threshold);
+int session_init(session_t *s, const sign_request_t *req, uint16_t threshold);
 void session_destroy(session_t *s);
 session_state_t session_state(session_t *s);
 bool session_is_participant(session_t *s, uint16_t share_index);

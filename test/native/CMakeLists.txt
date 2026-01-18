@@ -64,3 +64,4 @@ set_target_properties(test_frost_signer_core PROPERTIES
     INSTALL_RPATH ${SECP_DIR}/build/src
 )
 target_compile_definitions(test_frost_signer_core PRIVATE NATIVE_TEST=1)
+

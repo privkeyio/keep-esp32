@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 
 static bool is_valid_base64(const char *str, size_t len) {
     if (len == 0) return false;
@@ -49,6 +50,8 @@ static rpc_method_t parse_method(const char *method) {
 }
 
 int protocol_parse_request(const char *json, rpc_request_t *req) {
+    if (!json || !req) return PROTOCOL_ERR_PARSE;
+
     memset(req, 0, sizeof(*req));
     req->method = RPC_METHOD_UNKNOWN;
 
@@ -166,6 +169,9 @@ void protocol_free_request(rpc_request_t *req) {
 }
 
 int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) {
+    if (!resp || !buf || len == 0) return -1;
+    if (len > (size_t)INT_MAX) len = (size_t)INT_MAX;
+
     cJSON *root = cJSON_CreateObject();
     if (!root) return -1;
 

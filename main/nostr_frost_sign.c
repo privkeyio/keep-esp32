@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <limits.h>
 
 int frost_parse_sign_request(const char *event_json,
                               const frost_group_t *group,
@@ -47,13 +48,12 @@ int frost_parse_sign_request(const char *event_json,
             } else if (strcmp(name, "request_id") == 0) {
                 hex_to_bytes(val, request->request_id, 32);
             } else if (strcmp(name, "message_type") == 0) {
-                if (strcmp(val, "psbt") == 0) {
+                if (strcmp(val, "psbt") == 0)
                     request->message_type = FROST_MSG_TYPE_PSBT;
-                } else if (strcmp(val, "nostr_event") == 0) {
+                else if (strcmp(val, "nostr_event") == 0)
                     request->message_type = FROST_MSG_TYPE_NOSTR_EVENT;
-                } else {
+                else
                     request->message_type = FROST_MSG_TYPE_RAW;
-                }
             } else if (strcmp(name, "policy_hash") == 0) {
                 hex_to_bytes(val, request->policy_hash, 32);
                 request->has_policy = true;
@@ -145,11 +145,11 @@ int frost_create_sign_request(const frost_group_t *group,
     cJSON_AddItemToArray(rid_tag, cJSON_CreateString(rid_hex));
     cJSON_AddItemToArray(tags, rid_tag);
 
-    const char *msg_type_str = "raw";
-    if (request->message_type == FROST_MSG_TYPE_PSBT) {
-        msg_type_str = "psbt";
-    } else if (request->message_type == FROST_MSG_TYPE_NOSTR_EVENT) {
-        msg_type_str = "nostr_event";
+    const char *msg_type_str;
+    switch (request->message_type) {
+    case FROST_MSG_TYPE_PSBT:        msg_type_str = "psbt";        break;
+    case FROST_MSG_TYPE_NOSTR_EVENT: msg_type_str = "nostr_event"; break;
+    default:                         msg_type_str = "raw";         break;
     }
     cJSON *mt_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(mt_tag, cJSON_CreateString("message_type"));
@@ -206,6 +206,7 @@ int frost_create_sign_request(const frost_group_t *group,
         return -5;
     }
 
+    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
@@ -215,6 +216,8 @@ int frost_create_sign_response(const frost_group_t *group,
                                 const frost_sign_response_t *response,
                                 const uint8_t *privkey,
                                 char *event_json, size_t max_len) {
+    if (!group || !response || !privkey || !event_json || max_len == 0) return -1;
+
     cJSON *root = cJSON_CreateObject();
     if (!root) return -1;
 
@@ -245,13 +248,12 @@ int frost_create_sign_response(const frost_group_t *group,
     cJSON_AddItemToArray(idx_tag, cJSON_CreateString(idx_str));
     cJSON_AddItemToArray(tags, idx_tag);
 
-    const char *status_str = "signed";
-    if (response->status == FROST_SIGN_STATUS_REJECTED) {
-        status_str = "rejected";
-    } else if (response->status == FROST_SIGN_STATUS_PENDING) {
-        status_str = "pending";
-    } else if (response->status == FROST_SIGN_STATUS_TIMEOUT) {
-        status_str = "timeout";
+    const char *status_str;
+    switch (response->status) {
+    case FROST_SIGN_STATUS_REJECTED: status_str = "rejected"; break;
+    case FROST_SIGN_STATUS_PENDING:  status_str = "pending";  break;
+    case FROST_SIGN_STATUS_TIMEOUT:  status_str = "timeout";  break;
+    default:                         status_str = "signed";   break;
     }
     cJSON *st_tag = cJSON_CreateArray();
     cJSON_AddItemToArray(st_tag, cJSON_CreateString("status"));
@@ -295,6 +297,7 @@ int frost_create_sign_response(const frost_group_t *group,
         return -5;
     }
 
+    if (max_len > (size_t)INT_MAX) max_len = (size_t)INT_MAX;
     cJSON_bool ok = cJSON_PrintPreallocated(root, event_json, (int)max_len, 0);
     cJSON_Delete(root);
     return ok ? 0 : -1;
@@ -338,15 +341,14 @@ int frost_parse_sign_response(const char *event_json,
                     response->participant_index = (uint8_t)tmp;
                 }
             } else if (strcmp(name, "status") == 0) {
-                if (strcmp(val, "signed") == 0) {
-                    response->status = FROST_SIGN_STATUS_SIGNED;
-                } else if (strcmp(val, "rejected") == 0) {
+                if (strcmp(val, "rejected") == 0)
                     response->status = FROST_SIGN_STATUS_REJECTED;
-                } else if (strcmp(val, "pending") == 0) {
+                else if (strcmp(val, "pending") == 0)
                     response->status = FROST_SIGN_STATUS_PENDING;
-                } else if (strcmp(val, "timeout") == 0) {
+                else if (strcmp(val, "timeout") == 0)
                     response->status = FROST_SIGN_STATUS_TIMEOUT;
-                }
+                else
+                    response->status = FROST_SIGN_STATUS_SIGNED;
             }
         }
     }

@@ -208,6 +208,8 @@ int frost_init_signing_session(session_t *session,
     req.participants[0] = share_index;
     req.participant_count = 1;
 
-    session_init(session, &req, threshold);
+    if (session_init(session, &req, threshold) != 0) {
+        return FROST_CORE_ERR_INVALID_SESSION;
+    }
     return FROST_CORE_OK;
 }
