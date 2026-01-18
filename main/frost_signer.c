@@ -35,6 +35,31 @@ static uint32_t get_time_ms(void) {
 
 #define TAG "frost_signer"
 #define MAX_SESSIONS 4
+#define CONSUMED_SESSION_RING_SIZE 32
+
+static uint8_t consumed_sessions[CONSUMED_SESSION_RING_SIZE][SESSION_ID_LEN];
+static uint8_t consumed_count = 0;
+static uint8_t consumed_head = 0;
+
+static bool is_session_consumed(const uint8_t *session_id) {
+    uint8_t count = (consumed_count < CONSUMED_SESSION_RING_SIZE)
+                  ? consumed_count
+                  : CONSUMED_SESSION_RING_SIZE;
+    for (uint8_t i = 0; i < count; i++) {
+        if (ct_compare(consumed_sessions[i], session_id, SESSION_ID_LEN) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void record_consumed_session(const uint8_t *session_id) {
+    memcpy(consumed_sessions[consumed_head], session_id, SESSION_ID_LEN);
+    consumed_head = (consumed_head + 1) % CONSUMED_SESSION_RING_SIZE;
+    if (consumed_count < CONSUMED_SESSION_RING_SIZE) {
+        consumed_count++;
+    }
+}
 
 #ifdef FROST_SIGNER_QUIET_LOGS
 #define FROST_LOGI(tag, ...) do {} while(0)
@@ -156,6 +181,9 @@ int frost_signer_init(void) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
         sessions[i].active = false;
     }
+    memset(consumed_sessions, 0, sizeof(consumed_sessions));
+    consumed_count = 0;
+    consumed_head = 0;
     FROST_LOGI(TAG, "FROST signer ready");
     return 0;
 }
@@ -232,18 +260,22 @@ void frost_commit(const char *group, const char *session_id_hex,
         return;
     }
 
+    if (is_session_consumed(session_id)) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session ID already used");
+        return;
+    }
+
+    if (find_session(session_id) != NULL) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session ID already active");
+        return;
+    }
+
     bool has_policy = false;
     uint8_t policy_hash[32];
     int policy_ret = capture_policy_snapshot(&has_policy, policy_hash);
     if (policy_ret != 0) {
         secure_memzero(policy_hash, sizeof(policy_hash));
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
-        return;
-    }
-
-    if (find_session(session_id) != NULL) {
-        secure_memzero(policy_hash, sizeof(policy_hash));
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Duplicate session id");
         return;
     }
 
@@ -339,22 +371,61 @@ void frost_sign(const char *group, const char *session_id_hex,
     s->session.participant_count = total_participants;
     s->session.state = SESSION_AWAITING_SHARES;
 
+    bool policy_snapshot = s->has_policy;
+    uint8_t policy_hash_snapshot[32];
+    memcpy(policy_hash_snapshot, s->policy_hash, 32);
+
     frost_sign_result_t sign_result;
     if (frost_sign_share_pure(&s->frost_state, &s->session,
                               s->session.message, s->session.message_len,
                               &sign_result) != 0) {
+        secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Signing failed");
         return;
     }
 
-    int share_idx = s->session.sig_share_count;
-    if (share_idx < MAX_PARTICIPANTS) {
-        memcpy(s->session.sig_shares[share_idx], sign_result.sig_share, sign_result.sig_share_len);
-        s->session.sig_share_lens[share_idx] = sign_result.sig_share_len;
-        s->session.sig_share_indices[share_idx] = sign_result.index;
-        s->session.sig_share_count++;
+    if (verify_policy_unchanged(policy_snapshot, policy_hash_snapshot) != 0) {
+        secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
+        free_session(s);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during signing");
+        return;
     }
+    secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
+
+    if (is_session_consumed(session_id)) {
+        for (uint8_t i = 0; i < s->session.sig_share_count && i < MAX_PARTICIPANTS; i++) {
+            if (s->session.sig_share_indices[i] == sign_result.index) {
+                char cached_share_hex[73];
+                bytes_to_hex(s->session.sig_shares[i], s->session.sig_share_lens[i],
+                             cached_share_hex, sizeof(cached_share_hex));
+
+                char result[192];
+                snprintf(result, sizeof(result),
+                         "{\"signature_share\":\"%s\",\"index\":%d}",
+                         cached_share_hex, sign_result.index);
+                protocol_success(resp, resp->id, result);
+                FROST_LOGI(TAG, "Returning cached signature share for session %.16s... (retry)",
+                           session_id_hex);
+                return;
+            }
+        }
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already consumed");
+        return;
+    }
+
+    int share_idx = s->session.sig_share_count;
+    if (share_idx >= MAX_PARTICIPANTS) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Maximum signature shares reached");
+        return;
+    }
+
+    record_consumed_session(session_id);
+
+    memcpy(s->session.sig_shares[share_idx], sign_result.sig_share, sign_result.sig_share_len);
+    s->session.sig_share_lens[share_idx] = sign_result.sig_share_len;
+    s->session.sig_share_indices[share_idx] = sign_result.index;
+    s->session.sig_share_count++;
 
     char sig_share_hex[73];
     bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len,
