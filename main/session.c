@@ -84,13 +84,24 @@ bool session_is_participant(session_t *s, uint16_t share_index) {
     return false;
 }
 
+secresult_t session_is_participant_secure(session_t *s, uint16_t share_index) {
+    if (!s) return SECRESULT_ERR_SESSION_INVALID;
+    secresult_t found = SECRESULT_FALSE;
+    for (int i = 0; i < s->participant_count; i++) {
+        if (s->participants[i] == share_index) {
+            found = SECRESULT_TRUE;
+        }
+    }
+    return found;
+}
+
 int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment,
                            size_t len) {
     if (!s || !commitment)
         return SESSION_ERR_INVALID_LEN;
     if (s->state != SESSION_AWAITING_COMMITMENTS)
         return SESSION_ERR_INVALID_STATE;
-    if (!session_is_participant(s, share_index))
+    if (!SECRESULT_IS_TRUE(session_is_participant_secure(s, share_index)))
         return SESSION_ERR_NOT_PARTICIPANT;
     if (len == 0 || len > COMMITMENT_LEN)
         return SESSION_ERR_INVALID_LEN;
@@ -120,7 +131,7 @@ int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_
         return SESSION_ERR_INVALID_LEN;
     if (s->state != SESSION_AWAITING_SHARES)
         return SESSION_ERR_INVALID_STATE;
-    if (!session_is_participant(s, share_index))
+    if (!SECRESULT_IS_TRUE(session_is_participant_secure(s, share_index)))
         return SESSION_ERR_NOT_PARTICIPANT;
     if (len == 0 || len > SIGNATURE_LEN)
         return SESSION_ERR_INVALID_LEN;

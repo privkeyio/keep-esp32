@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "session.h"
+#include "secresult.h"
 
 #define KEYPAIR_SERIALIZED_LEN 102
 #define FROST_POINT_LEN        64
@@ -92,5 +93,16 @@ int frost_aggregate(frost_state_t *state, session_t *session, const uint8_t *msg
  */
 int frost_verify(frost_state_t *state, const uint8_t *signature, const uint8_t *msg_hash,
                  size_t hash_len);
+
+/**
+ * @brief Verify Schnorr signature with fault-injection-resistant return.
+ * @param state FROST state
+ * @param signature 64-byte signature
+ * @param msg_hash 32-byte message hash
+ * @param hash_len Must be 32
+ * @return SECRESULT_TRUE if valid, SECRESULT_ERR_INVALID_SIG otherwise
+ */
+secresult_t frost_verify_secure(frost_state_t *state, const uint8_t *signature,
+                                const uint8_t *msg_hash, size_t hash_len);
 
 #endif
