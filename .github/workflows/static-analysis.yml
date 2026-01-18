@@ -83,12 +83,22 @@ jobs:
           make -j$(nproc)
 
       - name: Run clang-tidy
+        # Only analyze platform-independent files (no ESP-IDF headers required)
         # -cert-err33-c: Embedded code commonly ignores return values for nvs/esp functions
         # -misc-no-recursion: FROST protocol requires recursive structures
         # -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling: strncpy used safely with explicit null termination
         run: |
           cd keep-esp32
-          clang-tidy main/*.c \
+          clang-tidy \
+            main/error_context.c \
+            main/frost_signer_core.c \
+            main/frost_signer_storage.c \
+            main/nostr_frost.c \
+            main/nostr_frost_dkg_events.c \
+            main/nostr_frost_nip46.c \
+            main/nostr_frost_sign.c \
+            main/protocol.c \
+            main/psbt.c \
             -checks='-*,bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-bugprone-easily-swappable-parameters,-cert-err33-c,-misc-no-recursion,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' \
             --warnings-as-errors='bugprone-*,clang-analyzer-*' \
             -- \
