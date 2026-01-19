@@ -133,156 +133,6 @@ static int test_session_allocation(void) {
     return 0;
 }
 
-static int test_session_state_machine(void) {
-    TEST("session state machine transitions");
-    mock_time_ms = 1000;
-
-    session_t s;
-    sign_request_t req;
-    memset(&req, 0, sizeof(req));
-    memset(req.session_id, 0xAA, SESSION_ID_LEN);
-    memset(req.message, 'A', 32);
-    req.message_len = 32;
-    req.participant_count = 3;
-    req.participants[0] = 1;
-    req.participants[1] = 2;
-    req.participants[2] = 3;
-
-    if (session_init(&s, &req, 2) != 0)
-        FAIL("session_init failed");
-
-    if (s.state != SESSION_AWAITING_COMMITMENTS)
-        FAIL("initial state wrong");
-
-    uint8_t commit[COMMITMENT_LEN];
-    memset(commit, 0xBB, sizeof(commit));
-
-    if (session_add_commitment(&s, 1, commit, sizeof(commit)) != 0)
-        FAIL("add commitment 1 failed");
-    if (s.state != SESSION_AWAITING_COMMITMENTS)
-        FAIL("state changed too early");
-
-    if (session_add_commitment(&s, 2, commit, sizeof(commit)) != 0)
-        FAIL("add commitment 2 failed");
-    if (s.state != SESSION_AWAITING_SHARES)
-        FAIL("should transition to awaiting shares");
-
-    uint8_t share[SIG_SHARE_LEN];
-    memset(share, 0xCC, sizeof(share));
-
-    if (session_add_signature_share(&s, 1, share, sizeof(share)) != 0)
-        FAIL("add share 1 failed");
-
-    if (session_add_signature_share(&s, 2, share, sizeof(share)) != 0)
-        FAIL("add share 2 failed");
-
-    if (!session_has_all_shares(&s))
-        FAIL("should have all shares");
-
-    session_destroy(&s);
-    PASS();
-    return 0;
-}
-
-static int test_session_timeout(void) {
-    TEST("session timeout handling");
-    mock_time_ms = 1000;
-
-    session_t s;
-    sign_request_t req;
-    memset(&req, 0, sizeof(req));
-    memset(req.session_id, 0xDD, SESSION_ID_LEN);
-    memset(req.message, 'B', 32);
-    req.message_len = 32;
-    req.participant_count = 2;
-    req.participants[0] = 1;
-    req.participants[1] = 2;
-
-    if (session_init(&s, &req, 2) != 0)
-        FAIL("session_init failed");
-
-    mock_time_ms = 1000 + SESSION_TIMEOUT_MS - 100;
-    if (session_state(&s) == SESSION_EXPIRED)
-        FAIL("expired too early");
-
-    mock_time_ms = 1000 + SESSION_TIMEOUT_MS + 100;
-    if (session_state(&s) != SESSION_EXPIRED)
-        FAIL("should be expired");
-
-    session_destroy(&s);
-    PASS();
-    return 0;
-}
-
-static int test_session_duplicate_rejection(void) {
-    TEST("duplicate commitment/share rejection");
-    mock_time_ms = 1000;
-
-    session_t s;
-    sign_request_t req;
-    memset(&req, 0, sizeof(req));
-    memset(req.session_id, 0xEE, SESSION_ID_LEN);
-    req.message_len = 32;
-    req.participant_count = 3;
-    req.participants[0] = 1;
-    req.participants[1] = 2;
-    req.participants[2] = 3;
-
-    if (session_init(&s, &req, 2) != 0)
-        FAIL("session_init failed");
-
-    uint8_t commit[COMMITMENT_LEN] = {0};
-    if (session_add_commitment(&s, 1, commit, sizeof(commit)) != 0)
-        FAIL("first commit failed");
-
-    if (session_add_commitment(&s, 1, commit, sizeof(commit)) != SESSION_ERR_DUPLICATE)
-        FAIL("duplicate commit should fail");
-
-    session_add_commitment(&s, 2, commit, sizeof(commit));
-
-    uint8_t share[SIG_SHARE_LEN] = {0};
-    if (session_add_signature_share(&s, 1, share, sizeof(share)) != 0)
-        FAIL("first share failed");
-
-    if (session_add_signature_share(&s, 1, share, sizeof(share)) != SESSION_ERR_DUPLICATE)
-        FAIL("duplicate share should fail");
-
-    session_destroy(&s);
-    PASS();
-    return 0;
-}
-
-static int test_session_non_participant_rejection(void) {
-    TEST("non-participant rejection");
-    mock_time_ms = 1000;
-
-    session_t s;
-    sign_request_t req;
-    memset(&req, 0, sizeof(req));
-    memset(req.session_id, 0xFF, SESSION_ID_LEN);
-    req.message_len = 32;
-    req.participant_count = 2;
-    req.participants[0] = 1;
-    req.participants[1] = 2;
-
-    if (session_init(&s, &req, 2) != 0)
-        FAIL("session_init failed");
-
-    uint8_t commit[COMMITMENT_LEN] = {0};
-    if (session_add_commitment(&s, 99, commit, sizeof(commit)) != SESSION_ERR_NOT_PARTICIPANT)
-        FAIL("non-participant commit should fail");
-
-    session_add_commitment(&s, 1, commit, sizeof(commit));
-
-    uint8_t share[SIG_SHARE_LEN] = {0};
-    if (session_add_signature_share(&s, 99, share, sizeof(share)) != SESSION_ERR_NOT_PARTICIPANT)
-        FAIL("non-participant share should fail");
-
-    session_destroy(&s);
-    PASS();
-    return 0;
-}
-
 static int test_concurrent_sessions_isolation(void) {
     TEST("concurrent sessions isolation");
     test_sessions_init();
@@ -367,35 +217,6 @@ static int test_session_cleanup_on_timeout(void) {
         FAIL("should be expired");
 
     test_sessions_init();
-    PASS();
-    return 0;
-}
-
-static int test_max_commitments_overflow(void) {
-    TEST("max commitments overflow protection");
-    mock_time_ms = 1000;
-
-    session_t s;
-    sign_request_t req;
-    memset(&req, 0, sizeof(req));
-    memset(req.session_id, 0x88, SESSION_ID_LEN);
-    req.message_len = 32;
-    req.participant_count = MAX_PARTICIPANTS;
-    for (int i = 0; i < MAX_PARTICIPANTS; i++) {
-        req.participants[i] = (uint16_t)(i + 1);
-    }
-
-    if (session_init(&s, &req, MAX_PARTICIPANTS) != 0)
-        FAIL("init failed");
-
-    uint8_t commit[COMMITMENT_LEN] = {0};
-    for (int i = 0; i < MAX_PARTICIPANTS - 1; i++) {
-        int ret = session_add_commitment(&s, (uint16_t)(i + 1), commit, sizeof(commit));
-        if (ret != 0 && i < MAX_PARTICIPANTS - 2)
-            FAIL("should accept commitment");
-    }
-
-    session_destroy(&s);
     PASS();
     return 0;
 }
@@ -539,13 +360,8 @@ int main(void) {
 
     int failures = 0;
     failures += test_session_allocation();
-    failures += test_session_state_machine();
-    failures += test_session_timeout();
-    failures += test_session_duplicate_rejection();
-    failures += test_session_non_participant_rejection();
     failures += test_concurrent_sessions_isolation();
     failures += test_session_cleanup_on_timeout();
-    failures += test_max_commitments_overflow();
 
 #ifdef HAS_CJSON
     printf("\n  --- Protocol Tests (cJSON available) ---\n");

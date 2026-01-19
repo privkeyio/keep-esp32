@@ -17,16 +17,15 @@
 
 static void fill_random(uint8_t *buf, size_t len) {
     FILE *fp = fopen("/dev/urandom", "r");
-    if (fp) {
-        size_t n = fread(buf, 1, len, fp);
-        fclose(fp);
-        if (n == len)
-            return;
+    if (!fp) {
+        fprintf(stderr, "FATAL: /dev/urandom unavailable\n");
+        abort();
     }
-    unsigned int seed = (unsigned int)time(NULL);
-    srand(seed);
-    for (size_t i = 0; i < len; i++) {
-        buf[i] = (uint8_t)(rand() & 0xff);
+    size_t n = fread(buf, 1, len, fp);
+    fclose(fp);
+    if (n != len) {
+        fprintf(stderr, "FATAL: failed to read from /dev/urandom\n");
+        abort();
     }
 }
 

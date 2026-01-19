@@ -11,51 +11,7 @@ DEFAULT_BAUD = int(os.environ.get("KEEP_DEVICE_BAUD", "115200"))
 DEFAULT_TIMEOUT = float(os.environ.get("KEEP_DEVICE_TIMEOUT", "5.0"))
 
 
-class DeviceConnection:
-    def __init__(
-        self,
-        port: str = DEFAULT_PORT,
-        baud: int = DEFAULT_BAUD,
-        timeout: float = DEFAULT_TIMEOUT,
-    ):
-        self.port = port
-        self.baud = baud
-        self.timeout = timeout
-        self._serial: Optional[serial.Serial] = None
-        self._request_id = 0
-
-    def connect(self):
-        self._serial = serial.Serial(
-            port=self.port,
-            baudrate=self.baud,
-            timeout=self.timeout,
-        )
-        self._serial.reset_input_buffer()
-
-    def disconnect(self):
-        if self._serial and self._serial.is_open:
-            self._serial.close()
-        self._serial = None
-
-    def rpc(self, method: str, params: Optional[dict] = None) -> dict:
-        if not self._serial or not self._serial.is_open:
-            raise RuntimeError("Device not connected")
-
-        self._request_id += 1
-        request = {"id": self._request_id, "method": method}
-        if params:
-            request["params"] = params
-
-        line = json.dumps(request) + "\n"
-        self._serial.write(line.encode("utf-8"))
-        self._serial.flush()
-
-        response_line = self._serial.readline()
-        if not response_line:
-            raise TimeoutError(f"No response for {method}")
-
-        return json.loads(response_line.decode("utf-8"))
-
+class DeviceRPCMixin:
     def ping(self) -> dict:
         return self.rpc("ping")
 
@@ -124,7 +80,53 @@ class DeviceConnection:
         return self.rpc("get_status")
 
 
-class MockDeviceConnection:
+class DeviceConnection(DeviceRPCMixin):
+    def __init__(
+        self,
+        port: str = DEFAULT_PORT,
+        baud: int = DEFAULT_BAUD,
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
+        self.port = port
+        self.baud = baud
+        self.timeout = timeout
+        self._serial: Optional[serial.Serial] = None
+        self._request_id = 0
+
+    def connect(self):
+        self._serial = serial.Serial(
+            port=self.port,
+            baudrate=self.baud,
+            timeout=self.timeout,
+        )
+        self._serial.reset_input_buffer()
+
+    def disconnect(self):
+        if self._serial and self._serial.is_open:
+            self._serial.close()
+        self._serial = None
+
+    def rpc(self, method: str, params: Optional[dict] = None) -> dict:
+        if not self._serial or not self._serial.is_open:
+            raise RuntimeError("Device not connected")
+
+        self._request_id += 1
+        request = {"id": self._request_id, "method": method}
+        if params:
+            request["params"] = params
+
+        line = json.dumps(request) + "\n"
+        self._serial.write(line.encode("utf-8"))
+        self._serial.flush()
+
+        response_line = self._serial.readline()
+        if not response_line:
+            raise TimeoutError(f"No response for {method}")
+
+        return json.loads(response_line.decode("utf-8"))
+
+
+class MockDeviceConnection(DeviceRPCMixin):
     MAX_SESSIONS = 4
 
     def __init__(self):
@@ -140,9 +142,7 @@ class MockDeviceConnection:
         pass
 
     def _is_valid_hex(self, s: str) -> bool:
-        if len(s) % 2 != 0:
-            return False
-        return all(c in "0123456789abcdefABCDEF" for c in s)
+        return len(s) % 2 == 0 and all(c in "0123456789abcdefABCDEF" for c in s)
 
     def _is_valid_session_id(self, session_id: str) -> bool:
         if len(session_id) != 64 or not self._is_valid_hex(session_id):
@@ -291,7 +291,7 @@ class MockDeviceConnection:
         peer_index = params.get("peer_index", 0)
         dkg_data = params.get("dkg_data", "")
 
-        if session.get("state") not in ("round1",):
+        if session.get("state") != "round1":
             return self._error(rid, -2, "Wrong DKG state")
         if peer_index < 1 or peer_index > session.get("participant_count", 0):
             return self._error(rid, -32602, "Invalid peer_index")
@@ -333,73 +333,6 @@ class MockDeviceConnection:
         if group not in self._shares:
             return self._error(rid, -1, "Share not found")
         return self._ok(rid, {"pubkey": "02" + "00" * 32})
-
-    def ping(self) -> dict:
-        return self.rpc("ping")
-
-    def import_share(self, group: str, share_hex: str) -> dict:
-        return self.rpc("import_share", {"group": group, "share": share_hex})
-
-    def delete_share(self, group: str) -> dict:
-        return self.rpc("delete_share", {"group": group})
-
-    def list_shares(self) -> dict:
-        return self.rpc("list_shares")
-
-    def get_share_info(self, group: str) -> dict:
-        return self.rpc("get_share_info", {"group": group})
-
-    def get_share_pubkey(self, group: str) -> dict:
-        return self.rpc("get_share_pubkey", {"group": group})
-
-    def frost_commit(self, group: str, session_id: str, message: str) -> dict:
-        return self.rpc(
-            "frost_commit",
-            {"group": group, "session_id": session_id, "message": message},
-        )
-
-    def frost_sign(self, group: str, session_id: str, commitments: str) -> dict:
-        return self.rpc(
-            "frost_sign",
-            {"group": group, "session_id": session_id, "commitments": commitments},
-        )
-
-    def get_status(self) -> dict:
-        return self.rpc("get_status")
-
-    def dkg_init(
-        self, group: str, threshold: int, participant_count: int, our_index: int
-    ) -> dict:
-        return self.rpc(
-            "dkg_init",
-            {
-                "group": group,
-                "threshold": threshold,
-                "participant_count": participant_count,
-                "our_index": our_index,
-            },
-        )
-
-    def dkg_round1(self, group: str) -> dict:
-        return self.rpc("dkg_round1", {"group": group})
-
-    def dkg_round1_peer(self, group: str, peer_index: int, dkg_data: str) -> dict:
-        return self.rpc(
-            "dkg_round1_peer",
-            {"group": group, "peer_index": peer_index, "dkg_data": dkg_data},
-        )
-
-    def dkg_round2(self, group: str) -> dict:
-        return self.rpc("dkg_round2", {"group": group})
-
-    def dkg_receive_share(self, group: str, peer_index: int, dkg_data: str) -> dict:
-        return self.rpc(
-            "dkg_receive_share",
-            {"group": group, "peer_index": peer_index, "dkg_data": dkg_data},
-        )
-
-    def dkg_finalize(self, group: str) -> dict:
-        return self.rpc("dkg_finalize", {"group": group})
 
 
 def is_hardware_available() -> bool:
