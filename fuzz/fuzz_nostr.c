@@ -32,7 +32,7 @@ typedef struct {
 static int parse_uint8(const char *str, uint8_t *out) {
     char *endptr;
     long val = strtol(str, &endptr, 10);
-    if (endptr == str || *endptr != '\0' || val <= 0 || val > 255)
+    if (endptr == str || *endptr != '\0' || val < 0 || val > 255)
         return -1;
     *out = (uint8_t)val;
     return 0;
