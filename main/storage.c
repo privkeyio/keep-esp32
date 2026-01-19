@@ -685,9 +685,8 @@ static int checkpoint_init(void) {
     if (checkpoint_initialized)
         return 0;
 
-    checkpoint_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
-                                                    ESP_PARTITION_SUBTYPE_ANY,
-                                                    CHECKPOINT_PARTITION_NAME);
+    checkpoint_partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, CHECKPOINT_PARTITION_NAME);
     if (!checkpoint_partition) {
         ESP_LOGE(TAG, "Checkpoint partition '%s' not found", CHECKPOINT_PARTITION_NAME);
         return -1;
@@ -791,7 +790,8 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
     return STORAGE_OK;
 }
 
-int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_len, size_t *out_len) {
+int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_len,
+                            size_t *out_len) {
     if (!session_id || !data || !out_len)
         return STORAGE_ERR_INVALID_DATA;
     if (!storage_crypto_is_initialized())

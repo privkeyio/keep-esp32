@@ -551,13 +551,13 @@ static int dkg_checkpoint_load(const char *session_id, dkg_session_t *session) {
         return STORAGE_ERR_INVALID_DATA;
     }
 
-    bool valid_params =
-        cp.threshold >= 2 && cp.threshold <= DKG_MAX_THRESHOLD &&
-        cp.participant_count >= cp.threshold && cp.participant_count <= DKG_MAX_PARTICIPANTS &&
-        cp.our_index >= 1 && cp.our_index <= cp.participant_count &&
-        cp.peer_round1_count <= DKG_MAX_PARTICIPANTS &&
-        cp.received_share_count <= DKG_MAX_PARTICIPANTS &&
-        cp.secret_share_count <= DKG_MAX_PARTICIPANTS;
+    bool valid_params = cp.threshold >= 2 && cp.threshold <= DKG_MAX_THRESHOLD &&
+                        cp.participant_count >= cp.threshold &&
+                        cp.participant_count <= DKG_MAX_PARTICIPANTS && cp.our_index >= 1 &&
+                        cp.our_index <= cp.participant_count &&
+                        cp.peer_round1_count <= DKG_MAX_PARTICIPANTS &&
+                        cp.received_share_count <= DKG_MAX_PARTICIPANTS &&
+                        cp.secret_share_count <= DKG_MAX_PARTICIPANTS;
     if (!valid_params) {
         secure_memzero(&cp, sizeof(cp));
         return STORAGE_ERR_INVALID_DATA;
