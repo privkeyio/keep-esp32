@@ -78,6 +78,8 @@ esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t off
 
 #include "hex_utils.h"
 #include "storage_crypto.h"
+#include "frost.h"
+#include "random_utils.h"
 #include "storage.h"
 #include "storage.c"
 

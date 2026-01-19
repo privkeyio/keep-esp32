@@ -12,6 +12,7 @@ endif()
 set(CMAKE_C_STANDARD 99)
 
 set(MAIN_DIR ${CMAKE_CURRENT_LIST_DIR}/../main)
+set(MOCKS_DIR ${CMAKE_CURRENT_LIST_DIR}/../test/native/mocks)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -31,7 +32,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${FUZZ_LINK_FLAGS}")
 add_compile_definitions(NATIVE_TEST=1)
 
 add_executable(fuzz_protocol fuzz_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c ${MAIN_DIR}/error_context.c ${MAIN_DIR}/error_codes.c)
-target_include_directories(fuzz_protocol PRIVATE ${CJSON_DIR} ${MAIN_DIR})
+target_include_directories(fuzz_protocol PRIVATE ${CJSON_DIR} ${MAIN_DIR} ${MOCKS_DIR})
 
 add_executable(fuzz_hex fuzz_hex.c)
 target_include_directories(fuzz_hex PRIVATE ${MAIN_DIR})
