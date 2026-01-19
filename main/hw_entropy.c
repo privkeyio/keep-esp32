@@ -138,7 +138,7 @@ int hw_entropy_init(void) {
 int hw_entropy_fill(uint8_t *buf, size_t len) {
     if (!buf || len == 0)
         return -1;
-    FILE *fp = fopen("/dev/urandom", "r");
+    FILE *fp = fopen("/dev/urandom", "rb");
     if (!fp)
         return -1;
     size_t n = fread(buf, 1, len, fp);
