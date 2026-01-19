@@ -1,13 +1,15 @@
-#include "cJSON.h"
-#include <stdint.h>
+#include <math.h>
 #include <stddef.h>
-#include <string.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "cJSON.h"
 
 #define MAX_JSON_LEN 2048
 
-static uint64_t safe_double_to_u64(double v) {
-    if (v < 0.0 || v != v)
+static uint64_t double_to_uint64_safe(double v) {
+    if (v < 0.0 || isnan(v))
         return 0;
     if (v >= (double)UINT64_MAX)
         return UINT64_MAX;
@@ -24,14 +26,14 @@ static int policy_evaluate(const char *json, uint64_t amount, uint64_t fee) {
 
     cJSON *max_amount = cJSON_GetObjectItem(rules, "max_amount");
     if (max_amount && cJSON_IsNumber(max_amount)) {
-        if (amount > safe_double_to_u64(max_amount->valuedouble)) {
+        if (amount > double_to_uint64_safe(max_amount->valuedouble)) {
             result = -2;
         }
     }
 
     cJSON *max_fee = cJSON_GetObjectItem(rules, "max_fee");
     if (result == 0 && max_fee && cJSON_IsNumber(max_fee)) {
-        if (fee > safe_double_to_u64(max_fee->valuedouble)) {
+        if (fee > double_to_uint64_safe(max_fee->valuedouble)) {
             result = -3;
         }
     }

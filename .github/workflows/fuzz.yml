@@ -21,10 +21,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/checkout@v4
+        with:
+          repository: ElementsProject/libwally-core
+          ref: release_1.5.1
+          path: libwally-core
+          submodules: recursive
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libmbedtls-dev pkg-config
+          sudo apt-get install -y clang libmbedtls-dev pkg-config automake libtool
+
+      - name: Build libwally-core
+        run: |
+          cd libwally-core
+          ./tools/autogen.sh
+          ./configure --disable-shared --enable-static
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
 
       - name: Build fuzzers
         run: |
@@ -36,9 +52,9 @@ jobs:
       - name: Run fuzzers (30s each)
         run: |
           cd fuzz/build
-          for fuzzer in fuzz_hex fuzz_protocol fuzz_dkg fuzz_policy fuzz_nostr fuzz_storage_crypto; do
-            corpus=$(echo "$fuzzer" | sed 's/fuzz_//')
+          for fuzzer in fuzz_hex fuzz_protocol fuzz_dkg fuzz_psbt fuzz_policy fuzz_nostr fuzz_storage_crypto; do
             if [ -f "./$fuzzer" ]; then
+              corpus="${fuzzer#fuzz_}"
               echo "Running $fuzzer..."
               timeout 30 ./$fuzzer ../corpus/$corpus -max_total_time=30 || [ $? -eq 124 ]
             fi
@@ -60,14 +76,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fuzzer: [fuzz_hex, fuzz_protocol, fuzz_dkg, fuzz_policy, fuzz_nostr, fuzz_storage_crypto]
+        fuzzer: [fuzz_hex, fuzz_protocol, fuzz_dkg, fuzz_psbt, fuzz_policy, fuzz_nostr, fuzz_storage_crypto]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ElementsProject/libwally-core
+          ref: release_1.5.1
+          path: libwally-core
+          submodules: recursive
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libmbedtls-dev pkg-config
+          sudo apt-get install -y clang libmbedtls-dev pkg-config automake libtool
+
+      - name: Build libwally-core
+        run: |
+          cd libwally-core
+          ./tools/autogen.sh
+          ./configure --disable-shared --enable-static
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
 
       - name: Build fuzzers
         run: |
@@ -79,16 +111,17 @@ jobs:
       - name: Run ${{ matrix.fuzzer }} (5 minutes)
         env:
           DURATION: ${{ github.event.inputs.fuzz_duration || '300' }}
+          FUZZER: ${{ matrix.fuzzer }}
         run: |
           cd fuzz/build
-          CORPUS_DIR=$(echo "${{ matrix.fuzzer }}" | sed 's/fuzz_//')
+          CORPUS_DIR="${FUZZER#fuzz_}"
           if ! [[ "$DURATION" =~ ^[0-9]+$ ]]; then
             DURATION=300
           fi
-          if [ -f ./${{ matrix.fuzzer }} ]; then
-            timeout $((DURATION + 10)) ./${{ matrix.fuzzer }} ../corpus/$CORPUS_DIR -max_total_time=$DURATION || [ $? -eq 124 ]
+          if [ -f "./$FUZZER" ]; then
+            timeout $((DURATION + 10)) ./$FUZZER ../corpus/$CORPUS_DIR -max_total_time=$DURATION || [ $? -eq 124 ]
           else
-            echo "Fuzzer ${{ matrix.fuzzer }} not built, skipping"
+            echo "Fuzzer $FUZZER not built, skipping"
           fi
 
       - name: Upload crash artifacts

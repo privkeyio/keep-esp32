@@ -6,7 +6,6 @@ sdkconfig.old
 *.pyc
 __pycache__/
 .cache/
-.claude/
 
 # Test binaries and build directories
 test_kfp

@@ -1,10 +1,13 @@
-#include "hex_utils.h"
-#include "cJSON.h"
-#include <stdint.h>
 #include <stddef.h>
-#include <string.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
+#include "cJSON.h"
+#include "hex_utils.h"
+
+#define MAX_JSON_LEN     16384
 #define MAX_PARTICIPANTS 16
 #define MAX_RELAYS       4
 #define RELAY_URL_LEN    128
@@ -36,8 +39,7 @@ static int parse_uint8(const char *str, uint8_t *out) {
 }
 
 static void copy_string(char *dst, const char *src, size_t max_len) {
-    strncpy(dst, src, max_len - 1);
-    dst[max_len - 1] = '\0';
+    snprintf(dst, max_len, "%s", src);
 }
 
 static void parse_tags(cJSON *tags, frost_group_t *group) {
@@ -104,7 +106,7 @@ static int parse_frost_group_event(const char *json, frost_group_t *group) {
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (size == 0 || size > 16384) {
+    if (size == 0 || size > MAX_JSON_LEN) {
         return 0;
     }
 

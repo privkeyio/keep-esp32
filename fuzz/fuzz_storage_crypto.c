@@ -1,7 +1,8 @@
-#include <stdint.h>
 #include <stddef.h>
-#include <string.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
 #include <mbedtls/gcm.h>
 #include <mbedtls/hkdf.h>
 #include <mbedtls/md.h>
@@ -80,7 +81,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return 0;
     }
 
-    if (derive_key(plaintext, plaintext_len > 16 ? 16 : plaintext_len) != 0) {
+    size_t seed_len = plaintext_len < 16 ? plaintext_len : 16;
+    if (derive_key(plaintext, seed_len) != 0) {
         return 0;
     }
 

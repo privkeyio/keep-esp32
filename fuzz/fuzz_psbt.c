@@ -1,7 +1,8 @@
-#include <stdint.h>
 #include <stddef.h>
-#include <string.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
 #include <wally_core.h>
 #include <wally_psbt.h>
 
