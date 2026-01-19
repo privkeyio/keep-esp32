@@ -6,11 +6,11 @@
 #include <string.h>
 #include "md.h"
 
-static inline int mbedtls_pkcs5_pbkdf2_hmac(mbedtls_md_context_t *ctx, const uint8_t *password,
-                                            size_t plen, const uint8_t *salt, size_t slen,
-                                            unsigned int iteration_count, uint32_t key_length,
-                                            uint8_t *output) {
-    (void)ctx;
+static inline int mbedtls_pkcs5_pbkdf2_hmac_ext(mbedtls_md_type_t md_type, const uint8_t *password,
+                                                size_t plen, const uint8_t *salt, size_t slen,
+                                                unsigned int iteration_count, uint32_t key_length,
+                                                uint8_t *output) {
+    (void)md_type;
     (void)password;
     (void)plen;
     (void)salt;

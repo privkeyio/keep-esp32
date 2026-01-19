@@ -700,19 +700,10 @@ static const uint8_t EXPORT_HKDF_INFO[] = "share-export-encryption";
 static int derive_export_key(const char *passphrase, size_t pass_len,
                              const uint8_t salt[STORAGE_EXPORT_SALT_LEN], uint8_t key_out[32]) {
     uint8_t stretched_key[32];
-    mbedtls_md_context_t md_ctx;
-    mbedtls_md_init(&md_ctx);
 
-    int ret = mbedtls_md_setup(&md_ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-    if (ret != 0) {
-        mbedtls_md_free(&md_ctx);
-        return -1;
-    }
-
-    ret = mbedtls_pkcs5_pbkdf2_hmac(&md_ctx, (const unsigned char *)passphrase, pass_len, salt,
-                                    STORAGE_EXPORT_SALT_LEN, EXPORT_PBKDF2_ITERATIONS, 32,
-                                    stretched_key);
-    mbedtls_md_free(&md_ctx);
+    int ret = mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, (const unsigned char *)passphrase,
+                                            pass_len, salt, STORAGE_EXPORT_SALT_LEN,
+                                            EXPORT_PBKDF2_ITERATIONS, 32, stretched_key);
     if (ret != 0) {
         secure_memzero(stretched_key, sizeof(stretched_key));
         return -1;
