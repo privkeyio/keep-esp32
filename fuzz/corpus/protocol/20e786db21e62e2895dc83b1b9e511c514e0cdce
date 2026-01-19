@@ -1,1 +1,0 @@
-{"jsonrpc":"2.0","method":"frost_commit","params":{"group":"test-group","se:{"group":"group1","share":"012347890abcdef1234567890abfdce1234567890abcdef"},"id":2}
