@@ -14,6 +14,7 @@
 #include <secp256k1_extrakeys.h>
 #include <mbedtls/sha256.h>
 #include <string.h>
+#include <inttypes.h>
 
 #define TAG            "policy"
 #define PARTITION_NAME "policy"
@@ -403,7 +404,7 @@ secresult_t policy_evaluate_psbt_secure(const char *psbt_base64, uint64_t total_
         psbt_fraud_check_secure(&fraud, allow_high_fee, allow_dust, allow_unknown_scripts,
                                 allow_op_return, allow_no_change, allow_all_external);
     if (!SECRESULT_IS_TRUE(fraud_result)) {
-        ESP_LOGW(TAG, "PSBT fraud check failed: flags=0x%x", fraud.flags);
+        ESP_LOGW(TAG, "PSBT fraud check failed: flags=0x%" PRIx32, fraud.flags);
         secure_memzero(&fraud, sizeof(fraud));
         return fraud_result;
     }
