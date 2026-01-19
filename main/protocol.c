@@ -182,7 +182,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (input_idx && cJSON_IsNumber(input_idx)) {
             if (input_idx->valueint < 0 || input_idx->valueint > INT_MAX - 1) {
                 cJSON_Delete(root);
-                return PROTOCOL_ERR_PARAMS;
+                return ERR_PROTOCOL_PARAMS;
             }
             req->input_idx = (size_t)input_idx->valueint;
         }
