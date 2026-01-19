@@ -17,11 +17,8 @@ static uint8_t fuzz_key[KEY_SIZE];
 static void derive_key(const uint8_t *seed, size_t seed_len) {
     static const uint8_t salt[] = "fuzz-storage-key";
     static const uint8_t info[] = "fuzz-key";
-    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-                 salt, sizeof(salt) - 1,
-                 seed, seed_len,
-                 info, sizeof(info) - 1,
-                 fuzz_key, KEY_SIZE);
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), salt, sizeof(salt) - 1, seed,
+                 seed_len, info, sizeof(info) - 1, fuzz_key, KEY_SIZE);
 }
 
 static int gcm_init(mbedtls_gcm_context *gcm) {
@@ -35,20 +32,21 @@ static int encrypt(const uint8_t *plaintext, size_t len, const uint8_t *aad, siz
     if (gcm_init(&gcm) != 0)
         return -1;
 
-    int ret = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len, nonce, NONCE_SIZE,
-                                        aad, aad_len, plaintext, ciphertext, TAG_SIZE, tag);
+    int ret = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len, nonce, NONCE_SIZE, aad,
+                                        aad_len, plaintext, ciphertext, TAG_SIZE, tag);
     mbedtls_gcm_free(&gcm);
     return ret == 0 ? 0 : -1;
 }
 
 static int decrypt(const uint8_t *ciphertext, size_t len, const uint8_t *aad, size_t aad_len,
-                   const uint8_t nonce[NONCE_SIZE], const uint8_t tag[TAG_SIZE], uint8_t *plaintext) {
+                   const uint8_t nonce[NONCE_SIZE], const uint8_t tag[TAG_SIZE],
+                   uint8_t *plaintext) {
     mbedtls_gcm_context gcm;
     if (gcm_init(&gcm) != 0)
         return -1;
 
-    int ret = mbedtls_gcm_auth_decrypt(&gcm, len, nonce, NONCE_SIZE, aad, aad_len,
-                                       tag, TAG_SIZE, ciphertext, plaintext);
+    int ret = mbedtls_gcm_auth_decrypt(&gcm, len, nonce, NONCE_SIZE, aad, aad_len, tag, TAG_SIZE,
+                                       ciphertext, plaintext);
     mbedtls_gcm_free(&gcm);
     return ret == 0 ? 0 : -1;
 }
