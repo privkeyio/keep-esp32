@@ -1,0 +1,108 @@
+name: Fuzzing
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzz_duration:
+        description: 'Fuzzing duration in seconds'
+        required: false
+        default: '300'
+
+jobs:
+  fuzz-quick:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libmbedtls-dev pkg-config
+
+      - name: Build fuzzers
+        run: |
+          cd fuzz
+          mkdir -p build && cd build
+          CC=clang cmake ..
+          make -j$(nproc)
+
+      - name: Run fuzzers (30s each)
+        run: |
+          cd fuzz/build
+          for fuzzer in fuzz_hex fuzz_protocol fuzz_dkg fuzz_policy fuzz_nostr fuzz_storage_crypto; do
+            corpus=$(echo "$fuzzer" | sed 's/fuzz_//')
+            if [ -f "./$fuzzer" ]; then
+              echo "Running $fuzzer..."
+              timeout 30 ./$fuzzer ../corpus/$corpus -max_total_time=30 || [ $? -eq 124 ]
+            fi
+          done
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-quick
+          path: |
+            fuzz/build/crash-*
+            fuzz/build/leak-*
+            fuzz/build/timeout-*
+
+  fuzz-nightly:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzzer: [fuzz_hex, fuzz_protocol, fuzz_dkg, fuzz_policy, fuzz_nostr, fuzz_storage_crypto]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libmbedtls-dev pkg-config
+
+      - name: Build fuzzers
+        run: |
+          cd fuzz
+          mkdir -p build && cd build
+          CC=clang cmake ..
+          make -j$(nproc)
+
+      - name: Run ${{ matrix.fuzzer }} (5 minutes)
+        env:
+          DURATION: ${{ github.event.inputs.fuzz_duration || '300' }}
+        run: |
+          cd fuzz/build
+          CORPUS_DIR=$(echo "${{ matrix.fuzzer }}" | sed 's/fuzz_//')
+          if ! [[ "$DURATION" =~ ^[0-9]+$ ]]; then
+            DURATION=300
+          fi
+          if [ -f ./${{ matrix.fuzzer }} ]; then
+            timeout $((DURATION + 10)) ./${{ matrix.fuzzer }} ../corpus/$CORPUS_DIR -max_total_time=$DURATION || [ $? -eq 124 ]
+          else
+            echo "Fuzzer ${{ matrix.fuzzer }} not built, skipping"
+          fi
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.fuzzer }}
+          path: |
+            fuzz/build/crash-*
+            fuzz/build/leak-*
+            fuzz/build/timeout-*
+
+      - name: Upload corpus
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-${{ matrix.fuzzer }}
+          path: fuzz/corpus/

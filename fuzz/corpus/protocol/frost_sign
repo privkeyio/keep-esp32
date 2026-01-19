@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"frost_sign","params":{"group":"mygroup","message":"deadbeef","commitments":"abcd1234"},"id":3}
