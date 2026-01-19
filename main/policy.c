@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "policy.h"
+#include "psbt_fraud.h"
 #include "hex_utils.h"
 #include "esp_partition.h"
 #include "esp_log.h"
@@ -379,4 +380,44 @@ secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
 
     cJSON_Delete(rules);
     return result;
+}
+
+secresult_t policy_evaluate_psbt_secure(const char *psbt_base64,
+                                        uint64_t total_in_sats,
+                                        const uint8_t *wallet_fingerprint,
+                                        bool allow_high_fee,
+                                        bool allow_dust,
+                                        bool allow_unknown_scripts,
+                                        bool allow_op_return,
+                                        bool allow_no_change,
+                                        bool allow_all_external) {
+    if (!psbt_base64) {
+        return SECRESULT_ERR_POLICY_DENIED;
+    }
+
+    psbt_fraud_analysis_t fraud;
+    int ret = psbt_fraud_analyze(psbt_base64, total_in_sats, wallet_fingerprint, &fraud);
+    if (ret != 0) {
+        secure_memzero(&fraud, sizeof(fraud));
+        ESP_LOGW(TAG, "PSBT fraud analysis failed: %d", ret);
+        return SECRESULT_ERR_POLICY_DENIED;
+    }
+
+    secresult_t fraud_result = psbt_fraud_check_secure(&fraud, allow_high_fee, allow_dust,
+                                                       allow_unknown_scripts, allow_op_return,
+                                                       allow_no_change, allow_all_external);
+    if (!SECRESULT_IS_TRUE(fraud_result)) {
+        ESP_LOGW(TAG, "PSBT fraud check failed: flags=0x%x", fraud.flags);
+        secure_memzero(&fraud, sizeof(fraud));
+        return fraud_result;
+    }
+
+    secresult_t policy_result = policy_evaluate_secure(fraud.fee.send_amount_sats,
+                                                       fraud.fee.fee_sats);
+    secure_memzero(&fraud, sizeof(fraud));
+    if (!SECRESULT_IS_TRUE(policy_result)) {
+        return policy_result;
+    }
+
+    return SECRESULT_TRUE;
 }

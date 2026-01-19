@@ -115,3 +115,10 @@ if(OpenSSL_FOUND)
     target_compile_definitions(test_hw_entropy_sha256 PRIVATE NATIVE_TEST=1 HAS_OPENSSL=1)
     target_link_libraries(test_hw_entropy_sha256 OpenSSL::Crypto)
 endif()
+
+add_executable(test_psbt_fraud test_psbt_fraud.c)
+target_include_directories(test_psbt_fraud PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+)
+target_compile_definitions(test_psbt_fraud PRIVATE NATIVE_TEST=1)
+
