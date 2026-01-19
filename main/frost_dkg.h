@@ -9,6 +9,7 @@
 
 #define DKG_MAX_PARTICIPANTS 16
 #define DKG_MAX_THRESHOLD    16
+#define DKG_SESSION_ID_LEN   32
 
 typedef enum { DKG_IDLE = 0, DKG_ROUND1, DKG_ROUND2, DKG_COMPLETE } dkg_state_t;
 
@@ -18,5 +19,10 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp);
 void dkg_round2(const rpc_request_t *req, rpc_response_t *resp);
 void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp);
 void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp);
+void dkg_resume(const rpc_request_t *req, rpc_response_t *resp);
+
+int dkg_checkpoint_save(const char *session_id);
+int dkg_checkpoint_clear(const char *session_id);
+dkg_state_t dkg_get_state(void);
 
 #endif

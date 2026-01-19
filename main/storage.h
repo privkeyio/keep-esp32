@@ -122,4 +122,13 @@ int storage_list_session_checkpoints(uint8_t session_ids[][STORAGE_SESSION_ID_LE
 int storage_count_session_checkpoints(void);
 bool storage_has_session_checkpoint(const uint8_t *session_id);
 
+#define STORAGE_CHECKPOINT_MAX_SIZE    24576
+#define STORAGE_ERR_CHECKPOINT_EXISTS  -11
+#define STORAGE_ERR_CHECKPOINT_EXPIRED -12
+
+int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t len);
+int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_len, size_t *out_len);
+int storage_checkpoint_clear(const char *session_id);
+bool storage_checkpoint_exists(const char *session_id);
+
 #endif

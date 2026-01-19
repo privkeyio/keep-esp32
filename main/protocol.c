@@ -62,6 +62,10 @@ static rpc_method_t parse_method(const char *method) {
         return RPC_METHOD_DKG_RECEIVE_SHARE;
     if (strcmp(method, "dkg_finalize") == 0)
         return RPC_METHOD_DKG_FINALIZE;
+    if (strcmp(method, "dkg_resume") == 0)
+        return RPC_METHOD_DKG_RESUME;
+    if (strcmp(method, "dkg_checkpoint") == 0)
+        return RPC_METHOD_DKG_CHECKPOINT;
     if (strcmp(method, "bitcoin_parse") == 0)
         return RPC_METHOD_BITCOIN_PARSE;
     if (strcmp(method, "bitcoin_sign") == 0)

@@ -34,6 +34,8 @@ static uint64_t get_unix_time(void) {
 
 #define TAG "frost_dkg"
 
+#define DKG_CHECKPOINT_VERSION 1
+
 typedef struct {
     dkg_state_t state;
     char group[65];
@@ -47,7 +49,29 @@ typedef struct {
     uint8_t peer_round1_count;
     frost_dkg_share_t received_shares[DKG_MAX_PARTICIPANTS];
     uint8_t received_share_count;
+    char session_id[DKG_SESSION_ID_LEN + 1];
 } dkg_session_t;
+
+typedef struct {
+    uint8_t version;
+    uint8_t state;
+    char group[65];
+    uint8_t threshold;
+    uint8_t participant_count;
+    uint8_t our_index;
+    frost_dkg_round1_t our_round1;
+    uint8_t secret_shares[DKG_MAX_PARTICIPANTS][32];
+    uint8_t secret_share_count;
+    frost_dkg_round1_t peer_round1[DKG_MAX_PARTICIPANTS];
+    uint8_t peer_round1_count;
+    frost_dkg_share_t received_shares[DKG_MAX_PARTICIPANTS];
+    uint8_t received_share_count;
+    char session_id[DKG_SESSION_ID_LEN + 1];
+    uint8_t reserved[32];
+} __attribute__((packed)) dkg_checkpoint_t;
+
+_Static_assert(sizeof(dkg_checkpoint_t) <= STORAGE_CHECKPOINT_MAX_SIZE,
+               "dkg_checkpoint_t exceeds STORAGE_CHECKPOINT_MAX_SIZE");
 
 static dkg_session_t g_session;
 
@@ -454,9 +478,161 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
     g_session.state = DKG_COMPLETE;
     ESP_LOGI(TAG, "DKG state: ROUND2 -> COMPLETE (group=%s)", g_session.group);
 
+    if (g_session.session_id[0] != '\0') {
+        storage_checkpoint_clear(g_session.session_id);
+    }
+
     char result[200];
     snprintf(result, sizeof(result), "{\"ok\":true,\"group_pubkey\":\"%s\",\"our_index\":%d}",
              pubkey_hex, g_session.our_index);
+
+    protocol_success(resp, req->id, result);
+}
+
+dkg_state_t dkg_get_state(void) {
+    return g_session.state;
+}
+
+int dkg_checkpoint_save(const char *session_id) {
+    if (!session_id || strlen(session_id) == 0)
+        return -1;
+    if (strlen(session_id) > DKG_SESSION_ID_LEN)
+        return -1;
+    if (g_session.state != DKG_ROUND1 && g_session.state != DKG_ROUND2)
+        return -2;
+
+    dkg_checkpoint_t cp;
+    memset(&cp, 0, sizeof(cp));
+    cp.version = DKG_CHECKPOINT_VERSION;
+    cp.state = (uint8_t)g_session.state;
+    memcpy(cp.group, g_session.group, sizeof(cp.group));
+    cp.threshold = g_session.threshold;
+    cp.participant_count = g_session.participant_count;
+    cp.our_index = g_session.our_index;
+    memcpy(&cp.our_round1, &g_session.our_round1, sizeof(cp.our_round1));
+    memcpy(cp.secret_shares, g_session.secret_shares, sizeof(cp.secret_shares));
+    cp.secret_share_count = (uint8_t)g_session.secret_share_count;
+    memcpy(cp.peer_round1, g_session.peer_round1, sizeof(cp.peer_round1));
+    cp.peer_round1_count = g_session.peer_round1_count;
+    memcpy(cp.received_shares, g_session.received_shares, sizeof(cp.received_shares));
+    cp.received_share_count = g_session.received_share_count;
+    strncpy(cp.session_id, session_id, DKG_SESSION_ID_LEN);
+    cp.session_id[DKG_SESSION_ID_LEN] = '\0';
+
+    int ret = storage_checkpoint_save(session_id, (const uint8_t *)&cp, sizeof(cp));
+    secure_memzero(&cp, sizeof(cp));
+
+    if (ret == STORAGE_OK) {
+        strncpy(g_session.session_id, session_id, DKG_SESSION_ID_LEN);
+        g_session.session_id[DKG_SESSION_ID_LEN] = '\0';
+        ESP_LOGI(TAG, "Saved DKG checkpoint (state=%s)", dkg_state_name(g_session.state));
+    }
+
+    return ret;
+}
+
+static int dkg_checkpoint_load(const char *session_id, dkg_session_t *session) {
+    if (!session_id || !session)
+        return -1;
+
+    dkg_checkpoint_t cp;
+    size_t loaded_len = 0;
+
+    int ret = storage_checkpoint_load(session_id, (uint8_t *)&cp, sizeof(cp), &loaded_len);
+    if (ret != STORAGE_OK) {
+        secure_memzero(&cp, sizeof(cp));
+        return ret;
+    }
+
+    bool valid_version = (loaded_len == sizeof(cp) && cp.version == DKG_CHECKPOINT_VERSION);
+    bool valid_state = (cp.state == DKG_ROUND1 || cp.state == DKG_ROUND2);
+    if (!valid_version || !valid_state) {
+        secure_memzero(&cp, sizeof(cp));
+        return STORAGE_ERR_INVALID_DATA;
+    }
+
+    bool valid_params =
+        cp.threshold >= 2 && cp.threshold <= DKG_MAX_THRESHOLD &&
+        cp.participant_count >= cp.threshold && cp.participant_count <= DKG_MAX_PARTICIPANTS &&
+        cp.our_index >= 1 && cp.our_index <= cp.participant_count &&
+        cp.peer_round1_count <= DKG_MAX_PARTICIPANTS &&
+        cp.received_share_count <= DKG_MAX_PARTICIPANTS &&
+        cp.secret_share_count <= DKG_MAX_PARTICIPANTS;
+    if (!valid_params) {
+        secure_memzero(&cp, sizeof(cp));
+        return STORAGE_ERR_INVALID_DATA;
+    }
+
+    memset(session, 0, sizeof(*session));
+    session->state = (dkg_state_t)cp.state;
+    memcpy(session->group, cp.group, sizeof(session->group));
+    session->threshold = cp.threshold;
+    session->participant_count = cp.participant_count;
+    session->our_index = cp.our_index;
+    memcpy(&session->our_round1, &cp.our_round1, sizeof(session->our_round1));
+    memcpy(session->secret_shares, cp.secret_shares, sizeof(session->secret_shares));
+    session->secret_share_count = cp.secret_share_count;
+    memcpy(session->peer_round1, cp.peer_round1, sizeof(session->peer_round1));
+    session->peer_round1_count = cp.peer_round1_count;
+    memcpy(session->received_shares, cp.received_shares, sizeof(session->received_shares));
+    session->received_share_count = cp.received_share_count;
+    strncpy(session->session_id, cp.session_id, DKG_SESSION_ID_LEN);
+    session->session_id[DKG_SESSION_ID_LEN] = '\0';
+
+    secure_memzero(&cp, sizeof(cp));
+    return STORAGE_OK;
+}
+
+int dkg_checkpoint_clear(const char *session_id) {
+    return storage_checkpoint_clear(session_id);
+}
+
+void dkg_resume(const rpc_request_t *req, rpc_response_t *resp) {
+    size_t sid_len = strlen(req->session_id);
+    if (sid_len == 0) {
+        PROTOCOL_ERROR(resp, req->id, -1, "session_id required");
+        return;
+    }
+    if (sid_len > DKG_SESSION_ID_LEN) {
+        PROTOCOL_ERROR(resp, req->id, -1, "session_id too long");
+        return;
+    }
+
+    if (g_session.state != DKG_IDLE && g_session.state != DKG_COMPLETE) {
+        PROTOCOL_ERROR(resp, req->id, -1, "DKG session already in progress");
+        return;
+    }
+
+    dkg_session_t loaded;
+    int ret = dkg_checkpoint_load(req->session_id, &loaded);
+    if (ret != STORAGE_OK) {
+        if (ret == STORAGE_ERR_NOT_FOUND) {
+            PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint not found");
+        } else if (ret == STORAGE_ERR_CHECKPOINT_EXPIRED) {
+            PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint expired");
+        } else if (ret == STORAGE_ERR_DECRYPT) {
+            PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint decryption failed");
+        } else {
+            PROTOCOL_ERROR(resp, req->id, -1, "Failed to load checkpoint");
+        }
+        return;
+    }
+
+    clear_sensitive_session_data();
+    memcpy(&g_session, &loaded, sizeof(g_session));
+    secure_memzero(&loaded, sizeof(loaded));
+
+    ESP_LOGI(TAG, "Resumed DKG session (state=%s group=%s)", dkg_state_name(g_session.state),
+             g_session.group);
+
+    char result[256];
+    snprintf(result, sizeof(result),
+             "{\"ok\":true,\"state\":\"%s\",\"group\":\"%s\",\"threshold\":%d,"
+             "\"participant_count\":%d,\"our_index\":%d,\"peer_round1_count\":%d,"
+             "\"received_share_count\":%d}",
+             dkg_state_name(g_session.state), g_session.group, g_session.threshold,
+             g_session.participant_count, g_session.our_index, g_session.peer_round1_count,
+             g_session.received_share_count);
 
     protocol_success(resp, req->id, result);
 }
