@@ -291,7 +291,7 @@ class MockDeviceConnection:
         peer_index = params.get("peer_index", 0)
         dkg_data = params.get("dkg_data", "")
 
-        if session.get("state") not in ("round1", "init"):
+        if session.get("state") not in ("round1",):
             return self._error(rid, -2, "Wrong DKG state")
         if peer_index < 1 or peer_index > session.get("participant_count", 0):
             return self._error(rid, -32602, "Invalid peer_index")
