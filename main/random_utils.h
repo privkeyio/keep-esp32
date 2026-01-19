@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include <nostr.h>
+#include "hw_entropy.h"
 
 typedef struct {
     uint32_t total_calls;
@@ -17,7 +17,7 @@ typedef struct {
 } rng_health_stats_t;
 
 static inline int secure_random_fill(uint8_t *buf, size_t len) {
-    return nostr_random_bytes(buf, len) == 1 ? 0 : -1;
+    return hw_entropy_fill(buf, len);
 }
 
 int rng_init(void);

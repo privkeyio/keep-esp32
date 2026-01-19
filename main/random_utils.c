@@ -32,12 +32,12 @@ int rng_health_check(const uint8_t *buf, size_t len) {
 
     for (size_t i = 0; i < len; i++) {
         uint8_t b = buf[i];
-        if (b == 0x00)
-            zeros++;
-        if (b == 0xFF)
-            ones++;
+        if (b == 0x00) zeros++;
+        if (b == 0xFF) ones++;
         bit_count += __builtin_popcount(b);
-        for (int j = (i == 0 ? 1 : 0); j < 8; j++) {
+
+        int start_bit = (i == 0) ? 1 : 0;
+        for (int j = start_bit; j < 8; j++) {
             uint8_t curr_bit = (b >> j) & 1;
             transitions += curr_bit ^ prev_bit;
             prev_bit = curr_bit;
@@ -91,16 +91,18 @@ int rng_fill_checked(uint8_t *buf, size_t len) {
 }
 
 int rng_init(void) {
+    if (hw_entropy_init() != 0) {
+        RNG_LOG_ERROR("Hardware entropy init failed");
+        return -1;
+    }
+
     uint8_t test_buf[RNG_SELF_TEST_SIZE];
     int pass_count = 0;
 
     for (int i = 0; i < 3; i++) {
-        if (secure_random_fill(test_buf, sizeof(test_buf)) != 0) {
-            continue;
-        }
-        if (rng_health_check(test_buf, sizeof(test_buf)) == 0) {
+        if (secure_random_fill(test_buf, sizeof(test_buf)) == 0 &&
+            rng_health_check(test_buf, sizeof(test_buf)) == 0)
             pass_count++;
-        }
     }
 
     memset(test_buf, 0, sizeof(test_buf));
