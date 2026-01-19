@@ -5,6 +5,7 @@
 #include <wally_transaction.h>
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 static psbt_script_type_t wally_to_script_type(size_t wally_type) {
     switch (wally_type) {
@@ -116,8 +117,9 @@ int psbt_fraud_analyze_fees(const char *base64, uint64_t total_in_sats,
                  (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
     } else if (analysis->fee_percent_x100 > PSBT_FRAUD_FEE_WARN_PERCENT * 100) {
         analysis->fee_warning = true;
-        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg), "Fee is %u.%02u%% of amount",
-                 analysis->fee_percent_x100 / 100, analysis->fee_percent_x100 % 100);
+        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
+                 "Fee is %" PRIu32 ".%02" PRIu32 "%% of amount", analysis->fee_percent_x100 / 100,
+                 analysis->fee_percent_x100 % 100);
     }
 
     wally_psbt_free(psbt);
