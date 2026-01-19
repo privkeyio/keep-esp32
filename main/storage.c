@@ -664,16 +664,8 @@ static bool metadata_slot_is_empty(const metadata_slot_t *slot) {
 }
 
 static bool metadata_slot_is_valid(const metadata_slot_t *slot) {
-    if (metadata_slot_is_empty(slot)) {
-        return false;
-    }
-    if (slot->format_version != STORAGE_FORMAT_V3) {
-        return false;
-    }
-    if (slot->participant_count > STORAGE_MAX_PARTICIPANTS) {
-        return false;
-    }
-    return true;
+    return !metadata_slot_is_empty(slot) && slot->format_version == STORAGE_FORMAT_V3 &&
+           slot->participant_count <= STORAGE_MAX_PARTICIPANTS;
 }
 
 static void null_terminate_metadata_group(metadata_slot_t *slot) {
