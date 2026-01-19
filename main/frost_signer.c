@@ -427,7 +427,8 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
 
     ag_random_delay_us(100, 1000);
 
-    secresult_t post_sign_check = verify_policy_unchanged_secure(policy_snapshot, policy_hash_snapshot);
+    secresult_t post_sign_check =
+        verify_policy_unchanged_secure(policy_snapshot, policy_hash_snapshot);
     secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
     post_sign_check = ag_verify_condition_secure(post_sign_check);
     if (!SECRESULT_IS_TRUE(post_sign_check)) {
