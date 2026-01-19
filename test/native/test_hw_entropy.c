@@ -7,6 +7,10 @@
 #include "hw_entropy.h"
 #include "random_utils.h"
 
+#ifdef HAS_OPENSSL
+#include <openssl/sha.h>
+#endif
+
 #define TEST(name) printf("  TEST: %s\n", name)
 #define PASS()     printf("    PASS\n")
 #define FAIL(msg)                      \
@@ -81,6 +85,65 @@ static int test_rng_init(void) {
     return 0;
 }
 
+static int test_health_stats_counters(void) {
+    TEST("health stats include entropy counters");
+    rng_health_stats_t stats;
+    rng_get_health(&stats);
+    (void)stats.debiasing_failures;
+    (void)stats.adc_quality_warnings;
+    PASS();
+    return 0;
+}
+
+#ifdef HAS_OPENSSL
+static int test_sha256_whitening_mock(void) {
+    TEST("SHA-256 whitening with mock input");
+    uint8_t biased_input[96];
+    memset(biased_input, 0xAA, 32);
+    memset(biased_input + 32, 0x55, 32);
+    memset(biased_input + 64, 0xFF, 32);
+
+    uint8_t hash1[32], hash2[32];
+    SHA256(biased_input, sizeof(biased_input), hash1);
+
+    biased_input[0] ^= 1;
+    SHA256(biased_input, sizeof(biased_input), hash2);
+
+    if (memcmp(hash1, hash2, 32) == 0)
+        FAIL("SHA-256 did not differentiate inputs");
+
+    int ones1 = 0, ones2 = 0;
+    for (int i = 0; i < 32; i++) {
+        ones1 += __builtin_popcount(hash1[i]);
+        ones2 += __builtin_popcount(hash2[i]);
+    }
+    if (ones1 < 64 || ones1 > 192)
+        FAIL("hash1 bit distribution too biased");
+    if (ones2 < 64 || ones2 > 192)
+        FAIL("hash2 bit distribution too biased");
+
+    PASS();
+    return 0;
+}
+
+static int test_sha256_whitening_deterministic(void) {
+    TEST("SHA-256 whitening is deterministic");
+    uint8_t input[96] = {0};
+    for (int i = 0; i < 96; i++)
+        input[i] = (uint8_t)i;
+
+    uint8_t hash1[32], hash2[32];
+    SHA256(input, sizeof(input), hash1);
+    SHA256(input, sizeof(input), hash2);
+
+    if (memcmp(hash1, hash2, 32) != 0)
+        FAIL("same input produced different hashes");
+
+    PASS();
+    return 0;
+}
+#endif
+
 int main(void) {
     printf("Running hw_entropy tests\n");
     int failed = 0;
@@ -90,6 +153,11 @@ int main(void) {
     failed += test_hw_entropy_edge_cases();
     failed += test_secure_random_fill();
     failed += test_rng_init();
+    failed += test_health_stats_counters();
+#ifdef HAS_OPENSSL
+    failed += test_sha256_whitening_mock();
+    failed += test_sha256_whitening_deterministic();
+#endif
     printf("\n%d test(s) failed\n", failed);
     return failed;
 }

@@ -1,6 +1,25 @@
 #include "hw_entropy.h"
 #include <string.h>
 
+static uint32_t g_debiasing_failures = 0;
+static uint32_t g_adc_warnings = 0;
+
+void hw_entropy_add_debiasing_failure(void) {
+    g_debiasing_failures++;
+}
+
+void hw_entropy_add_adc_warning(void) {
+    g_adc_warnings++;
+}
+
+uint32_t hw_entropy_get_debiasing_failures(void) {
+    return g_debiasing_failures;
+}
+
+uint32_t hw_entropy_get_adc_warnings(void) {
+    return g_adc_warnings;
+}
+
 #ifdef ESP_PLATFORM
 #include <mbedtls/sha256.h>
 #include "crypto_asm.h"
@@ -14,8 +33,48 @@ static const char *TAG = "hw_entropy";
 static adc_oneshot_unit_handle_t adc_handle = NULL;
 static const adc_channel_t NOISE_CHANNEL = ADC_CHANNEL_0;
 
+#define ADC_QUALITY_SAMPLES 16
+#define ADC_MIN_VARIANCE    10
+#define ADC_MIN_TRANSITIONS 4
+
+static int check_adc_quality(void) {
+    if (!adc_handle)
+        return -1;
+
+    int samples[ADC_QUALITY_SAMPLES];
+    int64_t sum = 0;
+    int transitions = 0;
+
+    for (int i = 0; i < ADC_QUALITY_SAMPLES; i++) {
+        if (adc_oneshot_read(adc_handle, NOISE_CHANNEL, &samples[i]) != ESP_OK)
+            return -1;
+        sum += samples[i];
+    }
+
+    int mean = (int)(sum / ADC_QUALITY_SAMPLES);
+    int64_t variance_sum = 0;
+    for (int i = 0; i < ADC_QUALITY_SAMPLES; i++) {
+        int diff = samples[i] - mean;
+        variance_sum += (int64_t)diff * diff;
+        if (i > 0 && ((samples[i] & 1) != (samples[i - 1] & 1)))
+            transitions++;
+    }
+    int variance = (int)(variance_sum / ADC_QUALITY_SAMPLES);
+
+    if (variance < ADC_MIN_VARIANCE || transitions < ADC_MIN_TRANSITIONS) {
+        g_adc_warnings++;
+        ESP_LOGW(TAG, "ADC entropy quality low: variance=%d, transitions=%d", variance,
+                 transitions);
+        return -1;
+    }
+    return 0;
+}
+
 static int collect_adc_noise(uint8_t *out, size_t len) {
     if (!adc_handle || len == 0)
+        return -1;
+
+    if (check_adc_quality() != 0)
         return -1;
 
     for (size_t i = 0; i < len; i++) {
@@ -38,8 +97,11 @@ static int collect_adc_noise(uint8_t *out, size_t len) {
 static int get_timing_bit(void) {
     int64_t t1 = esp_timer_get_time();
     volatile uint32_t x = 0;
-    for (int j = 0; j < 10; j++)
+    for (int j = 0; j < 32; j++) {
         x ^= esp_random();
+        x = (x << 5) | (x >> 27);
+        x *= 0x9e3779b9;
+    }
     (void)x;
     int64_t t2 = esp_timer_get_time();
     return (int)((t2 - t1) & 1);
@@ -53,15 +115,17 @@ static void collect_timing_jitter(uint8_t *out, size_t len) {
         for (int bit = 0; bit < 8; bit++) {
             int result = -1;
             int attempts = 0;
-            int b1 = 0;
             while (result < 0) {
-                b1 = get_timing_bit();
+                int b1 = get_timing_bit();
                 int b2 = get_timing_bit();
                 if (b1 != b2) {
                     result = b1;
                 } else if (++attempts >= TIMING_DEBIAS_MAX_ATTEMPTS) {
-                    // Fallback: use last observed bit if debiasing fails
-                    result = b1;
+                    g_debiasing_failures++;
+                    uint32_t r = esp_random();
+                    r ^= esp_random();
+                    r ^= (uint32_t)esp_timer_get_time();
+                    result = (int)(r & 1);
                 }
             }
             byte = (byte << 1) | result;
@@ -71,6 +135,11 @@ static void collect_timing_jitter(uint8_t *out, size_t len) {
 }
 
 int hw_entropy_init(void) {
+    if (adc_handle != NULL) {
+        ESP_LOGW(TAG, "hw_entropy_init called twice, ignoring");
+        return 0;
+    }
+
     adc_oneshot_unit_init_cfg_t init_cfg = {
         .unit_id = ADC_UNIT_1,
     };

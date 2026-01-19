@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "random_utils.h"
+#include "crypto_asm.h"
 #include <string.h>
 
 #define RNG_SELF_TEST_SIZE        64
@@ -107,7 +108,7 @@ int rng_init(void) {
             pass_count++;
     }
 
-    memset(test_buf, 0, sizeof(test_buf));
+    secure_memzero(test_buf, sizeof(test_buf));
 
     if (pass_count < 2) {
         RNG_LOG_ERROR("RNG self-test failed: %d/3 passed", pass_count);
@@ -123,6 +124,8 @@ int rng_init(void) {
 void rng_get_health(rng_health_stats_t *stats) {
     if (stats) {
         *stats = g_rng_stats;
+        stats->debiasing_failures = hw_entropy_get_debiasing_failures();
+        stats->adc_quality_warnings = hw_entropy_get_adc_warnings();
     }
 }
 

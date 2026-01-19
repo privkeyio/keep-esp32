@@ -13,6 +13,8 @@ typedef struct {
     uint32_t total_calls;
     uint32_t failed_checks;
     uint32_t retries;
+    uint32_t debiasing_failures;
+    uint32_t adc_quality_warnings;
     bool healthy;
 } rng_health_stats_t;
 
