@@ -1,0 +1,60 @@
+name: Fuzzing
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ElementsProject/libwally-core
+          ref: release_1.5.1
+          path: libwally-core
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libmbedtls-dev pkg-config automake libtool
+
+      - name: Build libwally-core
+        run: |
+          cd libwally-core
+          ./tools/autogen.sh
+          ./configure --disable-shared --enable-static
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Build fuzzers
+        run: |
+          cd fuzz
+          mkdir -p build && cd build
+          CC=clang cmake ..
+          make -j$(nproc)
+
+      - name: Run fuzzers (30s each)
+        run: |
+          cd fuzz/build
+          for fuzzer in fuzz_hex fuzz_protocol fuzz_dkg fuzz_psbt fuzz_policy fuzz_nostr fuzz_storage_crypto; do
+            if [ -f "./$fuzzer" ]; then
+              corpus="${fuzzer#fuzz_}"
+              echo "Running $fuzzer..."
+              timeout 30 ./$fuzzer ../corpus/$corpus -max_total_time=30 || [ $? -eq 124 ]
+            fi
+          done
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            fuzz/build/crash-*
+            fuzz/build/leak-*
+            fuzz/build/timeout-*
