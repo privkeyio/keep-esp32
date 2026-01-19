@@ -317,6 +317,11 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
         return;
     }
 
+    int cp_ret = session_checkpoint_save(&s->session, s->session.our_nonce, s->group);
+    if (cp_ret != 0) {
+        FROST_LOGW(TAG, "Failed to checkpoint session: %d", cp_ret);
+    }
+
     char commitment_hex[COMMITMENT_HEX_LEN + 1];
     bytes_to_hex(commit_result.commitment, commit_result.commitment_len, commitment_hex,
                  sizeof(commitment_hex));
@@ -429,6 +434,8 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     s->session.sig_share_indices[share_idx] = sign_result.index;
     s->session.sig_share_count++;
 
+    session_checkpoint_clear(session_id);
+
     char sig_share_hex[73];
     bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len, sig_share_hex,
                  sizeof(sig_share_hex));
@@ -536,4 +543,189 @@ void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
     FROST_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
 
     free_session(s);
+}
+
+void frost_export_share(const char *group, rpc_response_t *resp) {
+    const share_store_t *store = share_store_default();
+    frost_state_t state;
+
+    if (share_store_load_frost_state(store, group, &state) != 0) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+        return;
+    }
+
+    char pubkey_hex[67];
+    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
+
+    group_metadata_t metadata;
+    bool has_metadata = storage_load_metadata(group, &metadata) == 0;
+
+    char result[1024];
+    int len;
+
+    if (has_metadata && metadata.has_coordinator) {
+        char coord_hex[65];
+        bytes_to_hex(metadata.coordinator_npub, STORAGE_PUBKEY_LEN, coord_hex, sizeof(coord_hex));
+        len = snprintf(result, sizeof(result),
+                       "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d,"
+                       "\"created_at\":%llu,\"coordinator\":\"%s\"}",
+                       pubkey_hex, state.share_index, state.threshold, state.participants,
+                       (unsigned long long)metadata.created_at, coord_hex);
+    } else if (has_metadata) {
+        len = snprintf(result, sizeof(result),
+                       "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d,"
+                       "\"created_at\":%llu}",
+                       pubkey_hex, state.share_index, state.threshold, state.participants,
+                       (unsigned long long)metadata.created_at);
+    } else {
+        len = snprintf(result, sizeof(result),
+                       "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d}",
+                       pubkey_hex, state.share_index, state.threshold, state.participants);
+    }
+
+    if (len < 0 || (size_t)len >= sizeof(result)) {
+        frost_free(&state);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
+        return;
+    }
+
+    protocol_success(resp, resp->id, result);
+    frost_free(&state);
+}
+
+void frost_session_resume(const char *session_id_hex, rpc_response_t *resp) {
+    uint8_t session_id[SESSION_ID_LEN];
+    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
+        return;
+    }
+
+    if (find_session(session_id) != NULL) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already active");
+        return;
+    }
+
+    if (is_session_consumed(session_id)) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already used");
+        return;
+    }
+
+    session_t restored_session;
+    uint8_t nonce_backup[SIGNATURE_LEN];
+    char restored_group[STORAGE_GROUP_LEN + 1];
+    if (session_checkpoint_load(session_id, &restored_session, nonce_backup, restored_group,
+                                sizeof(restored_group)) != 0) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "No checkpoint found");
+        return;
+    }
+
+    if (restored_group[0] == '\0') {
+        session_destroy(&restored_session);
+        secure_memzero(nonce_backup, sizeof(nonce_backup));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Checkpoint missing group");
+        return;
+    }
+
+    uint32_t now = get_time_ms();
+    uint32_t created = restored_session.created_at;
+    uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
+    uint32_t extended_timeout = SESSION_TIMEOUT_MS * 10;
+
+    if (elapsed > extended_timeout) {
+        session_checkpoint_clear(session_id);
+        session_destroy(&restored_session);
+        secure_memzero(nonce_backup, sizeof(nonce_backup));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Checkpoint expired");
+        return;
+    }
+
+    signing_session_t *s = alloc_session(session_id);
+    if (!s) {
+        session_destroy(&restored_session);
+        secure_memzero(nonce_backup, sizeof(nonce_backup));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "No free session slots");
+        return;
+    }
+
+    const share_store_t *store = share_store_default();
+    if (share_store_load_frost_state(store, restored_group, &s->frost_state) != 0) {
+        free_session(s);
+        session_destroy(&restored_session);
+        secure_memzero(nonce_backup, sizeof(nonce_backup));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found for group");
+        return;
+    }
+
+    strncpy(s->group, restored_group, STORAGE_GROUP_LEN);
+    s->group[STORAGE_GROUP_LEN] = '\0';
+
+    bool has_policy = false;
+    uint8_t policy_hash[32];
+    secresult_t policy_ret = capture_policy_snapshot_secure(&has_policy, policy_hash);
+    if (!SECRESULT_IS_TRUE(policy_ret)) {
+        free_session(s);
+        session_destroy(&restored_session);
+        secure_memzero(nonce_backup, sizeof(nonce_backup));
+        secure_memzero(policy_hash, sizeof(policy_hash));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy verification failed");
+        return;
+    }
+    s->has_policy = has_policy;
+    memcpy(s->policy_hash, policy_hash, 32);
+    secure_memzero(policy_hash, sizeof(policy_hash));
+
+    memcpy(&s->session, &restored_session, sizeof(session_t));
+    memcpy(s->session.our_nonce, nonce_backup, SIGNATURE_LEN);
+    secure_memzero(&restored_session, sizeof(restored_session));
+    secure_memzero(nonce_backup, sizeof(nonce_backup));
+
+    s->session.created_at = now;
+
+    session_checkpoint_clear(session_id);
+
+    char result[256];
+    snprintf(result, sizeof(result),
+             "{\"resumed\":true,\"state\":%d,\"commitment_count\":%d,\"sig_share_count\":%d}",
+             (int)s->session.state, s->session.commitment_count, s->session.sig_share_count);
+    protocol_success(resp, resp->id, result);
+
+    FROST_LOGI(TAG, "Resumed session %.16s...", session_id_hex);
+}
+
+void frost_session_list(rpc_response_t *resp) {
+    uint8_t session_ids[STORAGE_MAX_SESSION_CHECKPOINTS][SESSION_ID_LEN];
+    int count = session_checkpoint_list(session_ids, STORAGE_MAX_SESSION_CHECKPOINTS);
+
+    if (count < 0) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Failed to list checkpoints");
+        return;
+    }
+
+    char result[512];
+    size_t offset = 0;
+    int ret = snprintf(result, sizeof(result), "{\"checkpoints\":[");
+    if (ret < 0 || (size_t)ret >= sizeof(result)) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
+        return;
+    }
+    offset = (size_t)ret;
+
+    for (int i = 0; i < count; i++) {
+        char id_hex[SESSION_ID_HEX_LEN + 1];
+        bytes_to_hex(session_ids[i], SESSION_ID_LEN, id_hex, sizeof(id_hex));
+        ret = snprintf(result + offset, sizeof(result) - offset, "%s\"%s\"", (i > 0) ? "," : "",
+                       id_hex);
+        if (ret < 0 || (size_t)ret >= sizeof(result) - offset) {
+            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
+            return;
+        }
+        offset += (size_t)ret;
+    }
+
+    ret = snprintf(result + offset, sizeof(result) - offset, "],\"count\":%d}", count);
+    if (ret < 0 || (size_t)ret >= sizeof(result) - offset) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
+        return;
+    }
+
+    protocol_success(resp, resp->id, result);
 }

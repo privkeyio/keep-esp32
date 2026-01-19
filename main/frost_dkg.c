@@ -14,10 +14,22 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
+#include <sys/time.h>
 #else
+#include <time.h>
 #define ESP_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGE(tag, fmt, ...) printf("[%s] ERROR: " fmt "\n", tag, ##__VA_ARGS__)
 #endif
+
+static uint64_t get_unix_time(void) {
+#ifdef ESP_PLATFORM
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec;
+#else
+    return (uint64_t)time(NULL);
+#endif
+}
 
 #define TAG "frost_dkg"
 
@@ -412,6 +424,23 @@ void dkg_finalize(const rpc_request_t *req, rpc_response_t *resp) {
         secure_memzero(share_hex, sizeof(share_hex));
         PROTOCOL_ERROR(resp, req->id, -1, "Failed to store share");
         return;
+    }
+
+    group_metadata_t metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    metadata.threshold = g_session.threshold;
+    metadata.participant_count = g_session.participant_count;
+    metadata.our_index = g_session.our_index;
+    metadata.created_at = get_unix_time();
+    memcpy(metadata.group_pubkey, group_pubkey, 33);
+
+    for (uint8_t i = 0; i < g_session.participant_count && i < STORAGE_MAX_PARTICIPANTS; i++) {
+        metadata.participants[i].index = i + 1;
+    }
+
+    int meta_ret = storage_save_metadata(g_session.group, &metadata);
+    if (meta_ret != 0) {
+        ESP_LOGW(TAG, "Failed to save metadata: %d (share saved successfully)", meta_ret);
     }
 
     char pubkey_hex[67];

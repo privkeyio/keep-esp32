@@ -74,6 +74,7 @@ typedef struct {
 int session_init(session_t *s, const sign_request_t *req, uint16_t threshold);
 void session_destroy(session_t *s);
 session_state_t session_state(session_t *s);
+bool session_is_participant(session_t *s, uint16_t share_index);
 secresult_t session_is_participant_secure(session_t *s, uint16_t share_index);
 int session_add_commitment(session_t *s, uint16_t share_index, const uint8_t *commitment,
                            size_t len);
@@ -81,5 +82,27 @@ int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_
                                 size_t len);
 bool session_has_all_commitments(session_t *s);
 bool session_has_all_shares(session_t *s);
+
+#define SESSION_CHECKPOINT_MAGIC   0x53455353
+#define SESSION_CHECKPOINT_VERSION 1
+
+typedef struct {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t flags;
+    uint16_t reserved;
+    session_t session;
+    uint8_t nonce_backup[SIGNATURE_LEN];
+    uint32_t checkpoint_time;
+    char group[65];
+} session_checkpoint_t;
+
+int session_checkpoint_save(const session_t *session, const uint8_t *nonce_backup,
+                            const char *group);
+int session_checkpoint_load(const uint8_t *session_id, session_t *session, uint8_t *nonce_backup,
+                            char *group, size_t group_len);
+int session_checkpoint_clear(const uint8_t *session_id);
+int session_checkpoint_list(uint8_t session_ids[][SESSION_ID_LEN], int max_sessions);
+int session_checkpoint_count(void);
 
 #endif

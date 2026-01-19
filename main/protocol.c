@@ -74,6 +74,12 @@ static rpc_method_t parse_method(const char *method) {
         return RPC_METHOD_GET_STATUS;
     if (strcmp(method, "restart") == 0)
         return RPC_METHOD_RESTART;
+    if (strcmp(method, "export_share") == 0)
+        return RPC_METHOD_EXPORT_SHARE;
+    if (strcmp(method, "frost_session_resume") == 0)
+        return RPC_METHOD_SESSION_RESUME;
+    if (strcmp(method, "frost_session_list") == 0)
+        return RPC_METHOD_SESSION_LIST;
     return RPC_METHOD_UNKNOWN;
 }
 

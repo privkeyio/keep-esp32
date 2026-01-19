@@ -18,5 +18,8 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
 void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index,
                      rpc_response_t *resp);
 void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp);
+void frost_export_share(const char *group, rpc_response_t *resp);
+void frost_session_resume(const char *session_id_hex, rpc_response_t *resp);
+void frost_session_list(rpc_response_t *resp);
 
 #endif

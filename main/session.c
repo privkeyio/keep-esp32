@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "session.h"
+#include "storage.h"
 #include <string.h>
 
 #ifdef ESP_PLATFORM
@@ -79,7 +80,7 @@ session_state_t session_state(session_t *s) {
     return s->state;
 }
 
-static bool session_is_participant(session_t *s, uint16_t share_index) {
+bool session_is_participant(session_t *s, uint16_t share_index) {
     for (int i = 0; i < s->participant_count; i++) {
         if (s->participants[i] == share_index)
             return true;
@@ -167,4 +168,84 @@ bool session_has_all_shares(session_t *s) {
     if (s->participant_count == 0)
         return false;
     return s->sig_share_count >= s->participant_count - 1;
+}
+
+int session_checkpoint_save(const session_t *session, const uint8_t *nonce_backup,
+                            const char *group) {
+    if (!session)
+        return -1;
+
+    session_checkpoint_t checkpoint;
+    memset(&checkpoint, 0, sizeof(checkpoint));
+    checkpoint.magic = SESSION_CHECKPOINT_MAGIC;
+    checkpoint.version = SESSION_CHECKPOINT_VERSION;
+    checkpoint.flags = 0;
+    memcpy(&checkpoint.session, session, sizeof(session_t));
+    if (nonce_backup) {
+        memcpy(checkpoint.nonce_backup, nonce_backup, SIGNATURE_LEN);
+        checkpoint.flags |= 0x01;
+    }
+    if (group) {
+        strncpy(checkpoint.group, group, sizeof(checkpoint.group) - 1);
+        checkpoint.group[sizeof(checkpoint.group) - 1] = '\0';
+        checkpoint.flags |= 0x02;
+    }
+    checkpoint.checkpoint_time = now_ms();
+
+    int ret = storage_save_session_checkpoint(session->session_id, &checkpoint, sizeof(checkpoint));
+    secure_zero(&checkpoint, sizeof(checkpoint));
+    return ret;
+}
+
+int session_checkpoint_load(const uint8_t *session_id, session_t *session, uint8_t *nonce_backup,
+                            char *group, size_t group_len) {
+    if (!session_id || !session)
+        return -1;
+
+    session_checkpoint_t checkpoint;
+    int ret = storage_load_session_checkpoint(session_id, &checkpoint, sizeof(checkpoint));
+    if (ret != 0) {
+        secure_zero(&checkpoint, sizeof(checkpoint));
+        return ret;
+    }
+
+    if (checkpoint.magic != SESSION_CHECKPOINT_MAGIC ||
+        checkpoint.version != SESSION_CHECKPOINT_VERSION) {
+        secure_zero(&checkpoint, sizeof(checkpoint));
+        return -2;
+    }
+
+    memcpy(session, &checkpoint.session, sizeof(session_t));
+    if (nonce_backup) {
+        if (checkpoint.flags & 0x01) {
+            memcpy(nonce_backup, checkpoint.nonce_backup, SIGNATURE_LEN);
+        } else {
+            secure_zero(nonce_backup, SIGNATURE_LEN);
+        }
+    }
+    if (group && group_len > 0) {
+        if (checkpoint.flags & 0x02) {
+            strncpy(group, checkpoint.group, group_len - 1);
+            group[group_len - 1] = '\0';
+        } else {
+            group[0] = '\0';
+        }
+    }
+
+    secure_zero(&checkpoint, sizeof(checkpoint));
+    return 0;
+}
+
+int session_checkpoint_clear(const uint8_t *session_id) {
+    if (!session_id)
+        return -1;
+    return storage_delete_session_checkpoint(session_id);
+}
+
+int session_checkpoint_list(uint8_t session_ids[][SESSION_ID_LEN], int max_sessions) {
+    return storage_list_session_checkpoints(session_ids, max_sessions);
+}
+
+int session_checkpoint_count(void) {
+    return storage_count_session_checkpoints();
 }
