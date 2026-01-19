@@ -82,7 +82,7 @@ target_include_directories(test_integration PRIVATE
 target_compile_definitions(test_integration PRIVATE NATIVE_TEST=1)
 
 if(EXISTS ${CJSON_DIR}/cJSON.c)
-    add_executable(test_integration_full test_integration.c ${CJSON_DIR}/cJSON.c)
+    add_executable(test_integration_full test_integration.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/error_codes.c)
     target_include_directories(test_integration_full PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${MAIN_DIR}
