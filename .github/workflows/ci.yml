@@ -64,6 +64,7 @@ jobs:
           repository: ElementsProject/libwally-core
           ref: release_1.5.1
           path: libwally-core
+          submodules: recursive
 
       - name: Build secp256k1-frost
         run: |
