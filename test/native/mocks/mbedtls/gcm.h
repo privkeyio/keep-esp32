@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define MBEDTLS_GCM_ENCRYPT 1
+#define MBEDTLS_GCM_ENCRYPT   1
 #define MBEDTLS_CIPHER_ID_AES 0
 
 typedef struct {
