@@ -148,7 +148,7 @@ behavior rather than certification compliance.
 
 ## Reporting Vulnerabilities
 
-Report security issues to security@privkey.io with:
+Report security issues to <security@privkey.io> with:
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact assessment
