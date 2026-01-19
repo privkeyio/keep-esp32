@@ -264,7 +264,7 @@ static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
         const unsigned char *value = keypaths->items[i].value;
         size_t value_len = keypaths->items[i].value_len;
 
-        if (value_len >= PSBT_FRAUD_FINGERPRINT_LEN) {
+        if (value && value_len >= PSBT_FRAUD_FINGERPRINT_LEN) {
             memcpy(fingerprint, value, PSBT_FRAUD_FINGERPRINT_LEN);
 
             if (path && path_len) {
