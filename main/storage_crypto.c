@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "storage_crypto.h"
 #include "random_utils.h"
 #include "crypto_asm.h"

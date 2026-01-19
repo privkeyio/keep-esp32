@@ -1,36 +1,16 @@
-/**
- * @file storage.h
- * @brief Persistent storage for FROST key shares.
- *
- * Uses ESP32 NVS. Shares stored as hex strings.
- *
- * @warning Shares contain secret material. Enable NVS encryption in production.
- */
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #ifndef STORAGE_H
 #define STORAGE_H
 
 #include <stddef.h>
 #include <stdbool.h>
+#include "error_codes.h"
 
-#define STORAGE_MAX_SHARES 8   /**< Max stored shares */
-#define STORAGE_GROUP_LEN  64  /**< Max group ID length */
-#define STORAGE_SHARE_LEN  256 /**< Max share hex length */
-
-/** @name Storage Error Codes */
-/** @{ */
-#define STORAGE_OK                  0
-#define STORAGE_ERR_NOT_INIT        -1
-#define STORAGE_ERR_CRYPTO_NOT_INIT -2
-#define STORAGE_ERR_INVALID_GROUP   -3
-#define STORAGE_ERR_INVALID_DATA    -4
-#define STORAGE_ERR_NO_SLOT         -5
-#define STORAGE_ERR_IO              -6
-#define STORAGE_ERR_NOT_FOUND       -7
-#define STORAGE_ERR_DECRYPT         -8
-#define STORAGE_ERR_MIGRATION       -9
-#define STORAGE_ERR_ENCRYPT         -10
-/** @} */
+#define STORAGE_MAX_SHARES 8
+#define STORAGE_GROUP_LEN  64
+#define STORAGE_SHARE_LEN  256
 
 #define STORAGE_FORMAT_V1      1
 #define STORAGE_FORMAT_V2      2

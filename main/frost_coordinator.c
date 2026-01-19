@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "frost_coordinator.h"
 #include "nostr_frost.h"
 #include "crypto_asm.h"

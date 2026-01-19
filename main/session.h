@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef SESSION_H
 #define SESSION_H
 
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "error_codes.h"
 #include "secresult.h"
 
 #define SESSION_TIMEOUT_MS  30000
@@ -18,11 +22,6 @@
 #define SIG_SHARE_LEN      36
 #define SIGNATURE_LEN      64
 #define SCALAR_LEN         32
-
-#define SESSION_ERR_INVALID_STATE   -1
-#define SESSION_ERR_NOT_PARTICIPANT -2
-#define SESSION_ERR_INVALID_LEN     -3
-#define SESSION_ERR_DUPLICATE       -4
 
 typedef struct {
     uint8_t session_id[SESSION_ID_LEN];

@@ -1,10 +1,5 @@
-/**
- * @file test_frost_signer_core.c
- * @brief Unit tests for pure FROST signing core functions.
- *
- * Tests Layer 1 parsing and validation functions that have no crypto dependencies.
- * Links against the production frost_signer_core.c implementation.
- */
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include <stdio.h>
 #include <string.h>

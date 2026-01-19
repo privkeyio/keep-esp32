@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #include "sdkconfig.h"
 
 #if defined(CONFIG_SE_MOCK_MODE) && defined(CONFIG_PRODUCTION_BUILD)

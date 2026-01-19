@@ -1,10 +1,5 @@
-/**
- * @file frost_signer.c
- * @brief JSON-RPC protocol adapter for FROST signing.
- *
- * Layer 3: Protocol adapter that uses the core signing logic and storage adapter.
- * Handles session management, policy verification, and JSON-RPC formatting.
- */
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "frost_signer.h"
 #include "frost_signer_core.h"

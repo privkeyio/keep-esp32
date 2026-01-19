@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef STORAGE_CRYPTO_H
 #define STORAGE_CRYPTO_H
 

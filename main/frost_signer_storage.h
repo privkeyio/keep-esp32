@@ -1,10 +1,5 @@
-/**
- * @file frost_signer_storage.h
- * @brief Storage adapter for FROST signing.
- *
- * Layer 2: Storage abstraction with function pointers for mockability.
- * Provides a clean interface between pure signing logic and storage backend.
- */
+// SPDX-FileCopyrightText: © 2026 PrivKey LLC
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #ifndef FROST_SIGNER_STORAGE_H
 #define FROST_SIGNER_STORAGE_H

@@ -1,0 +1,166 @@
+version = 1
+SPDX-PackageName = "keep-esp32"
+SPDX-PackageSupplier = "PrivKey LLC"
+SPDX-PackageDownloadLocation = "https://github.com/privkeyio/keep-esp32"
+
+[[annotations]]
+path = "**.md"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.yml"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.yaml"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.csv"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ".gitignore"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "CMakeLists.txt"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**/CMakeLists.txt"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "Doxyfile"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "sdkconfig.defaults"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.projbuild"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ".github/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "scripts/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "docs/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.S"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.sh"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ".clang-format"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**/Kconfig"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "fuzz/corpus/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "test/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "fuzz/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "components/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.c"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.h"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.txt"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.html"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
