@@ -29,6 +29,8 @@ ESP32-S3 FROST threshold signing device security documentation.
 
 - Shares encrypted with AES-256-GCM before flash storage
 - Key derived via HKDF-SHA256 from eFuse MAC + optional PIN
+- **PIN limitation:** PIN adds entropy but does not protect against offline brute-force
+  if flash is extracted (no hardware-enforced rate limiting)
 - Each slot uses unique 12-byte random nonce
 - 16-byte GCM tag detects tampering
 - Storage V2 binds group name as AAD
@@ -124,6 +126,20 @@ behavior rather than certification compliance.
 - Rate limiting: 1s delay after 5 consecutive errors
 - No shell access, no firmware update over serial
 
+### Session Security
+
+- Session ID: 32 bytes from hardware RNG
+- Session timeout: 30 seconds (prevents stale accumulation)
+- Constant-time session lookup (prevents timing attacks)
+- Maximum 4 concurrent sessions (bounded resource usage)
+- Consumed session ring buffer prevents replay
+
+### Nostr Event Security
+
+- NIP-44 encryption for share transport
+- Event kind separation (DKG vs signing)
+- Relay trust model: relays see encrypted blobs only
+
 ### Input Validation
 
 - Group names: alphanumeric, underscore, hyphen only
@@ -138,12 +154,48 @@ behavior rather than certification compliance.
 - Migration markers for crash recovery
 - Corrupt slot detection and clearing
 
+## Cryptographic Inventory
+
+| Operation | Library | Purpose |
+|-----------|---------|---------|
+| FROST signing | secp256k1-frost | Threshold Schnorr signatures |
+| AES-256-GCM | mbedtls | Share encryption at rest |
+| HKDF-SHA256 | mbedtls | Storage key derivation |
+| SHA256 | mbedtls | Message hashing |
+| Schnorr verify | secp256k1 | Policy signature verification |
+| NIP-44 | noscrypt | Nostr event encryption |
+
+## Self-Test Framework
+
+At boot, the following self-tests run before the device accepts commands:
+
+- **RNG self-test**: 3 rounds, requires 2/3 pass (device restarts on failure)
+- **Storage init**: Verifies partition access
+- **Crypto init**: Derives storage key from device ID
+
+Failure modes:
+- RNG failure: Device restarts automatically
+- Storage failure: Continues with warning (storage ops unavailable)
+- Crypto init failure: Share operations unavailable
+
+## Security Checklist for Contributors
+
+Before submitting PRs that touch security-sensitive code:
+
+- [ ] No new uses of `atoi()`, `sprintf()`, or unbounded string ops
+- [ ] All new buffers have explicit size limits
+- [ ] Secrets are zeroized after use (`secure_memzero`)
+- [ ] New RPC methods validate all parameters
+- [ ] No timing side channels in security-critical comparisons
+- [ ] Error messages do not leak sensitive information
+
 ## Known Limitations
 
 - No secure boot (not tamper-evident)
 - No flash encryption at rest (relies on AES-256-GCM layer)
 - MAC address readable, used in key derivation
-- PIN not rate-limited at hardware level
+- PIN not rate-limited at hardware level; a weak or short PIN provides no meaningful
+  protection against offline brute-force when flash can be extracted
 - Single-threaded, no concurrent request handling
 
 ## Reporting Vulnerabilities
