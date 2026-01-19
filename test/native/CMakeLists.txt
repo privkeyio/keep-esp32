@@ -122,3 +122,22 @@ target_include_directories(test_psbt_fraud PRIVATE
 )
 target_compile_definitions(test_psbt_fraud PRIVATE NATIVE_TEST=1)
 
+set(WALLY_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../libwally-core)
+if(EXISTS ${WALLY_DIR}/include/wally_psbt.h)
+    add_executable(test_psbt_fraud_integration test_psbt_fraud_integration.c ${MAIN_DIR}/psbt_fraud.c)
+    target_include_directories(test_psbt_fraud_integration PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${MAIN_DIR}
+        ${WALLY_DIR}/include
+    )
+    target_link_directories(test_psbt_fraud_integration PRIVATE ${WALLY_DIR}/src/.libs)
+    target_link_libraries(test_psbt_fraud_integration wallycore)
+    set_target_properties(test_psbt_fraud_integration PROPERTIES
+        BUILD_RPATH ${WALLY_DIR}/src/.libs
+        INSTALL_RPATH ${WALLY_DIR}/src/.libs
+    )
+    target_compile_definitions(test_psbt_fraud_integration PRIVATE NATIVE_TEST=1)
+else()
+    message(STATUS "Skipping test_psbt_fraud_integration (libwally-core not found)")
+endif()
+
