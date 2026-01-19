@@ -45,16 +45,24 @@ static int get_timing_bit(void) {
     return (int)((t2 - t1) & 1);
 }
 
+#define TIMING_DEBIAS_MAX_ATTEMPTS 100
+
 static void collect_timing_jitter(uint8_t *out, size_t len) {
     for (size_t i = 0; i < len; i++) {
         uint8_t byte = 0;
         for (int bit = 0; bit < 8; bit++) {
             int result = -1;
+            int attempts = 0;
+            int b1 = 0;
             while (result < 0) {
-                int b1 = get_timing_bit();
+                b1 = get_timing_bit();
                 int b2 = get_timing_bit();
-                if (b1 != b2)
+                if (b1 != b2) {
                     result = b1;
+                } else if (++attempts >= TIMING_DEBIAS_MAX_ATTEMPTS) {
+                    // Fallback: use last observed bit if debiasing fails
+                    result = b1;
+                }
             }
             byte = (byte << 1) | result;
         }
