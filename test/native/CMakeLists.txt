@@ -90,3 +90,10 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
     )
     target_compile_definitions(test_integration_full PRIVATE NATIVE_TEST=1 HAS_CJSON=1)
 endif()
+
+add_executable(test_self_test test_self_test.c)
+target_include_directories(test_self_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
+target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1)

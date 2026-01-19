@@ -20,6 +20,7 @@
 #include "random_utils.h"
 #include "hex_utils.h"
 #include "ux_interface.h"
+#include "self_test.h"
 
 #define TAG                  "main"
 #define VERSION              "0.1.2"
@@ -39,12 +40,17 @@ static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
 static void handle_get_status(const rpc_request_t *req, rpc_response_t *resp) {
     rng_health_stats_t rng_stats;
     rng_get_health(&rng_stats);
-    char result[256];
+    self_test_stats_t st_stats;
+    self_test_get_stats(&st_stats);
+    char result[384];
     snprintf(result, sizeof(result),
              "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_total_calls\":%lu,\"rng_failed_checks\":"
-             "%lu,\"rng_retries\":%lu}",
+             "%lu,\"rng_retries\":%lu,\"self_test_passed\":%lu,\"self_test_failed\":%lu,"
+             "\"self_test_ok\":%s}",
              VERSION, rng_stats.healthy ? "true" : "false", (unsigned long)rng_stats.total_calls,
-             (unsigned long)rng_stats.failed_checks, (unsigned long)rng_stats.retries);
+             (unsigned long)rng_stats.failed_checks, (unsigned long)rng_stats.retries,
+             (unsigned long)st_stats.passed, (unsigned long)st_stats.failed,
+             st_stats.all_required_passed ? "true" : "false");
     protocol_success(resp, req->id, result);
 }
 
@@ -293,6 +299,11 @@ void app_main(void) {
             ESP_LOGW(TAG, "Storage migration failed: %d (continuing with existing data)",
                      migrate_ret);
         }
+    }
+
+    if (self_test_run_all() != 0) {
+        ESP_LOGE(TAG, "Critical self-test failed, restarting");
+        esp_restart();
     }
 
     if (policy_init() != 0) {
