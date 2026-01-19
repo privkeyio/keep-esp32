@@ -8,25 +8,39 @@
 
 static psbt_script_type_t wally_to_script_type(size_t wally_type) {
     switch (wally_type) {
-        case WALLY_SCRIPT_TYPE_P2PKH:  return SCRIPT_TYPE_P2PKH;
-        case WALLY_SCRIPT_TYPE_P2SH:   return SCRIPT_TYPE_P2SH;
-        case WALLY_SCRIPT_TYPE_P2WPKH: return SCRIPT_TYPE_P2WPKH;
-        case WALLY_SCRIPT_TYPE_P2WSH:  return SCRIPT_TYPE_P2WSH;
-        case WALLY_SCRIPT_TYPE_P2TR:   return SCRIPT_TYPE_P2TR;
-        case WALLY_SCRIPT_TYPE_OP_RETURN: return SCRIPT_TYPE_OP_RETURN;
-        default: return SCRIPT_TYPE_UNKNOWN;
+    case WALLY_SCRIPT_TYPE_P2PKH:
+        return SCRIPT_TYPE_P2PKH;
+    case WALLY_SCRIPT_TYPE_P2SH:
+        return SCRIPT_TYPE_P2SH;
+    case WALLY_SCRIPT_TYPE_P2WPKH:
+        return SCRIPT_TYPE_P2WPKH;
+    case WALLY_SCRIPT_TYPE_P2WSH:
+        return SCRIPT_TYPE_P2WSH;
+    case WALLY_SCRIPT_TYPE_P2TR:
+        return SCRIPT_TYPE_P2TR;
+    case WALLY_SCRIPT_TYPE_OP_RETURN:
+        return SCRIPT_TYPE_OP_RETURN;
+    default:
+        return SCRIPT_TYPE_UNKNOWN;
     }
 }
 
 const char *psbt_fraud_script_type_name(psbt_script_type_t type) {
     switch (type) {
-        case SCRIPT_TYPE_P2PKH:     return "P2PKH";
-        case SCRIPT_TYPE_P2SH:      return "P2SH";
-        case SCRIPT_TYPE_P2WPKH:    return "P2WPKH";
-        case SCRIPT_TYPE_P2WSH:     return "P2WSH";
-        case SCRIPT_TYPE_P2TR:      return "P2TR";
-        case SCRIPT_TYPE_OP_RETURN: return "OP_RETURN";
-        default:                    return "UNKNOWN";
+    case SCRIPT_TYPE_P2PKH:
+        return "P2PKH";
+    case SCRIPT_TYPE_P2SH:
+        return "P2SH";
+    case SCRIPT_TYPE_P2WPKH:
+        return "P2WPKH";
+    case SCRIPT_TYPE_P2WSH:
+        return "P2WSH";
+    case SCRIPT_TYPE_P2TR:
+        return "P2TR";
+    case SCRIPT_TYPE_OP_RETURN:
+        return "OP_RETURN";
+    default:
+        return "UNKNOWN";
     }
 }
 
@@ -55,8 +69,7 @@ static int get_output_script(const struct wally_psbt *psbt, size_t idx,
     return -1;
 }
 
-int psbt_fraud_analyze_fees(const char *base64,
-                            uint64_t total_in_sats,
+int psbt_fraud_analyze_fees(const char *base64, uint64_t total_in_sats,
                             psbt_fee_analysis_t *analysis) {
     if (!base64 || !analysis) {
         return PSBT_FRAUD_ERR_PARAMS;
@@ -89,32 +102,29 @@ int psbt_fraud_analyze_fees(const char *base64,
 
     if (analysis->send_amount_sats > 0) {
         if (analysis->fee_sats <= UINT64_MAX / 10000) {
-            analysis->fee_percent_x100 = (uint32_t)((analysis->fee_sats * 10000) /
-                                                     analysis->send_amount_sats);
+            analysis->fee_percent_x100 =
+                (uint32_t)((analysis->fee_sats * 10000) / analysis->send_amount_sats);
         } else {
-            analysis->fee_percent_x100 = (uint32_t)((analysis->fee_sats /
-                                                     analysis->send_amount_sats) * 10000);
+            analysis->fee_percent_x100 =
+                (uint32_t)((analysis->fee_sats / analysis->send_amount_sats) * 10000);
         }
     }
 
     if (analysis->fee_sats > PSBT_FRAUD_FEE_WARN_ABS_SATS) {
         analysis->fee_warning = true;
-        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
-                 "Fee exceeds %llu sats", (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
+        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg), "Fee exceeds %llu sats",
+                 (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
     } else if (analysis->fee_percent_x100 > PSBT_FRAUD_FEE_WARN_PERCENT * 100) {
         analysis->fee_warning = true;
-        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
-                 "Fee is %u.%02u%% of amount",
-                 analysis->fee_percent_x100 / 100,
-                 analysis->fee_percent_x100 % 100);
+        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg), "Fee is %u.%02u%% of amount",
+                 analysis->fee_percent_x100 / 100, analysis->fee_percent_x100 % 100);
     }
 
     wally_psbt_free(psbt);
     return 0;
 }
 
-int psbt_fraud_check_dust(const char *base64,
-                          psbt_dust_analysis_t *analysis) {
+int psbt_fraud_check_dust(const char *base64, psbt_dust_analysis_t *analysis) {
     if (!base64 || !analysis) {
         return PSBT_FRAUD_ERR_PARAMS;
     }
@@ -158,8 +168,7 @@ int psbt_fraud_check_dust(const char *base64,
     return 0;
 }
 
-int psbt_fraud_analyze_scripts(const char *base64,
-                               psbt_script_analysis_t *analysis) {
+int psbt_fraud_analyze_scripts(const char *base64, psbt_script_analysis_t *analysis) {
     if (!base64 || !analysis) {
         return PSBT_FRAUD_ERR_PARAMS;
     }
@@ -171,8 +180,7 @@ int psbt_fraud_analyze_scripts(const char *base64,
         return PSBT_FRAUD_ERR_PARSE;
     }
 
-    if (psbt->num_inputs > PSBT_FRAUD_MAX_INPUTS ||
-        psbt->num_outputs > PSBT_FRAUD_MAX_OUTPUTS) {
+    if (psbt->num_inputs > PSBT_FRAUD_MAX_INPUTS || psbt->num_outputs > PSBT_FRAUD_MAX_OUTPUTS) {
         wally_psbt_free(psbt);
         return PSBT_FRAUD_ERR_TOO_MANY_IO;
     }
@@ -247,7 +255,8 @@ static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
             if (path && path_len) {
                 size_t remaining = value_len - PSBT_FRAUD_FINGERPRINT_LEN;
                 size_t num_elements = remaining / sizeof(uint32_t);
-                if (num_elements > 5) num_elements = 5;
+                if (num_elements > 5)
+                    num_elements = 5;
 
                 for (size_t j = 0; j < num_elements; j++) {
                     memcpy(&path[j], value + PSBT_FRAUD_FINGERPRINT_LEN + (j * sizeof(uint32_t)),
@@ -261,8 +270,7 @@ static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
     return false;
 }
 
-int psbt_fraud_analyze_change(const char *base64,
-                              const uint8_t *wallet_fingerprint,
+int psbt_fraud_analyze_change(const char *base64, const uint8_t *wallet_fingerprint,
                               psbt_change_analysis_t *analysis) {
     if (!base64 || !analysis) {
         return PSBT_FRAUD_ERR_PARAMS;
@@ -297,8 +305,8 @@ int psbt_fraud_analyze_change(const char *base64,
         struct wally_psbt_output *psbt_out = &psbt->outputs[i];
 
         uint8_t fp[PSBT_FRAUD_FINGERPRINT_LEN];
-        bool found = extract_keypath_fingerprint(&psbt_out->keypaths, fp,
-                                                 out->derivation_path, &out->derivation_len) ||
+        bool found = extract_keypath_fingerprint(&psbt_out->keypaths, fp, out->derivation_path,
+                                                 &out->derivation_len) ||
                      extract_keypath_fingerprint(&psbt_out->taproot_leaf_paths, fp,
                                                  out->derivation_path, &out->derivation_len);
 
@@ -322,10 +330,8 @@ int psbt_fraud_analyze_change(const char *base64,
     return 0;
 }
 
-int psbt_fraud_analyze(const char *base64,
-                       uint64_t total_in_sats,
-                       const uint8_t *wallet_fingerprint,
-                       psbt_fraud_analysis_t *analysis) {
+int psbt_fraud_analyze(const char *base64, uint64_t total_in_sats,
+                       const uint8_t *wallet_fingerprint, psbt_fraud_analysis_t *analysis) {
     if (!base64 || !analysis) {
         return PSBT_FRAUD_ERR_PARAMS;
     }
@@ -333,16 +339,20 @@ int psbt_fraud_analyze(const char *base64,
     memset(analysis, 0, sizeof(*analysis));
 
     int ret = psbt_fraud_analyze_fees(base64, total_in_sats, &analysis->fee);
-    if (ret != 0) return ret;
+    if (ret != 0)
+        return ret;
 
     ret = psbt_fraud_check_dust(base64, &analysis->dust);
-    if (ret != 0) return ret;
+    if (ret != 0)
+        return ret;
 
     ret = psbt_fraud_analyze_scripts(base64, &analysis->scripts);
-    if (ret != 0) return ret;
+    if (ret != 0)
+        return ret;
 
     ret = psbt_fraud_analyze_change(base64, wallet_fingerprint, &analysis->change);
-    if (ret != 0) return ret;
+    if (ret != 0)
+        return ret;
 
     if (analysis->fee.fee_warning) {
         analysis->flags |= PSBT_FRAUD_FLAG_HIGH_FEE;
@@ -385,12 +395,9 @@ int psbt_fraud_analyze(const char *base64,
     return 0;
 }
 
-secresult_t psbt_fraud_check_secure(const psbt_fraud_analysis_t *analysis,
-                                    bool allow_high_fee,
-                                    bool allow_dust,
-                                    bool allow_unknown_scripts,
-                                    bool allow_op_return,
-                                    bool allow_no_change,
+secresult_t psbt_fraud_check_secure(const psbt_fraud_analysis_t *analysis, bool allow_high_fee,
+                                    bool allow_dust, bool allow_unknown_scripts,
+                                    bool allow_op_return, bool allow_no_change,
                                     bool allow_all_external) {
     if (!analysis) {
         return SECRESULT_ERR_POLICY_DENIED;

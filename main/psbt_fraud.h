@@ -6,21 +6,21 @@
 #include <stdbool.h>
 #include "secresult.h"
 
-#define PSBT_FRAUD_MAX_OUTPUTS       16
-#define PSBT_FRAUD_MAX_INPUTS        16
-#define PSBT_FRAUD_WARNING_MSG_LEN   64
-#define PSBT_FRAUD_DERIVATION_LEN    20
-#define PSBT_FRAUD_FINGERPRINT_LEN   4
+#define PSBT_FRAUD_MAX_OUTPUTS     16
+#define PSBT_FRAUD_MAX_INPUTS      16
+#define PSBT_FRAUD_WARNING_MSG_LEN 64
+#define PSBT_FRAUD_DERIVATION_LEN  20
+#define PSBT_FRAUD_FINGERPRINT_LEN 4
 
 #define PSBT_FRAUD_FEE_WARN_PERCENT  10
 #define PSBT_FRAUD_FEE_WARN_ABS_SATS 100000
 #define PSBT_FRAUD_DUST_LIMIT_SATS   546
 
-#define PSBT_FRAUD_ERR_PARSE         -1
-#define PSBT_FRAUD_ERR_PARAMS        -2
-#define PSBT_FRAUD_ERR_TOO_MANY_IO   -3
-#define PSBT_FRAUD_ERR_OVERFLOW      -4
-#define PSBT_FRAUD_ERR_INVALID_FEE   -5
+#define PSBT_FRAUD_ERR_PARSE       -1
+#define PSBT_FRAUD_ERR_PARAMS      -2
+#define PSBT_FRAUD_ERR_TOO_MANY_IO -3
+#define PSBT_FRAUD_ERR_OVERFLOW    -4
+#define PSBT_FRAUD_ERR_INVALID_FEE -5
 
 typedef enum {
     SCRIPT_TYPE_UNKNOWN = 0,
@@ -75,13 +75,13 @@ typedef struct {
 } psbt_change_analysis_t;
 
 typedef enum {
-    PSBT_FRAUD_FLAG_NONE          = 0,
-    PSBT_FRAUD_FLAG_HIGH_FEE      = (1 << 0),
-    PSBT_FRAUD_FLAG_DUST_OUTPUT   = (1 << 1),
-    PSBT_FRAUD_FLAG_UNKNOWN_SCRIPT= (1 << 2),
-    PSBT_FRAUD_FLAG_NO_CHANGE     = (1 << 3),
-    PSBT_FRAUD_FLAG_OP_RETURN     = (1 << 4),
-    PSBT_FRAUD_FLAG_ALL_EXTERNAL  = (1 << 5)
+    PSBT_FRAUD_FLAG_NONE = 0,
+    PSBT_FRAUD_FLAG_HIGH_FEE = (1 << 0),
+    PSBT_FRAUD_FLAG_DUST_OUTPUT = (1 << 1),
+    PSBT_FRAUD_FLAG_UNKNOWN_SCRIPT = (1 << 2),
+    PSBT_FRAUD_FLAG_NO_CHANGE = (1 << 3),
+    PSBT_FRAUD_FLAG_OP_RETURN = (1 << 4),
+    PSBT_FRAUD_FLAG_ALL_EXTERNAL = (1 << 5)
 } psbt_fraud_flags_t;
 
 typedef struct {
@@ -92,31 +92,22 @@ typedef struct {
     psbt_change_analysis_t change;
 } psbt_fraud_analysis_t;
 
-int psbt_fraud_analyze_fees(const char *base64,
-                            uint64_t total_in_sats,
+int psbt_fraud_analyze_fees(const char *base64, uint64_t total_in_sats,
                             psbt_fee_analysis_t *analysis);
 
-int psbt_fraud_check_dust(const char *base64,
-                          psbt_dust_analysis_t *analysis);
+int psbt_fraud_check_dust(const char *base64, psbt_dust_analysis_t *analysis);
 
-int psbt_fraud_analyze_scripts(const char *base64,
-                               psbt_script_analysis_t *analysis);
+int psbt_fraud_analyze_scripts(const char *base64, psbt_script_analysis_t *analysis);
 
-int psbt_fraud_analyze_change(const char *base64,
-                              const uint8_t *wallet_fingerprint,
+int psbt_fraud_analyze_change(const char *base64, const uint8_t *wallet_fingerprint,
                               psbt_change_analysis_t *analysis);
 
-int psbt_fraud_analyze(const char *base64,
-                       uint64_t total_in_sats,
-                       const uint8_t *wallet_fingerprint,
-                       psbt_fraud_analysis_t *analysis);
+int psbt_fraud_analyze(const char *base64, uint64_t total_in_sats,
+                       const uint8_t *wallet_fingerprint, psbt_fraud_analysis_t *analysis);
 
-secresult_t psbt_fraud_check_secure(const psbt_fraud_analysis_t *analysis,
-                                    bool allow_high_fee,
-                                    bool allow_dust,
-                                    bool allow_unknown_scripts,
-                                    bool allow_op_return,
-                                    bool allow_no_change,
+secresult_t psbt_fraud_check_secure(const psbt_fraud_analysis_t *analysis, bool allow_high_fee,
+                                    bool allow_dust, bool allow_unknown_scripts,
+                                    bool allow_op_return, bool allow_no_change,
                                     bool allow_all_external);
 
 const char *psbt_fraud_script_type_name(psbt_script_type_t type);

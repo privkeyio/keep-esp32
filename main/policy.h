@@ -41,14 +41,10 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp);
 
 secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats);
 
-secresult_t policy_evaluate_psbt_secure(const char *psbt_base64,
-                                        uint64_t total_in_sats,
-                                        const uint8_t *wallet_fingerprint,
-                                        bool allow_high_fee,
-                                        bool allow_dust,
-                                        bool allow_unknown_scripts,
-                                        bool allow_op_return,
-                                        bool allow_no_change,
+secresult_t policy_evaluate_psbt_secure(const char *psbt_base64, uint64_t total_in_sats,
+                                        const uint8_t *wallet_fingerprint, bool allow_high_fee,
+                                        bool allow_dust, bool allow_unknown_scripts,
+                                        bool allow_op_return, bool allow_no_change,
                                         bool allow_all_external);
 
 #endif

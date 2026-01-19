@@ -382,14 +382,10 @@ secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
     return result;
 }
 
-secresult_t policy_evaluate_psbt_secure(const char *psbt_base64,
-                                        uint64_t total_in_sats,
-                                        const uint8_t *wallet_fingerprint,
-                                        bool allow_high_fee,
-                                        bool allow_dust,
-                                        bool allow_unknown_scripts,
-                                        bool allow_op_return,
-                                        bool allow_no_change,
+secresult_t policy_evaluate_psbt_secure(const char *psbt_base64, uint64_t total_in_sats,
+                                        const uint8_t *wallet_fingerprint, bool allow_high_fee,
+                                        bool allow_dust, bool allow_unknown_scripts,
+                                        bool allow_op_return, bool allow_no_change,
                                         bool allow_all_external) {
     if (!psbt_base64) {
         return SECRESULT_ERR_POLICY_DENIED;
@@ -403,17 +399,17 @@ secresult_t policy_evaluate_psbt_secure(const char *psbt_base64,
         return SECRESULT_ERR_POLICY_DENIED;
     }
 
-    secresult_t fraud_result = psbt_fraud_check_secure(&fraud, allow_high_fee, allow_dust,
-                                                       allow_unknown_scripts, allow_op_return,
-                                                       allow_no_change, allow_all_external);
+    secresult_t fraud_result =
+        psbt_fraud_check_secure(&fraud, allow_high_fee, allow_dust, allow_unknown_scripts,
+                                allow_op_return, allow_no_change, allow_all_external);
     if (!SECRESULT_IS_TRUE(fraud_result)) {
         ESP_LOGW(TAG, "PSBT fraud check failed: flags=0x%x", fraud.flags);
         secure_memzero(&fraud, sizeof(fraud));
         return fraud_result;
     }
 
-    secresult_t policy_result = policy_evaluate_secure(fraud.fee.send_amount_sats,
-                                                       fraud.fee.fee_sats);
+    secresult_t policy_result =
+        policy_evaluate_secure(fraud.fee.send_amount_sats, fraud.fee.fee_sats);
     secure_memzero(&fraud, sizeof(fraud));
     if (!SECRESULT_IS_TRUE(policy_result)) {
         return policy_result;
