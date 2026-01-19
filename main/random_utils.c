@@ -32,8 +32,10 @@ int rng_health_check(const uint8_t *buf, size_t len) {
 
     for (size_t i = 0; i < len; i++) {
         uint8_t b = buf[i];
-        if (b == 0x00) zeros++;
-        if (b == 0xFF) ones++;
+        if (b == 0x00)
+            zeros++;
+        if (b == 0xFF)
+            ones++;
         bit_count += __builtin_popcount(b);
 
         int start_bit = (i == 0) ? 1 : 0;
