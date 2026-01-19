@@ -83,7 +83,7 @@ int session_add_signature_share(session_t *s, uint16_t share_index, const uint8_
 bool session_has_all_commitments(session_t *s);
 bool session_has_all_shares(session_t *s);
 
-#define SESSION_CHECKPOINT_MAGIC   0x53455353
+#define SESSION_CHECKPOINT_MAGIC   0x53455343
 #define SESSION_CHECKPOINT_VERSION 1
 
 typedef struct {

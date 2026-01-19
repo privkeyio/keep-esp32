@@ -33,7 +33,7 @@ static uint32_t get_time_ms(void) {
 
 #define TAG                        "frost_signer"
 #define MAX_SESSIONS               4
-#define CONSUMED_SESSION_RING_SIZE 32
+#define CONSUMED_SESSION_RING_SIZE 64
 
 static uint8_t consumed_sessions[CONSUMED_SESSION_RING_SIZE][SESSION_ID_LEN];
 static uint8_t consumed_count = 0;
@@ -353,7 +353,7 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
-    if (strcmp(s->group, group) != 0) {
+    if (ct_compare(s->group, group, strlen(group) + 1) != 0) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Group mismatch");
         return;
     }
@@ -673,14 +673,21 @@ void frost_session_resume(const char *session_id_hex, rpc_response_t *resp) {
     memcpy(s->policy_hash, policy_hash, 32);
     secure_memzero(policy_hash, sizeof(policy_hash));
 
+    int clear_ret = session_checkpoint_clear(session_id);
+    if (clear_ret != 0) {
+        free_session(s);
+        secure_memzero(&restored_session, sizeof(restored_session));
+        secure_memzero(nonce_backup, sizeof(nonce_backup));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to clear checkpoint");
+        return;
+    }
+
     memcpy(&s->session, &restored_session, sizeof(session_t));
     memcpy(s->session.our_nonce, nonce_backup, SIGNATURE_LEN);
     secure_memzero(&restored_session, sizeof(restored_session));
     secure_memzero(nonce_backup, sizeof(nonce_backup));
 
     s->session.created_at = now;
-
-    session_checkpoint_clear(session_id);
 
     char result[256];
     snprintf(result, sizeof(result),
