@@ -134,3 +134,33 @@ path = "components/**"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.c"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.h"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.txt"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.html"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
