@@ -80,3 +80,57 @@ path = "docs/**"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.S"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**.sh"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ".clang-format"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "**/Kconfig"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "fuzz/corpus/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "test/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "fuzz/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "components/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
