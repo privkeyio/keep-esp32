@@ -70,31 +70,20 @@ static int get_output_script(const struct wally_psbt *psbt, size_t idx,
     return -1;
 }
 
-int psbt_fraud_analyze_fees(const char *base64, uint64_t total_in_sats,
-                            psbt_fee_analysis_t *analysis) {
-    if (!base64 || !analysis) {
-        return PSBT_FRAUD_ERR_PARAMS;
-    }
-
+static int analyze_fees_internal(const struct wally_psbt *psbt, uint64_t total_in_sats,
+                                 psbt_fee_analysis_t *analysis) {
     memset(analysis, 0, sizeof(*analysis));
-
-    struct wally_psbt *psbt = NULL;
-    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
-        return PSBT_FRAUD_ERR_PARSE;
-    }
 
     uint64_t total_out = 0;
     for (size_t i = 0; i < psbt->num_outputs; i++) {
         uint64_t amount = get_output_amount(psbt, i);
         if (total_out > UINT64_MAX - amount) {
-            wally_psbt_free(psbt);
             return PSBT_FRAUD_ERR_OVERFLOW;
         }
         total_out += amount;
     }
 
     if (total_in_sats < total_out) {
-        wally_psbt_free(psbt);
         return PSBT_FRAUD_ERR_INVALID_FEE;
     }
 
@@ -122,24 +111,13 @@ int psbt_fraud_analyze_fees(const char *base64, uint64_t total_in_sats,
                  analysis->fee_percent_x100 % 100);
     }
 
-    wally_psbt_free(psbt);
     return 0;
 }
 
-int psbt_fraud_check_dust(const char *base64, psbt_dust_analysis_t *analysis) {
-    if (!base64 || !analysis) {
-        return PSBT_FRAUD_ERR_PARAMS;
-    }
-
+static int check_dust_internal(const struct wally_psbt *psbt, psbt_dust_analysis_t *analysis) {
     memset(analysis, 0, sizeof(*analysis));
 
-    struct wally_psbt *psbt = NULL;
-    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
-        return PSBT_FRAUD_ERR_PARSE;
-    }
-
     if (psbt->num_outputs > PSBT_FRAUD_MAX_OUTPUTS) {
-        wally_psbt_free(psbt);
         return PSBT_FRAUD_ERR_TOO_MANY_IO;
     }
 
@@ -166,24 +144,14 @@ int psbt_fraud_check_dust(const char *base64, psbt_dust_analysis_t *analysis) {
         }
     }
 
-    wally_psbt_free(psbt);
     return 0;
 }
 
-int psbt_fraud_analyze_scripts(const char *base64, psbt_script_analysis_t *analysis) {
-    if (!base64 || !analysis) {
-        return PSBT_FRAUD_ERR_PARAMS;
-    }
-
+static int analyze_scripts_internal(const struct wally_psbt *psbt,
+                                    psbt_script_analysis_t *analysis) {
     memset(analysis, 0, sizeof(*analysis));
 
-    struct wally_psbt *psbt = NULL;
-    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
-        return PSBT_FRAUD_ERR_PARSE;
-    }
-
     if (psbt->num_inputs > PSBT_FRAUD_MAX_INPUTS || psbt->num_outputs > PSBT_FRAUD_MAX_OUTPUTS) {
-        wally_psbt_free(psbt);
         return PSBT_FRAUD_ERR_TOO_MANY_IO;
     }
 
@@ -236,8 +204,53 @@ int psbt_fraud_analyze_scripts(const char *base64, psbt_script_analysis_t *analy
         }
     }
 
-    wally_psbt_free(psbt);
     return 0;
+}
+
+int psbt_fraud_analyze_fees(const char *base64, uint64_t total_in_sats,
+                            psbt_fee_analysis_t *analysis) {
+    if (!base64 || !analysis) {
+        return PSBT_FRAUD_ERR_PARAMS;
+    }
+
+    struct wally_psbt *psbt = NULL;
+    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
+        return PSBT_FRAUD_ERR_PARSE;
+    }
+
+    int ret = analyze_fees_internal(psbt, total_in_sats, analysis);
+    wally_psbt_free(psbt);
+    return ret;
+}
+
+int psbt_fraud_check_dust(const char *base64, psbt_dust_analysis_t *analysis) {
+    if (!base64 || !analysis) {
+        return PSBT_FRAUD_ERR_PARAMS;
+    }
+
+    struct wally_psbt *psbt = NULL;
+    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
+        return PSBT_FRAUD_ERR_PARSE;
+    }
+
+    int ret = check_dust_internal(psbt, analysis);
+    wally_psbt_free(psbt);
+    return ret;
+}
+
+int psbt_fraud_analyze_scripts(const char *base64, psbt_script_analysis_t *analysis) {
+    if (!base64 || !analysis) {
+        return PSBT_FRAUD_ERR_PARAMS;
+    }
+
+    struct wally_psbt *psbt = NULL;
+    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
+        return PSBT_FRAUD_ERR_PARSE;
+    }
+
+    int ret = analyze_scripts_internal(psbt, analysis);
+    wally_psbt_free(psbt);
+    return ret;
 }
 
 static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
@@ -272,21 +285,11 @@ static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
     return false;
 }
 
-int psbt_fraud_analyze_change(const char *base64, const uint8_t *wallet_fingerprint,
-                              psbt_change_analysis_t *analysis) {
-    if (!base64 || !analysis) {
-        return PSBT_FRAUD_ERR_PARAMS;
-    }
-
+static int analyze_change_internal(const struct wally_psbt *psbt, const uint8_t *wallet_fingerprint,
+                                   psbt_change_analysis_t *analysis) {
     memset(analysis, 0, sizeof(*analysis));
 
-    struct wally_psbt *psbt = NULL;
-    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
-        return PSBT_FRAUD_ERR_PARSE;
-    }
-
     if (psbt->num_outputs > PSBT_FRAUD_MAX_OUTPUTS) {
-        wally_psbt_free(psbt);
         return PSBT_FRAUD_ERR_TOO_MANY_IO;
     }
 
@@ -328,8 +331,23 @@ int psbt_fraud_analyze_change(const char *base64, const uint8_t *wallet_fingerpr
         }
     }
 
-    wally_psbt_free(psbt);
     return 0;
+}
+
+int psbt_fraud_analyze_change(const char *base64, const uint8_t *wallet_fingerprint,
+                              psbt_change_analysis_t *analysis) {
+    if (!base64 || !analysis) {
+        return PSBT_FRAUD_ERR_PARAMS;
+    }
+
+    struct wally_psbt *psbt = NULL;
+    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
+        return PSBT_FRAUD_ERR_PARSE;
+    }
+
+    int ret = analyze_change_internal(psbt, wallet_fingerprint, analysis);
+    wally_psbt_free(psbt);
+    return ret;
 }
 
 int psbt_fraud_analyze(const char *base64, uint64_t total_in_sats,
@@ -340,21 +358,36 @@ int psbt_fraud_analyze(const char *base64, uint64_t total_in_sats,
 
     memset(analysis, 0, sizeof(*analysis));
 
-    int ret = psbt_fraud_analyze_fees(base64, total_in_sats, &analysis->fee);
-    if (ret != 0)
-        return ret;
+    struct wally_psbt *psbt = NULL;
+    if (wally_psbt_from_base64(base64, 0, &psbt) != WALLY_OK || !psbt) {
+        return PSBT_FRAUD_ERR_PARSE;
+    }
 
-    ret = psbt_fraud_check_dust(base64, &analysis->dust);
-    if (ret != 0)
+    int ret = analyze_fees_internal(psbt, total_in_sats, &analysis->fee);
+    if (ret != 0) {
+        wally_psbt_free(psbt);
         return ret;
+    }
 
-    ret = psbt_fraud_analyze_scripts(base64, &analysis->scripts);
-    if (ret != 0)
+    ret = check_dust_internal(psbt, &analysis->dust);
+    if (ret != 0) {
+        wally_psbt_free(psbt);
         return ret;
+    }
 
-    ret = psbt_fraud_analyze_change(base64, wallet_fingerprint, &analysis->change);
-    if (ret != 0)
+    ret = analyze_scripts_internal(psbt, &analysis->scripts);
+    if (ret != 0) {
+        wally_psbt_free(psbt);
         return ret;
+    }
+
+    ret = analyze_change_internal(psbt, wallet_fingerprint, &analysis->change);
+    if (ret != 0) {
+        wally_psbt_free(psbt);
+        return ret;
+    }
+
+    wally_psbt_free(psbt);
 
     if (analysis->fee.fee_warning) {
         analysis->flags |= PSBT_FRAUD_FLAG_HIGH_FEE;

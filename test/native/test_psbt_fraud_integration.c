@@ -7,6 +7,8 @@
 #include "psbt_fraud.h"
 #include <wally_core.h>
 #include <wally_psbt.h>
+#include <wally_transaction.h>
+#include <wally_script.h>
 
 #define TEST(name) printf("  TEST: %s\n", name)
 #define PASS()     printf("    PASS\n")
@@ -479,6 +481,179 @@ static int test_psbt_p2wsh_multisig(void) {
     return 0;
 }
 
+static char *create_psbt_with_dust_output(void) {
+    struct wally_psbt *psbt = NULL;
+    struct wally_tx *tx = NULL;
+    int ret;
+
+    unsigned char prev_txid[32] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+                                   0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+                                   0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20};
+
+    ret = wally_tx_init_alloc(2, 0, 1, 2, &tx);
+    if (ret != WALLY_OK)
+        return NULL;
+
+    ret = wally_tx_add_raw_input(tx, prev_txid, sizeof(prev_txid), 0, 0xffffffff, NULL, 0, NULL, 0);
+    if (ret != WALLY_OK) {
+        wally_tx_free(tx);
+        return NULL;
+    }
+
+    unsigned char p2pkh_script[25];
+    p2pkh_script[0] = 0x76;
+    p2pkh_script[1] = 0xa9;
+    p2pkh_script[2] = 0x14;
+    memset(&p2pkh_script[3], 0xaa, 20);
+    p2pkh_script[23] = 0x88;
+    p2pkh_script[24] = 0xac;
+
+    ret = wally_tx_add_raw_output(tx, 100, p2pkh_script, sizeof(p2pkh_script), 0);
+    if (ret != WALLY_OK) {
+        wally_tx_free(tx);
+        return NULL;
+    }
+
+    ret = wally_tx_add_raw_output(tx, 100000000, p2pkh_script, sizeof(p2pkh_script), 0);
+    if (ret != WALLY_OK) {
+        wally_tx_free(tx);
+        return NULL;
+    }
+
+    ret = wally_psbt_from_tx(tx, 0, 0, &psbt);
+    wally_tx_free(tx);
+    if (ret != WALLY_OK)
+        return NULL;
+
+    char *base64 = NULL;
+    ret = wally_psbt_to_base64(psbt, 0, &base64);
+    wally_psbt_free(psbt);
+    if (ret != WALLY_OK)
+        return NULL;
+
+    return base64;
+}
+
+static int test_check_dust_present(void) {
+    TEST("psbt_fraud_check_dust - dust output present");
+
+    char *psbt_base64 = create_psbt_with_dust_output();
+    if (!psbt_base64)
+        FAIL("failed to create test PSBT");
+
+    psbt_dust_analysis_t analysis;
+    int ret = psbt_fraud_check_dust(psbt_base64, &analysis);
+    wally_free_string(psbt_base64);
+
+    if (ret != 0)
+        FAIL("parse failed");
+
+    if (!analysis.has_dust)
+        FAIL("expected has_dust == true");
+
+    if (analysis.dust_count < 1)
+        FAIL("expected dust_count >= 1");
+
+    if (analysis.dust_amounts[0] >= PSBT_FRAUD_DUST_LIMIT_SATS)
+        FAIL("expected dust amount < 546");
+
+    PASS();
+    return 0;
+}
+
+static char *create_psbt_with_op_return(void) {
+    struct wally_psbt *psbt = NULL;
+    struct wally_tx *tx = NULL;
+    int ret;
+
+    unsigned char prev_txid[32] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+                                   0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+                                   0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20};
+
+    ret = wally_tx_init_alloc(2, 0, 1, 2, &tx);
+    if (ret != WALLY_OK)
+        return NULL;
+
+    ret = wally_tx_add_raw_input(tx, prev_txid, sizeof(prev_txid), 0, 0xffffffff, NULL, 0, NULL, 0);
+    if (ret != WALLY_OK) {
+        wally_tx_free(tx);
+        return NULL;
+    }
+
+    unsigned char op_return_script[6];
+    op_return_script[0] = 0x6a;
+    op_return_script[1] = 0x04;
+    op_return_script[2] = 't';
+    op_return_script[3] = 'e';
+    op_return_script[4] = 's';
+    op_return_script[5] = 't';
+
+    ret = wally_tx_add_raw_output(tx, 0, op_return_script, sizeof(op_return_script), 0);
+    if (ret != WALLY_OK) {
+        wally_tx_free(tx);
+        return NULL;
+    }
+
+    unsigned char p2pkh_script[25];
+    p2pkh_script[0] = 0x76;
+    p2pkh_script[1] = 0xa9;
+    p2pkh_script[2] = 0x14;
+    memset(&p2pkh_script[3], 0xaa, 20);
+    p2pkh_script[23] = 0x88;
+    p2pkh_script[24] = 0xac;
+
+    ret = wally_tx_add_raw_output(tx, 100000000, p2pkh_script, sizeof(p2pkh_script), 0);
+    if (ret != WALLY_OK) {
+        wally_tx_free(tx);
+        return NULL;
+    }
+
+    ret = wally_psbt_from_tx(tx, 0, 0, &psbt);
+    wally_tx_free(tx);
+    if (ret != WALLY_OK)
+        return NULL;
+
+    char *base64 = NULL;
+    ret = wally_psbt_to_base64(psbt, 0, &base64);
+    wally_psbt_free(psbt);
+    if (ret != WALLY_OK)
+        return NULL;
+
+    return base64;
+}
+
+static int test_analyze_scripts_op_return(void) {
+    TEST("psbt_fraud_analyze_scripts - OP_RETURN output");
+
+    char *psbt_base64 = create_psbt_with_op_return();
+    if (!psbt_base64)
+        FAIL("failed to create test PSBT");
+
+    psbt_script_analysis_t analysis;
+    int ret = psbt_fraud_analyze_scripts(psbt_base64, &analysis);
+    wally_free_string(psbt_base64);
+
+    if (ret != 0)
+        FAIL("parse failed");
+
+    if (!analysis.has_op_return)
+        FAIL("expected has_op_return == true");
+
+    bool found_op_return = false;
+    for (size_t i = 0; i < analysis.output_count; i++) {
+        if (analysis.output_types[i] == SCRIPT_TYPE_OP_RETURN) {
+            found_op_return = true;
+            break;
+        }
+    }
+
+    if (!found_op_return)
+        FAIL("expected at least one output with SCRIPT_TYPE_OP_RETURN");
+
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== PSBT Fraud Detection Integration Tests ===\n\n");
 
@@ -495,11 +670,13 @@ int main(void) {
 
     printf("\nDust Detection:\n");
     failures += test_check_dust_none();
+    failures += test_check_dust_present();
     failures += test_check_dust_null();
 
     printf("\nScript Analysis:\n");
     failures += test_analyze_scripts_p2pkh_p2sh();
     failures += test_analyze_scripts_p2tr();
+    failures += test_analyze_scripts_op_return();
     failures += test_analyze_scripts_null();
 
     printf("\nChange Detection:\n");
