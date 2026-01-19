@@ -1,0 +1,19 @@
+[project]
+name = "keep-integration-tests"
+version = "0.1.0"
+requires-python = ">=3.8"
+dependencies = [
+    "pytest>=7.0.0",
+    "pyserial>=3.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "hardware: marks tests that require physical hardware",
+    "slow: marks tests as slow",
+]

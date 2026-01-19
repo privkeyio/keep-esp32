@@ -74,3 +74,19 @@ target_include_directories(test_secresult PRIVATE
 )
 target_compile_definitions(test_secresult PRIVATE NATIVE_TEST=1)
 
+add_executable(test_integration test_integration.c)
+target_include_directories(test_integration PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
+target_compile_definitions(test_integration PRIVATE NATIVE_TEST=1)
+
+if(EXISTS ${CJSON_DIR}/cJSON.c)
+    add_executable(test_integration_full test_integration.c ${CJSON_DIR}/cJSON.c)
+    target_include_directories(test_integration_full PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${MAIN_DIR}
+        ${CJSON_DIR}
+    )
+    target_compile_definitions(test_integration_full PRIVATE NATIVE_TEST=1 HAS_CJSON=1)
+endif()
