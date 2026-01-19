@@ -762,8 +762,7 @@ int storage_save_metadata(const char *group, const group_metadata_t *metadata) {
     uint8_t plaintext[sizeof(metadata_slot_t) - STORAGE_GROUP_LEN - 1 - 2 -
                       STORAGE_CRYPTO_NONCE_SIZE - STORAGE_CRYPTO_TAG_SIZE - 32];
     size_t plaintext_len = sizeof(plaintext);
-    memcpy(plaintext, &slot.threshold,
-           plaintext_len);
+    memcpy(plaintext, &slot.threshold, plaintext_len);
 
     uint8_t encrypted[sizeof(plaintext)];
     if (storage_crypto_encrypt(plaintext, plaintext_len, (const uint8_t *)slot.group,
@@ -966,7 +965,8 @@ int storage_save_session_checkpoint(const uint8_t *session_id, const void *data,
     memcpy(slot.data, encrypted, len);
     secure_memzero(encrypted, sizeof(encrypted));
 
-    size_t slot_offset = SESSION_CHECKPOINT_OFFSET + (size_t)target_slot * SESSION_CHECKPOINT_SLOT_SIZE;
+    size_t slot_offset =
+        SESSION_CHECKPOINT_OFFSET + (size_t)target_slot * SESSION_CHECKPOINT_SLOT_SIZE;
     size_t sector_offset = (slot_offset / SECTOR_SIZE) * SECTOR_SIZE;
     esp_err_t err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
     if (err != ESP_OK) {
@@ -1043,7 +1043,8 @@ int storage_delete_session_checkpoint(const uint8_t *session_id) {
         return STORAGE_ERR_NOT_FOUND;
     }
 
-    size_t slot_offset = SESSION_CHECKPOINT_OFFSET + (size_t)slot_idx * SESSION_CHECKPOINT_SLOT_SIZE;
+    size_t slot_offset =
+        SESSION_CHECKPOINT_OFFSET + (size_t)slot_idx * SESSION_CHECKPOINT_SLOT_SIZE;
     size_t sector_offset = (slot_offset / SECTOR_SIZE) * SECTOR_SIZE;
     esp_err_t err = esp_partition_read(storage_partition, sector_offset, sector_buf, SECTOR_SIZE);
     if (err != ESP_OK) {
