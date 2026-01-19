@@ -12,6 +12,7 @@
 #include "random_utils.h"
 #include "crypto_asm.h"
 #include "secresult.h"
+#include "anti_glitch.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
@@ -272,9 +273,12 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
         return;
     }
 
+    ag_random_delay_us(100, 1000);
+
     bool has_policy = false;
     uint8_t policy_hash[32];
     secresult_t policy_ret = capture_policy_snapshot_secure(&has_policy, policy_hash);
+    policy_ret = ag_verify_condition_secure(policy_ret);
     if (!SECRESULT_IS_TRUE(policy_ret)) {
         secure_memzero(policy_hash, sizeof(policy_hash));
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
@@ -358,11 +362,17 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
-    if (!SECRESULT_IS_TRUE(verify_policy_unchanged_secure(s->has_policy, s->policy_hash))) {
+    ag_random_delay_us(100, 1000);
+
+    secresult_t policy_check = verify_policy_unchanged_secure(s->has_policy, s->policy_hash);
+    policy_check = ag_verify_condition_secure(policy_check);
+    if (!SECRESULT_IS_TRUE(policy_check)) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during session");
         return;
     }
+
+    ag_random_delay_us(100, 1000);
 
     int parsed = frost_parse_commitments(commitments_hex, &s->session);
     if (parsed < 0) {
@@ -400,6 +410,8 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
+    ag_random_delay_us(100, 1000);
+
     bool policy_snapshot = s->has_policy;
     uint8_t policy_hash_snapshot[32];
     memcpy(policy_hash_snapshot, s->policy_hash, 32);
@@ -413,13 +425,16 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
-    if (!SECRESULT_IS_TRUE(verify_policy_unchanged_secure(policy_snapshot, policy_hash_snapshot))) {
-        secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
+    ag_random_delay_us(100, 1000);
+
+    secresult_t post_sign_check = verify_policy_unchanged_secure(policy_snapshot, policy_hash_snapshot);
+    secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
+    post_sign_check = ag_verify_condition_secure(post_sign_check);
+    if (!SECRESULT_IS_TRUE(post_sign_check)) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during signing");
         return;
     }
-    secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
 
     int share_idx = s->session.sig_share_count;
     if (share_idx >= MAX_PARTICIPANTS) {
