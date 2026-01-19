@@ -87,4 +87,45 @@ bool se_is_provisioned(void) {
     return mock_initialized;
 }
 
+#else
+
+#include "secure_element.h"
+
+se_status_t se_init(void) {
+    return SE_ERR_NOT_PROVISIONED;
+}
+
+se_status_t se_read_slot(uint8_t slot, uint8_t *data, size_t len) {
+    (void)slot;
+    (void)data;
+    (void)len;
+    return SE_ERR_NOT_PROVISIONED;
+}
+
+se_status_t se_write_slot(uint8_t slot, const uint8_t *data, size_t len) {
+    (void)slot;
+    (void)data;
+    (void)len;
+    return SE_ERR_NOT_PROVISIONED;
+}
+
+se_status_t se_increment_counter(uint32_t *new_value) {
+    (void)new_value;
+    return SE_ERR_NOT_PROVISIONED;
+}
+
+se_status_t se_get_counter(uint32_t *value) {
+    (void)value;
+    return SE_ERR_NOT_PROVISIONED;
+}
+
+se_status_t se_get_serial(uint8_t serial[SE_SERIAL_SIZE]) {
+    (void)serial;
+    return SE_ERR_NOT_PROVISIONED;
+}
+
+bool se_is_provisioned(void) {
+    return false;
+}
+
 #endif

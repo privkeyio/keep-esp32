@@ -82,7 +82,8 @@ void ag_random_delay_ms(uint32_t min_ms, uint32_t max_ms) {
 uint32_t ag_get_cycle_count(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)(ts.tv_nsec / 1000);
+    uint64_t microsecs = (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000;
+    return (uint32_t)microsecs;
 }
 
 #endif
