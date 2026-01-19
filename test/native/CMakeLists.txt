@@ -54,7 +54,7 @@ target_include_directories(test_secure_element PRIVATE
 )
 target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1)
 
-add_executable(test_frost_signer_core test_frost_signer_core.c ${MAIN_DIR}/frost_signer_core.c ${MAIN_DIR}/frost.c ${MAIN_DIR}/random_utils.c)
+add_executable(test_frost_signer_core test_frost_signer_core.c ${MAIN_DIR}/frost_signer_core.c ${MAIN_DIR}/frost.c ${MAIN_DIR}/random_utils.c ${MAIN_DIR}/hw_entropy.c)
 target_include_directories(test_frost_signer_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     ${MAIN_DIR}
@@ -97,3 +97,21 @@ target_include_directories(test_self_test PRIVATE
     ${MAIN_DIR}
 )
 target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1)
+
+add_executable(test_hw_entropy test_hw_entropy.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/random_utils.c)
+target_include_directories(test_hw_entropy PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
+target_compile_definitions(test_hw_entropy PRIVATE NATIVE_TEST=1)
+
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+    add_executable(test_hw_entropy_sha256 test_hw_entropy.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/random_utils.c)
+    target_include_directories(test_hw_entropy_sha256 PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${MAIN_DIR}
+    )
+    target_compile_definitions(test_hw_entropy_sha256 PRIVATE NATIVE_TEST=1 HAS_OPENSSL=1)
+    target_link_libraries(test_hw_entropy_sha256 OpenSSL::Crypto)
+endif()
