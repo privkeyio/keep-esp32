@@ -84,6 +84,12 @@ void secp256k1_context_destroy(secp256k1_context *ctx) {
     (void)ctx;
 }
 
+int secp256k1_context_randomize(secp256k1_context *ctx, const unsigned char *seed32) {
+    (void)ctx;
+    (void)seed32;
+    return 1;
+}
+
 int secp256k1_ec_pubkey_create(const secp256k1_context *ctx, secp256k1_pubkey *pubkey,
                                const unsigned char *seckey) {
     (void)ctx;

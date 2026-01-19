@@ -31,6 +31,7 @@ typedef struct {
 
 SECP256K1_API secp256k1_context *secp256k1_context_create(unsigned int flags);
 SECP256K1_API void secp256k1_context_destroy(secp256k1_context *ctx);
+SECP256K1_API int secp256k1_context_randomize(secp256k1_context *ctx, const unsigned char *seed32);
 SECP256K1_API int secp256k1_ec_pubkey_create(const secp256k1_context *ctx, secp256k1_pubkey *pubkey,
                                              const unsigned char *seckey);
 

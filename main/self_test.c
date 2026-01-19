@@ -75,19 +75,34 @@ int self_test_crypto_lib(void) {
         return -1;
     }
 
-    uint8_t seckey[32];
-    secp256k1_pubkey pubkey;
-
-    if (rng_fill_checked(seckey, sizeof(seckey)) != 0) {
+    uint8_t randomize[32];
+    if (rng_fill_checked(randomize, sizeof(randomize)) != 0) {
         secp256k1_context_destroy(ctx);
         return -1;
     }
+    if (secp256k1_context_randomize(ctx, randomize) != 1) {
+        secure_memzero(randomize, sizeof(randomize));
+        secp256k1_context_destroy(ctx);
+        return -1;
+    }
+    secure_memzero(randomize, sizeof(randomize));
 
-    int ret = secp256k1_ec_pubkey_create(ctx, &pubkey, seckey);
+    uint8_t seckey[32];
+    secp256k1_pubkey pubkey;
+    int result = -1;
+
+    if (rng_fill_checked(seckey, sizeof(seckey)) != 0) {
+        goto cleanup;
+    }
+
+    result = secp256k1_ec_pubkey_create(ctx, &pubkey, seckey) == 1 ? 0 : -1;
+
+cleanup:
     secure_memzero(seckey, sizeof(seckey));
+    secure_memzero(&pubkey, sizeof(pubkey));
     secp256k1_context_destroy(ctx);
 
-    return ret == 1 ? 0 : -1;
+    return result;
 }
 
 int self_test_flash_partitions(void) {
@@ -99,24 +114,30 @@ int self_test_flash_partitions(void) {
     }
 
     uint8_t header[16];
+    int result = -1;
+
     if (esp_partition_read(storage, 0, header, sizeof(header)) != ESP_OK) {
         ESP_LOGE(TAG, "Storage partition read failed");
-        return -1;
+        goto cleanup;
     }
 
     const esp_partition_t *policy = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, POLICY_PARTITION_NAME);
     if (!policy) {
         ESP_LOGE(TAG, "Policy partition not found");
-        return -1;
+        goto cleanup;
     }
 
     if (esp_partition_read(policy, 0, header, sizeof(header)) != ESP_OK) {
         ESP_LOGE(TAG, "Policy partition read failed");
-        return -1;
+        goto cleanup;
     }
 
-    return 0;
+    result = 0;
+
+cleanup:
+    secure_memzero(header, sizeof(header));
+    return result;
 }
 
 int self_test_storage_slots(void) {
@@ -126,11 +147,14 @@ int self_test_storage_slots(void) {
         return -1;
     }
 
+    uint8_t slot_header[STORAGE_GROUP_LEN + 4];
+    int result = 0;
+
     for (int i = 0; i < MAX_SHARES; i++) {
-        uint8_t slot_header[STORAGE_GROUP_LEN + 4];
         if (esp_partition_read(storage, (size_t)i * SHARE_SLOT_SIZE, slot_header,
                                sizeof(slot_header)) != ESP_OK) {
-            return -1;
+            result = -1;
+            goto cleanup;
         }
 
         if (slot_header[0] == 0xFF) {
@@ -140,12 +164,15 @@ int self_test_storage_slots(void) {
         for (size_t j = 0; j < STORAGE_GROUP_LEN && slot_header[j] != '\0'; j++) {
             if (!is_valid_group_char(slot_header[j])) {
                 ESP_LOGW(TAG, "Slot %d has invalid group name characters", i);
-                return -1;
+                result = -1;
+                goto cleanup;
             }
         }
     }
 
-    return 0;
+cleanup:
+    secure_memzero(slot_header, sizeof(slot_header));
+    return result;
 }
 
 int self_test_run_all(void) {
