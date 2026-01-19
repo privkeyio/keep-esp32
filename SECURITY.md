@@ -88,6 +88,11 @@ ESP32-S3 FROST threshold signing device security documentation.
 - Single retry on failure, then abort
 - Health degradation tracked after 5 cumulative failures
 
+**Note:** These are lightweight operational checks, not NIST SP 800-90B compliant.
+SP 800-90B specifies different tests (Repetition Count, Adaptive Proportion) with
+dynamic thresholds. Custom checks were chosen for embedded constraints and fail-fast
+behavior rather than certification compliance.
+
 ### Failure Mode
 
 - RNG failure aborts signing operations
