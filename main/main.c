@@ -20,6 +20,7 @@
 #include "random_utils.h"
 #include "anti_glitch.h"
 #include "hex_utils.h"
+#include "crypto_asm.h"
 #include "ux_interface.h"
 #include "self_test.h"
 
@@ -137,6 +138,77 @@ static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) 
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
         break;
     }
+}
+
+static void handle_export_share(const rpc_request_t *req, rpc_response_t *resp) {
+    if (storage_export_check_rate_limit() != STORAGE_OK) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Rate limited");
+        return;
+    }
+
+    if (strlen(req->group) == 0) {
+        storage_export_record_attempt(false);
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing group");
+        return;
+    }
+
+    if (strlen(req->passphrase) < 8) {
+        storage_export_record_attempt(false);
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS,
+                       "Passphrase must be at least 8 characters");
+        return;
+    }
+
+    share_export_t export_data;
+    int ret = storage_export_share(req->group, req->passphrase, &export_data);
+    if (ret != STORAGE_OK) {
+        storage_export_record_attempt(false);
+        switch (ret) {
+        case STORAGE_ERR_NOT_FOUND:
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
+            break;
+        case STORAGE_ERR_INVALID_GROUP:
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
+            break;
+        case STORAGE_ERR_INVALID_DATA:
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid passphrase");
+            break;
+        case STORAGE_ERR_DECRYPT:
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Decryption failed");
+            break;
+        default:
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Export failed");
+            break;
+        }
+        return;
+    }
+
+    storage_export_record_attempt(true);
+
+    char pubkey_hex[67];
+    char encrypted_hex[(STORAGE_SHARE_LEN + 16) * 2 + 1];
+    char nonce_hex[25];
+    char salt_hex[65];
+    char checksum_hex[65];
+    bytes_to_hex(export_data.group_pubkey, sizeof(export_data.group_pubkey), pubkey_hex,
+                 sizeof(pubkey_hex));
+    bytes_to_hex(export_data.encrypted_share, export_data.encrypted_len, encrypted_hex,
+                 sizeof(encrypted_hex));
+    bytes_to_hex(export_data.nonce, sizeof(export_data.nonce), nonce_hex, sizeof(nonce_hex));
+    bytes_to_hex(export_data.salt, sizeof(export_data.salt), salt_hex, sizeof(salt_hex));
+    bytes_to_hex(export_data.checksum, sizeof(export_data.checksum), checksum_hex,
+                 sizeof(checksum_hex));
+
+    char result[2048];
+    snprintf(result, sizeof(result),
+             "{\"version\":%d,\"group\":\"%s\",\"share_index\":%d,\"threshold\":%d,"
+             "\"participants\":%d,\"group_pubkey\":\"%s\",\"encrypted_share\":\"%s\","
+             "\"nonce\":\"%s\",\"salt\":\"%s\",\"checksum\":\"%s\"}",
+             STORAGE_EXPORT_VERSION, req->group, export_data.share_index, export_data.threshold,
+             export_data.participants, pubkey_hex, encrypted_hex, nonce_hex, salt_hex,
+             checksum_hex);
+    secure_memzero(&export_data, sizeof(export_data));
+    protocol_success(resp, req->id, result);
 }
 
 static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp) {
@@ -309,7 +381,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         handle_restart(req, resp);
         break;
     case RPC_METHOD_EXPORT_SHARE:
-        frost_export_share(req->group, resp);
+        handle_export_share(req, resp);
         break;
     case RPC_METHOD_SESSION_RESUME:
         frost_session_resume(req->session_id, resp);

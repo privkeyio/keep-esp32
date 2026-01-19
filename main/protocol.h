@@ -65,6 +65,7 @@ typedef struct {
     char *psbt;
     size_t input_idx;
     char policy_bundle[5120];
+    char passphrase[256];
 } rpc_request_t;
 
 typedef struct {
