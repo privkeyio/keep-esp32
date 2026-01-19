@@ -657,7 +657,12 @@ static int test_analyze_scripts_op_return(void) {
 int main(void) {
     printf("\n=== PSBT Fraud Detection Integration Tests ===\n\n");
 
-    wally_init(0);
+    int init_ret = wally_init(0);
+    if (init_ret != WALLY_OK) {
+        printf("FATAL: wally_init failed with error code %d\n", init_ret);
+        wally_cleanup(0);
+        return 1;
+    }
 
     int failures = 0;
 
