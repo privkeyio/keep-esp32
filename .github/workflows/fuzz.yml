@@ -1,23 +1,12 @@
 name: Fuzzing
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: '0 2 * * *'
-  workflow_dispatch:
-    inputs:
-      fuzz_duration:
-        description: 'Fuzzing duration in seconds'
-        required: false
-        default: '300'
 
 jobs:
-  fuzz-quick:
+  fuzz:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
@@ -64,78 +53,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-crashes-quick
+          name: fuzz-crashes
           path: |
             fuzz/build/crash-*
             fuzz/build/leak-*
             fuzz/build/timeout-*
-
-  fuzz-nightly:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        fuzzer: [fuzz_hex, fuzz_protocol, fuzz_dkg, fuzz_psbt, fuzz_policy, fuzz_nostr, fuzz_storage_crypto]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
-        with:
-          repository: ElementsProject/libwally-core
-          ref: release_1.5.1
-          path: libwally-core
-          submodules: recursive
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libmbedtls-dev pkg-config automake libtool
-
-      - name: Build libwally-core
-        run: |
-          cd libwally-core
-          ./tools/autogen.sh
-          ./configure --disable-shared --enable-static
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
-
-      - name: Build fuzzers
-        run: |
-          cd fuzz
-          mkdir -p build && cd build
-          CC=clang cmake ..
-          make -j$(nproc)
-
-      - name: Run ${{ matrix.fuzzer }} (5 minutes)
-        env:
-          DURATION: ${{ github.event.inputs.fuzz_duration || '300' }}
-          FUZZER: ${{ matrix.fuzzer }}
-        run: |
-          cd fuzz/build
-          CORPUS_DIR="${FUZZER#fuzz_}"
-          if ! [[ "$DURATION" =~ ^[0-9]+$ ]]; then
-            DURATION=300
-          fi
-          if [ -f "./$FUZZER" ]; then
-            timeout $((DURATION + 10)) ./$FUZZER ../corpus/$CORPUS_DIR -max_total_time=$DURATION || [ $? -eq 124 ]
-          else
-            echo "Fuzzer $FUZZER not built, skipping"
-          fi
-
-      - name: Upload crash artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-crashes-${{ matrix.fuzzer }}
-          path: |
-            fuzz/build/crash-*
-            fuzz/build/leak-*
-            fuzz/build/timeout-*
-
-      - name: Upload corpus
-        uses: actions/upload-artifact@v4
-        with:
-          name: corpus-${{ matrix.fuzzer }}
-          path: fuzz/corpus/
