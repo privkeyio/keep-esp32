@@ -14,11 +14,16 @@
 
 static uint8_t fuzz_key[KEY_SIZE];
 
-static void derive_key(const uint8_t *seed, size_t seed_len) {
+static int derive_key(const uint8_t *seed, size_t seed_len) {
     static const uint8_t salt[] = "fuzz-storage-key";
     static const uint8_t info[] = "fuzz-key";
-    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), salt, sizeof(salt) - 1, seed,
-                 seed_len, info, sizeof(info) - 1, fuzz_key, KEY_SIZE);
+    int ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), salt, sizeof(salt) - 1,
+                           seed, seed_len, info, sizeof(info) - 1, fuzz_key, KEY_SIZE);
+    if (ret != 0) {
+        memset(fuzz_key, 0, KEY_SIZE);
+        return -1;
+    }
+    return 0;
 }
 
 static int gcm_init(mbedtls_gcm_context *gcm) {
@@ -75,7 +80,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return 0;
     }
 
-    derive_key(plaintext, plaintext_len > 16 ? 16 : plaintext_len);
+    if (derive_key(plaintext, plaintext_len > 16 ? 16 : plaintext_len) != 0) {
+        return 0;
+    }
 
     uint8_t *ciphertext = malloc(plaintext_len);
     uint8_t *decrypted = malloc(plaintext_len);

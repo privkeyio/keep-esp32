@@ -10,7 +10,10 @@
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
     (void)argc;
     (void)argv;
-    wally_init(0);
+    int ret = wally_init(0);
+    if (ret != WALLY_OK) {
+        return 1;
+    }
     return 0;
 }
 
