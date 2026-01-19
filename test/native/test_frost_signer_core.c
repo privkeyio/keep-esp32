@@ -16,6 +16,32 @@ static uint32_t test_now_ms(void) {
 }
 #define now_ms test_now_ms
 
+#define STORAGE_SESSION_ID_LEN 32
+int storage_save_session_checkpoint(const uint8_t *id, const void *d, size_t l) {
+    (void)id;
+    (void)d;
+    (void)l;
+    return -1;
+}
+int storage_load_session_checkpoint(const uint8_t *id, void *d, size_t l) {
+    (void)id;
+    (void)d;
+    (void)l;
+    return -1;
+}
+int storage_delete_session_checkpoint(const uint8_t *id) {
+    (void)id;
+    return -1;
+}
+int storage_list_session_checkpoints(uint8_t ids[][STORAGE_SESSION_ID_LEN], int m) {
+    (void)ids;
+    (void)m;
+    return 0;
+}
+int storage_count_session_checkpoints(void) {
+    return 0;
+}
+
 #include "../mocks/nostr.h"
 #include "../../main/session.c"
 

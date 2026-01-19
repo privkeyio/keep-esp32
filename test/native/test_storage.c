@@ -11,8 +11,8 @@
 #include "esp_log.h"
 #include "crypto_asm.h"
 
-static uint8_t mock_flash[4096];
-static esp_partition_t mock_partition = {"storage", 4096, 0};
+static uint8_t mock_flash[65536];
+static esp_partition_t mock_partition = {"storage", 65536, 0};
 static bool partition_exists = true;
 
 const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
@@ -486,6 +486,123 @@ static int test_corrupt_format_version_zero(void) {
     return 0;
 }
 
+static int test_metadata_save_load(void) {
+    TEST("metadata save/load roundtrip");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    group_metadata_t meta = {0};
+    meta.threshold = 2;
+    meta.participant_count = 3;
+    meta.our_index = 1;
+    meta.created_at = 1234567890;
+    meta.group_pubkey[0] = 0x02;
+    meta.participants[0].index = 1;
+    meta.participants[1].index = 2;
+    meta.participants[2].index = 3;
+
+    if (storage_save_metadata("testgroup", &meta) != 0)
+        FAIL("save metadata failed");
+    if (!storage_has_metadata("testgroup"))
+        FAIL("metadata should exist");
+
+    group_metadata_t loaded;
+    if (storage_load_metadata("testgroup", &loaded) != 0)
+        FAIL("load metadata failed");
+    if (loaded.threshold != 2)
+        FAIL("threshold mismatch");
+    if (loaded.participant_count != 3)
+        FAIL("participant_count mismatch");
+    if (loaded.our_index != 1)
+        FAIL("our_index mismatch");
+    if (loaded.created_at != 1234567890)
+        FAIL("created_at mismatch");
+
+    PASS();
+    return 0;
+}
+
+static int test_metadata_not_found(void) {
+    TEST("metadata not found");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    group_metadata_t loaded;
+    if (storage_load_metadata("nonexistent", &loaded) != STORAGE_ERR_NOT_FOUND)
+        FAIL("should return not found");
+    if (storage_has_metadata("nonexistent"))
+        FAIL("should not have metadata");
+
+    PASS();
+    return 0;
+}
+
+static int test_session_checkpoint_save_load(void) {
+    TEST("session checkpoint save/load roundtrip");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    uint8_t session_id[32];
+    memset(session_id, 0xAA, sizeof(session_id));
+
+    uint8_t data[128];
+    memset(data, 0xBB, sizeof(data));
+
+    if (storage_save_session_checkpoint(session_id, data, sizeof(data)) != 0)
+        FAIL("save checkpoint failed");
+    if (!storage_has_session_checkpoint(session_id))
+        FAIL("checkpoint should exist");
+
+    uint8_t loaded[128];
+    if (storage_load_session_checkpoint(session_id, loaded, sizeof(loaded)) != 0)
+        FAIL("load checkpoint failed");
+    if (memcmp(data, loaded, sizeof(data)) != 0)
+        FAIL("data mismatch");
+
+    if (storage_count_session_checkpoints() != 1)
+        FAIL("count should be 1");
+
+    if (storage_delete_session_checkpoint(session_id) != 0)
+        FAIL("delete failed");
+    if (storage_has_session_checkpoint(session_id))
+        FAIL("checkpoint should not exist after delete");
+    if (storage_count_session_checkpoints() != 0)
+        FAIL("count should be 0 after delete");
+
+    PASS();
+    return 0;
+}
+
+static int test_session_checkpoint_list(void) {
+    TEST("session checkpoint list");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    uint8_t session_id1[32], session_id2[32];
+    memset(session_id1, 0x11, sizeof(session_id1));
+    memset(session_id2, 0x22, sizeof(session_id2));
+
+    uint8_t data[64];
+    memset(data, 0xCC, sizeof(data));
+
+    if (storage_save_session_checkpoint(session_id1, data, sizeof(data)) != 0)
+        FAIL("save first failed");
+    if (storage_save_session_checkpoint(session_id2, data, sizeof(data)) != 0)
+        FAIL("save second failed");
+
+    uint8_t ids[4][32];
+    int count = storage_list_session_checkpoints(ids, 4);
+    if (count != 2)
+        FAIL("should have 2 checkpoints");
+
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== Storage Native Tests ===\n\n");
 
@@ -510,6 +627,10 @@ int main(void) {
     failures += test_no_migration_for_v2();
     failures += test_aad_passed_to_crypto();
     failures += test_corrupt_format_version_zero();
+    failures += test_metadata_save_load();
+    failures += test_metadata_not_found();
+    failures += test_session_checkpoint_save_load();
+    failures += test_session_checkpoint_list();
 
     printf("\n");
     if (failures == 0) {

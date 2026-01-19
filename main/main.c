@@ -268,6 +268,15 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     case RPC_METHOD_RESTART:
         handle_restart(req, resp);
         break;
+    case RPC_METHOD_EXPORT_SHARE:
+        frost_export_share(req->group, resp);
+        break;
+    case RPC_METHOD_SESSION_RESUME:
+        frost_session_resume(req->session_id, resp);
+        break;
+    case RPC_METHOD_SESSION_LIST:
+        frost_session_list(resp);
+        break;
     default:
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
     }
