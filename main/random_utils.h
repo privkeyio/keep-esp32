@@ -28,4 +28,7 @@ int rng_health_check(const uint8_t *buf, size_t len);
 void rng_get_health(rng_health_stats_t *stats);
 bool rng_is_healthy(void);
 
+#include "secresult.h"
+secresult_t rng_is_healthy_secure(void);
+
 #endif

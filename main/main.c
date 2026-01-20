@@ -18,6 +18,7 @@
 #include "policy.h"
 #include "secresult.h"
 #include "random_utils.h"
+#include "anti_glitch.h"
 #include "hex_utils.h"
 #include "ux_interface.h"
 #include "self_test.h"
@@ -31,9 +32,12 @@ static int consecutive_errors = 0;
 static bool psbt_initialized = false;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
-    char result[96];
-    snprintf(result, sizeof(result), "{\"pong\":true,\"version\":\"%s\",\"protocol_version\":%d}",
-             VERSION, PROTOCOL_API_VERSION);
+    uint32_t boot_counter = 0;
+    ag_get_boot_counter(&boot_counter);
+    char result[128];
+    snprintf(result, sizeof(result),
+             "{\"pong\":true,\"version\":\"%s\",\"protocol_version\":%d,\"boot_counter\":%lu}",
+             VERSION, PROTOCOL_API_VERSION, (unsigned long)boot_counter);
     protocol_success(resp, req->id, result);
 }
 
@@ -288,14 +292,20 @@ void app_main(void) {
     ESP_LOGI(TAG, "  Version: %s", VERSION);
     ESP_LOGI(TAG, "=================================");
 
+    ag_init();
+
     if (rng_init() != 0) {
         ESP_LOGE(TAG, "RNG self-test failed, restarting");
         esp_restart();
     }
 
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
+
     if (storage_init() != 0) {
         ESP_LOGW(TAG, "Storage init failed, continuing without storage");
     }
+
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 
     if (storage_crypto_init(NULL) != 0) {
         ESP_LOGE(TAG, "Storage crypto init failed - share storage operations will be unavailable");
@@ -310,14 +320,20 @@ void app_main(void) {
         }
     }
 
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
+
     if (self_test_run_all() != 0) {
         ESP_LOGE(TAG, "Critical self-test failed, restarting");
         esp_restart();
     }
 
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
+
     if (policy_init() != 0) {
         ESP_LOGW(TAG, "Policy init failed, continuing without policy");
     }
+
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 
     frost_signer_init();
 
@@ -329,10 +345,14 @@ void app_main(void) {
         ESP_LOGI(TAG, "PSBT support initialized");
     }
 
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
+
     if (serial_init() != 0) {
         ESP_LOGE(TAG, "Serial init failed, restarting");
         esp_restart();
     }
+
+    ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 
     if (ux_init() != 0) {
         ESP_LOGE(TAG, "UX init failed, restarting");

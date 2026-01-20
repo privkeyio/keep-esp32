@@ -52,7 +52,7 @@ target_include_directories(test_secure_element PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     ${CMAKE_CURRENT_SOURCE_DIR}/../../components/secure_element/include
 )
-target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1)
+target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1 SE_MOCK_SKIP_IMPL=1)
 
 add_executable(test_frost_signer_core test_frost_signer_core.c ${MAIN_DIR}/frost_signer_core.c ${MAIN_DIR}/frost.c ${MAIN_DIR}/random_utils.c ${MAIN_DIR}/hw_entropy.c)
 target_include_directories(test_frost_signer_core PRIVATE
@@ -141,3 +141,9 @@ else()
     message(STATUS "Skipping test_psbt_fraud_integration (libwally-core not found)")
 endif()
 
+add_executable(test_anti_glitch test_anti_glitch.c ${MAIN_DIR}/anti_glitch.c)
+target_include_directories(test_anti_glitch PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
+target_compile_definitions(test_anti_glitch PRIVATE NATIVE_TEST=1)

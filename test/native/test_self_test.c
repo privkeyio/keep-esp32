@@ -6,6 +6,7 @@
 #include "esp_partition.h"
 #include "esp_log.h"
 #include "crypto_asm.h"
+#include "secresult.h"
 #include "storage_crypto.h"
 #include "nostr.h"
 
@@ -55,6 +56,10 @@ int rng_fill_checked(uint8_t *buf, size_t len) {
 
 bool rng_is_healthy(void) {
     return !mock_rng_fails;
+}
+
+secresult_t rng_is_healthy_secure(void) {
+    return mock_rng_fails ? SECRESULT_FALSE : SECRESULT_TRUE;
 }
 
 int rng_init(void) {

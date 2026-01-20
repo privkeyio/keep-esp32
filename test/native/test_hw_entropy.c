@@ -6,6 +6,7 @@
 
 #include "hw_entropy.h"
 #include "random_utils.h"
+#include "secresult.h"
 
 #ifdef HAS_OPENSSL
 #include <openssl/sha.h>
@@ -85,6 +86,17 @@ static int test_rng_init(void) {
     return 0;
 }
 
+static int test_rng_is_healthy_secure(void) {
+    TEST("rng_is_healthy_secure");
+    if (rng_init() != 0)
+        FAIL("rng_init failed");
+    secresult_t result = rng_is_healthy_secure();
+    if (!SECRESULT_IS_TRUE(result))
+        FAIL("should return SECRESULT_TRUE when healthy");
+    PASS();
+    return 0;
+}
+
 static int test_health_stats_counters(void) {
     TEST("health stats include entropy counters");
     rng_health_stats_t stats;
@@ -153,6 +165,7 @@ int main(void) {
     failed += test_hw_entropy_edge_cases();
     failed += test_secure_random_fill();
     failed += test_rng_init();
+    failed += test_rng_is_healthy_secure();
     failed += test_health_stats_counters();
 #ifdef HAS_OPENSSL
     failed += test_sha256_whitening_mock();

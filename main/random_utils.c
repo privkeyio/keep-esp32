@@ -3,6 +3,7 @@
 
 #include "random_utils.h"
 #include "crypto_asm.h"
+#include "secresult.h"
 #include <string.h>
 
 #define RNG_SELF_TEST_SIZE        64
@@ -131,4 +132,8 @@ void rng_get_health(rng_health_stats_t *stats) {
 
 bool rng_is_healthy(void) {
     return g_rng_stats.healthy;
+}
+
+secresult_t rng_is_healthy_secure(void) {
+    return g_rng_stats.healthy ? SECRESULT_TRUE : SECRESULT_FALSE;
 }
