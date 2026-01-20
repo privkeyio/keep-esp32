@@ -325,6 +325,7 @@ All participants must start within 5 minutes. On success, each device stores its
 | `ping` | Health check, returns version |
 | `list_shares` | List stored group identifiers |
 | `import_share` | Import FROST share for a group |
+| `export_share` | Export encrypted share for backup (requires passphrase) |
 | `delete_share` | Remove share from storage |
 | `get_share_pubkey` | Get public key for stored share |
 | `get_share_info` | Get share metadata (pubkey, index, threshold, participants) |
