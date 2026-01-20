@@ -102,8 +102,9 @@ static int analyze_fees_internal(const struct wally_psbt *psbt, uint64_t total_i
 
     if (analysis->fee_sats > PSBT_FRAUD_FEE_WARN_ABS_SATS) {
         analysis->fee_warning = true;
-        int ret = snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
-                           "Fee exceeds %llu sats", (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
+        int ret =
+            snprintf(analysis->warning_msg, sizeof(analysis->warning_msg), "Fee exceeds %llu sats",
+                     (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
         if (ret < 0 || (size_t)ret >= sizeof(analysis->warning_msg)) {
             memcpy(analysis->warning_msg, "High fee", 9);
         }
@@ -304,7 +305,8 @@ static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
         for (size_t j = 0; j < 5; j++) {
             temp_path[j] = ct_select32(temp_path[j], candidate_path[j], use_this);
         }
-        temp_path_len = ct_select32((uint32_t)temp_path_len, (uint32_t)candidate_path_len, use_this);
+        temp_path_len =
+            ct_select32((uint32_t)temp_path_len, (uint32_t)candidate_path_len, use_this);
         found |= valid;
     }
 
