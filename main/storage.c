@@ -670,9 +670,10 @@ bool storage_has_share(const char *group) {
 static uint32_t checkpoint_counter = 0;
 static bool checkpoint_counter_loaded = false;
 
-#define EXPORT_RATE_LIMIT_WINDOW_MS 60000
-#define EXPORT_RATE_LIMIT_MAX       3
-#define EXPORT_LOCKOUT_MS           300000
+#define EXPORT_RATE_LIMIT_WINDOW_MS   60000
+#define EXPORT_RATE_LIMIT_MAX         3
+#define EXPORT_LOCKOUT_MS             300000
+#define EXPORT_LOCKOUT_FAILURE_THRESH 5
 
 static uint32_t export_attempt_times[EXPORT_RATE_LIMIT_MAX];
 static uint8_t export_attempt_count = 0;
@@ -694,26 +695,26 @@ static uint32_t get_time_ms(void) {
 #endif
 
 #define EXPORT_PBKDF2_ITERATIONS 100000
+#define EXPORT_AAD_LEN           40
 
 static const uint8_t EXPORT_HKDF_INFO[] = "share-export-encryption";
 
 static int derive_export_key(const char *passphrase, size_t pass_len,
                              const uint8_t salt[STORAGE_EXPORT_SALT_LEN], uint8_t key_out[32]) {
-    uint8_t stretched_key[32];
-
+    uint8_t stretched[32];
     int ret = mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, (const unsigned char *)passphrase,
                                             pass_len, salt, STORAGE_EXPORT_SALT_LEN,
-                                            EXPORT_PBKDF2_ITERATIONS, 32, stretched_key);
+                                            EXPORT_PBKDF2_ITERATIONS, sizeof(stretched), stretched);
     if (ret != 0) {
-        secure_memzero(stretched_key, sizeof(stretched_key));
+        secure_memzero(stretched, sizeof(stretched));
         return -1;
     }
 
-    ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), NULL, 0, stretched_key, 32,
-                       EXPORT_HKDF_INFO, sizeof(EXPORT_HKDF_INFO) - 1, key_out, 32);
-
-    secure_memzero(stretched_key, sizeof(stretched_key));
-    return ret == 0 ? 0 : -1;
+    ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), NULL, 0, stretched,
+                       sizeof(stretched), EXPORT_HKDF_INFO, sizeof(EXPORT_HKDF_INFO) - 1, key_out,
+                       32);
+    secure_memzero(stretched, sizeof(stretched));
+    return (ret == 0) ? 0 : -1;
 }
 
 int storage_export_check_rate_limit(void) {
@@ -753,8 +754,10 @@ void storage_export_record_attempt(bool success) {
     }
 
     if (!success) {
-        export_consecutive_failures++;
-        if (export_consecutive_failures >= 5) {
+        if (export_consecutive_failures < UINT8_MAX) {
+            export_consecutive_failures++;
+        }
+        if (export_consecutive_failures >= EXPORT_LOCKOUT_FAILURE_THRESH) {
             export_lockout_until = now + EXPORT_LOCKOUT_MS;
             ESP_LOGW(TAG, "Export lockout activated for %d seconds", EXPORT_LOCKOUT_MS / 1000);
         }
@@ -825,7 +828,7 @@ int storage_export_share(const char *group, const char *passphrase, share_export
         return STORAGE_ERR_EXPORT;
     }
 
-    uint8_t aad[1 + 2 + 2 + 2 + 33];
+    uint8_t aad[EXPORT_AAD_LEN];
     aad[0] = export_out->version;
     aad[1] = (uint8_t)(export_out->threshold >> 8);
     aad[2] = (uint8_t)(export_out->threshold & 0xFF);
@@ -833,7 +836,7 @@ int storage_export_share(const char *group, const char *passphrase, share_export
     aad[4] = (uint8_t)(export_out->participants & 0xFF);
     aad[5] = (uint8_t)(export_out->share_index >> 8);
     aad[6] = (uint8_t)(export_out->share_index & 0xFF);
-    memcpy(aad + 7, export_out->group_pubkey, 33);
+    memcpy(aad + 7, export_out->group_pubkey, sizeof(export_out->group_pubkey));
 
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);

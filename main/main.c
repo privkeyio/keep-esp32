@@ -163,23 +163,7 @@ static void handle_export_share(const rpc_request_t *req, rpc_response_t *resp) 
     int ret = storage_export_share(req->group, req->passphrase, &export_data);
     if (ret != STORAGE_OK) {
         storage_export_record_attempt(false);
-        switch (ret) {
-        case STORAGE_ERR_NOT_FOUND:
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
-            break;
-        case STORAGE_ERR_INVALID_GROUP:
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
-            break;
-        case STORAGE_ERR_INVALID_DATA:
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid passphrase");
-            break;
-        case STORAGE_ERR_DECRYPT:
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Decryption failed");
-            break;
-        default:
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Export failed");
-            break;
-        }
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Export failed");
         return;
     }
 
