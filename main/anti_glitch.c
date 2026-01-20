@@ -89,6 +89,7 @@ uint32_t ag_get_cycle_count(void) {
 #endif
 
 static bool g_initialized = false;
+static bool g_se_protected = false;
 static uint32_t g_boot_counter = 0;
 
 int ag_init(void) {
@@ -97,11 +98,13 @@ int ag_init(void) {
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 
+    g_se_protected = false;
     se_status_t se_ret = se_init();
     if (se_ret == SE_OK) {
         uint32_t counter = 0;
         if (se_increment_counter(&counter) == SE_OK) {
             g_boot_counter = counter;
+            g_se_protected = true;
 #ifdef ESP_PLATFORM
             ESP_LOGI(TAG, "Boot counter: %lu", (unsigned long)g_boot_counter);
 #endif
@@ -121,6 +124,10 @@ int ag_init(void) {
     return 0;
 }
 
+bool ag_is_se_protected(void) {
+    return g_se_protected;
+}
+
 int ag_increment_boot_counter(void) {
     uint32_t new_value;
     se_status_t ret = se_increment_counter(&new_value);
@@ -131,18 +138,26 @@ int ag_increment_boot_counter(void) {
 }
 
 int ag_get_boot_counter(uint32_t *value) {
+    return ag_get_boot_counter_ex(value, NULL);
+}
+
+int ag_get_boot_counter_ex(uint32_t *value, bool *from_se) {
     if (!value)
-        return -1;
+        return AG_COUNTER_ERROR;
 
     uint32_t se_value;
     se_status_t ret = se_get_counter(&se_value);
     if (ret == SE_OK) {
         *value = se_value;
-        return 0;
+        if (from_se)
+            *from_se = true;
+        return AG_COUNTER_FROM_SE;
     }
 
     *value = g_boot_counter;
-    return 0;
+    if (from_se)
+        *from_se = false;
+    return AG_COUNTER_FROM_CACHE;
 }
 
 bool ag_check_min_cycles(uint32_t start, uint32_t min_cycles) {

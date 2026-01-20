@@ -32,6 +32,10 @@ static uint32_t get_time_ms(void) {
 }
 #endif
 
+static uint32_t elapsed_ms(uint32_t start, uint32_t now) {
+    return (now >= start) ? (now - start) : (UINT32_MAX - start + now + 1);
+}
+
 #define TAG                        "frost_signer"
 #define MAX_SESSIONS               4
 #define CONSUMED_SESSION_RING_SIZE 64
@@ -241,7 +245,9 @@ void frost_get_share_info(const char *group, rpc_response_t *resp) {
 
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex,
                   rpc_response_t *resp) {
-    if (!rng_is_healthy()) {
+    secresult_t rng_health = rng_is_healthy_secure();
+    rng_health = ag_verify_condition_secure(rng_health);
+    if (!SECRESULT_IS_TRUE(rng_health)) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL,
                        "RNG health check failed, device in safe mode");
         return;
@@ -340,7 +346,9 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
 
 void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex,
                 rpc_response_t *resp) {
-    if (!rng_is_healthy()) {
+    secresult_t rng_health = rng_is_healthy_secure();
+    rng_health = ag_verify_condition_secure(rng_health);
+    if (!SECRESULT_IS_TRUE(rng_health)) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL,
                        "RNG health check failed, device in safe mode");
         return;
@@ -467,14 +475,10 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
 void frost_signer_cleanup_stale(void) {
     uint32_t now = get_time_ms();
     for (int i = 0; i < MAX_SESSIONS; i++) {
-        if (sessions[i].active) {
-            uint32_t created = sessions[i].session.created_at;
-            uint32_t elapsed =
-                (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
-            if (elapsed > SESSION_TIMEOUT_MS) {
-                FROST_LOGW(TAG, "Cleaning up stale session");
-                free_session(&sessions[i]);
-            }
+        if (sessions[i].active &&
+            elapsed_ms(sessions[i].session.created_at, now) > SESSION_TIMEOUT_MS) {
+            FROST_LOGW(TAG, "Cleaning up stale session");
+            free_session(&sessions[i]);
         }
     }
 }
@@ -642,11 +646,9 @@ void frost_session_resume(const char *session_id_hex, rpc_response_t *resp) {
     }
 
     uint32_t now = get_time_ms();
-    uint32_t created = restored_session.created_at;
-    uint32_t elapsed = (now >= created) ? (now - created) : (UINT32_MAX - created + now + 1);
     uint32_t extended_timeout = SESSION_TIMEOUT_MS * 10;
 
-    if (elapsed > extended_timeout) {
+    if (elapsed_ms(restored_session.created_at, now) > extended_timeout) {
         session_checkpoint_clear(session_id);
         session_destroy(&restored_session);
         secure_memzero(nonce_backup, sizeof(nonce_backup));

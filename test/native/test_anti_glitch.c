@@ -78,7 +78,31 @@ static bool test_init(void) {
 static bool test_boot_counter(void) {
     uint32_t counter = 0;
     int ret = ag_get_boot_counter(&counter);
-    return ret == 0;
+    return ret >= 0;
+}
+
+static bool test_boot_counter_ex(void) {
+    uint32_t counter = 0;
+    bool from_se = true;
+    int ret = ag_get_boot_counter_ex(&counter, &from_se);
+    if (ret == AG_COUNTER_ERROR)
+        return false;
+    if (ret == AG_COUNTER_FROM_SE && !from_se)
+        return false;
+    if (ret == AG_COUNTER_FROM_CACHE && from_se)
+        return false;
+    return true;
+}
+
+static bool test_boot_counter_ex_null_flag(void) {
+    uint32_t counter = 0;
+    int ret = ag_get_boot_counter_ex(&counter, NULL);
+    return ret >= 0;
+}
+
+static bool test_is_se_protected(void) {
+    ag_is_se_protected();
+    return true;
 }
 
 static bool test_cycle_count(void) {
@@ -108,6 +132,9 @@ int main(void) {
     TEST(verify_condition_secure_rejects_zero);
     TEST(verify_condition_secure_rejects_max);
     TEST(boot_counter);
+    TEST(boot_counter_ex);
+    TEST(boot_counter_ex_null_flag);
+    TEST(is_se_protected);
     TEST(cycle_count);
     TEST(check_min_cycles);
 
