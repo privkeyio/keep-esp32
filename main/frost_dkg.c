@@ -44,7 +44,7 @@ typedef struct {
     uint8_t our_index;
     frost_dkg_round1_t our_round1;
     uint8_t secret_shares[DKG_MAX_PARTICIPANTS][32];
-    size_t secret_share_count;
+    uint8_t secret_share_count;
     frost_dkg_round1_t peer_round1[DKG_MAX_PARTICIPANTS];
     uint8_t peer_round1_count;
     frost_dkg_share_t received_shares[DKG_MAX_PARTICIPANTS];
@@ -169,13 +169,15 @@ void dkg_round1(const rpc_request_t *req, rpc_response_t *resp) {
     frost_group_t group = {.threshold = g_session.threshold,
                            .participant_count = g_session.participant_count};
 
+    size_t share_count = 0;
     int ret = frost_dkg_round1_generate(&group, g_session.our_index, &g_session.our_round1,
-                                        (uint8_t *)g_session.secret_shares,
-                                        &g_session.secret_share_count);
+                                        (uint8_t *)g_session.secret_shares, &share_count);
     if (ret != 0) {
         PROTOCOL_ERROR(resp, req->id, -1, "Round 1 generation failed");
         return;
     }
+    g_session.secret_share_count =
+        (share_count > DKG_MAX_PARTICIPANTS) ? DKG_MAX_PARTICIPANTS : (uint8_t)share_count;
 
     g_session.state = DKG_ROUND2;
     ESP_LOGI(TAG, "DKG state: ROUND1 -> ROUND2");
@@ -511,7 +513,7 @@ int dkg_checkpoint_save(const char *session_id) {
     cp.our_index = g_session.our_index;
     memcpy(&cp.our_round1, &g_session.our_round1, sizeof(cp.our_round1));
     memcpy(cp.secret_shares, g_session.secret_shares, sizeof(cp.secret_shares));
-    cp.secret_share_count = (uint8_t)g_session.secret_share_count;
+    cp.secret_share_count = g_session.secret_share_count;
     memcpy(cp.peer_round1, g_session.peer_round1, sizeof(cp.peer_round1));
     cp.peer_round1_count = g_session.peer_round1_count;
     memcpy(cp.received_shares, g_session.received_shares, sizeof(cp.received_shares));
