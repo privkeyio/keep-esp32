@@ -14,14 +14,14 @@
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
 
-#define COLOR_BG        lv_color_hex(0x0d1117)
-#define COLOR_SURFACE   lv_color_hex(0x161b22)
-#define COLOR_ACCENT    lv_color_hex(0x58a6ff)
-#define COLOR_DANGER    lv_color_hex(0xf85149)
-#define COLOR_SUCCESS   lv_color_hex(0x3fb950)
-#define COLOR_WARNING   lv_color_hex(0xd29922)
-#define COLOR_TEXT      lv_color_hex(0xf0f6fc)
-#define COLOR_MUTED     lv_color_hex(0x8b949e)
+#define COLOR_BG      lv_color_hex(0x0d1117)
+#define COLOR_SURFACE lv_color_hex(0x161b22)
+#define COLOR_ACCENT  lv_color_hex(0x58a6ff)
+#define COLOR_DANGER  lv_color_hex(0xf85149)
+#define COLOR_SUCCESS lv_color_hex(0x3fb950)
+#define COLOR_WARNING lv_color_hex(0xd29922)
+#define COLOR_TEXT    lv_color_hex(0xf0f6fc)
+#define COLOR_MUTED   lv_color_hex(0x8b949e)
 
 static ui_state_t current_state = UI_STATE_IDLE;
 static ux_decision_cb_t pending_callback = NULL;
@@ -30,7 +30,8 @@ static lv_obj_t *current_screen = NULL;
 static lv_obj_t *signing_bar = NULL;
 static lv_obj_t *signing_label = NULL;
 
-static void create_idle_screen(const char *device_name, bool policy_loaded, uint32_t policy_version);
+static void create_idle_screen(const char *device_name, bool policy_loaded,
+                               uint32_t policy_version);
 static void create_scanning_screen(void);
 static void create_transaction_screen(const ux_tx_info_t *tx);
 static void create_signing_screen(int current, int total);
@@ -39,15 +40,13 @@ static void create_error_screen(const char *title, const char *message);
 static void create_success_screen(const char *message);
 
 static int display_init(void) {
-    bsp_display_cfg_t cfg = {
-        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
-        .buffer_size = SCREEN_WIDTH * 20,
-        .double_buffer = false,
-        .flags = {
-            .buff_dma = true,
-            .buff_spiram = false,
-        }
-    };
+    bsp_display_cfg_t cfg = {.lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
+                             .buffer_size = SCREEN_WIDTH * 20,
+                             .double_buffer = false,
+                             .flags = {
+                                 .buff_dma = true,
+                                 .buff_spiram = false,
+                             }};
     cfg.lvgl_port_cfg.task_affinity = 1;
 
     lv_display_t *disp = bsp_display_start_with_config(&cfg);
@@ -74,7 +73,8 @@ static void clear_screen(void) {
     signing_label = NULL;
 }
 
-static void display_show_idle(const char *device_name, bool policy_loaded, uint32_t policy_version) {
+static void display_show_idle(const char *device_name, bool policy_loaded,
+                              uint32_t policy_version) {
     bsp_display_lock(0);
     clear_screen();
     create_idle_screen(device_name, policy_loaded, policy_version);
@@ -145,8 +145,8 @@ static void reject_btn_cb(lv_event_t *e) {
     }
 }
 
-static void display_confirm_transaction(const ux_tx_info_t *tx,
-                                         ux_decision_cb_t cb, void *user_data) {
+static void display_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t cb,
+                                        void *user_data) {
     pending_callback = cb;
     pending_user_data = user_data;
 
@@ -195,7 +195,8 @@ static void scan_btn_cb(lv_event_t *e) {
     (void)e;
 }
 
-static void create_idle_screen(const char *device_name, bool policy_loaded, uint32_t policy_version) {
+static void create_idle_screen(const char *device_name, bool policy_loaded,
+                               uint32_t policy_version) {
     current_screen = lv_obj_create(lv_scr_act());
     lv_obj_set_size(current_screen, SCREEN_WIDTH, SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
