@@ -46,6 +46,7 @@ esp_err_t esp_partition_read(const esp_partition_t *partition, size_t src_offset
     return ESP_OK;
 }
 
+#define RANDOM_UTILS_CUSTOM_IMPL
 #include "random_utils.h"
 
 int rng_fill_checked(uint8_t *buf, size_t len) {
