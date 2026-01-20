@@ -819,7 +819,7 @@ int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_le
     if (header.counter != current_counter)
         return STORAGE_ERR_CHECKPOINT_EXPIRED;
 
-    if (header.data_len > max_len || header.data_len > STORAGE_CHECKPOINT_MAX_SIZE)
+    if (header.data_len > max_len || header.data_len > STORAGE_CHECKPOINT_MAX_SIZE - sizeof(header))
         return STORAGE_ERR_INVALID_DATA;
 
     uint8_t *encrypted = malloc(header.data_len);

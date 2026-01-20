@@ -566,9 +566,9 @@ static int dkg_checkpoint_load(const char *session_id, dkg_session_t *session) {
         (cp.threshold >= 2) && (cp.threshold <= DKG_MAX_THRESHOLD) &&
         (cp.participant_count >= cp.threshold) && (cp.participant_count <= DKG_MAX_PARTICIPANTS) &&
         (cp.our_index >= 1) && (cp.our_index <= cp.participant_count) &&
-        (cp.peer_round1_count <= DKG_MAX_PARTICIPANTS) &&
-        (cp.received_share_count <= DKG_MAX_PARTICIPANTS) &&
-        (cp.secret_share_count <= DKG_MAX_PARTICIPANTS) && (cp.our_round1.num_coefficients >= 1) &&
+        (cp.peer_round1_count <= cp.participant_count - 1) &&
+        (cp.received_share_count <= cp.participant_count - 1) &&
+        (cp.secret_share_count <= cp.participant_count) && (cp.our_round1.num_coefficients >= 1) &&
         (cp.our_round1.num_coefficients <= MAX_THRESHOLD);
     if (!valid) {
         ret = STORAGE_ERR_INVALID_DATA;
