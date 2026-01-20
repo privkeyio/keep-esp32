@@ -800,6 +800,11 @@ int storage_export_share(const char *group, const char *passphrase, share_export
         return STORAGE_ERR_INVALID_DATA;
     }
 
+    if (share_len > STORAGE_SHARE_LEN) {
+        secure_memzero(share_bytes, sizeof(share_bytes));
+        return STORAGE_ERR_INVALID_DATA;
+    }
+
     frost_state_t frost_state;
     if (frost_init(&frost_state, share_bytes, share_len) != 0) {
         secure_memzero(share_bytes, sizeof(share_bytes));
@@ -856,6 +861,7 @@ int storage_export_share(const char *group, const char *passphrase, share_export
     mbedtls_gcm_free(&gcm);
     secure_memzero(share_bytes, sizeof(share_bytes));
     if (ret != 0) {
+        secure_memzero(aad, sizeof(aad));
         secure_memzero(export_out, sizeof(share_export_t));
         return STORAGE_ERR_EXPORT;
     }
@@ -872,6 +878,7 @@ int storage_export_share(const char *group, const char *passphrase, share_export
     mbedtls_sha256_update(&sha_ctx, export_out->encrypted_share, export_out->encrypted_len);
     mbedtls_sha256_finish(&sha_ctx, export_out->checksum);
     mbedtls_sha256_free(&sha_ctx);
+    secure_memzero(aad, sizeof(aad));
 
     return STORAGE_OK;
 }

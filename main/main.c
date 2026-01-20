@@ -192,6 +192,11 @@ static void handle_export_share(const rpc_request_t *req, rpc_response_t *resp) 
              export_data.participants, pubkey_hex, encrypted_hex, nonce_hex, salt_hex,
              checksum_hex);
     secure_memzero(&export_data, sizeof(export_data));
+    secure_memzero(pubkey_hex, sizeof(pubkey_hex));
+    secure_memzero(encrypted_hex, sizeof(encrypted_hex));
+    secure_memzero(nonce_hex, sizeof(nonce_hex));
+    secure_memzero(salt_hex, sizeof(salt_hex));
+    secure_memzero(checksum_hex, sizeof(checksum_hex));
     protocol_success(resp, req->id, result);
 }
 
@@ -472,10 +477,10 @@ void app_main(void) {
             memset(&resp, 0, sizeof(resp));
             if (protocol_parse_request(line_buf, &req) == 0) {
                 handle_request(&req, &resp);
-                protocol_free_request(&req);
             } else {
                 PROTOCOL_ERROR(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
             }
+            protocol_free_request(&req);
             if (resp.success) {
                 consecutive_errors = 0;
             } else {
