@@ -7,10 +7,11 @@
 #include "crypto_asm.h"
 #include "hex_utils.h"
 #include "random_utils.h"
+#include <ctype.h>
 #include <stdbool.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
@@ -533,36 +534,45 @@ int dkg_checkpoint_save(const char *session_id) {
     return ret;
 }
 
+static bool dkg_validate_group_name(const char *group) {
+    size_t len = strnlen(group, sizeof(((dkg_session_t *)0)->group));
+    if (len == 0 || len >= sizeof(((dkg_session_t *)0)->group))
+        return false;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)group[i];
+        if (!isalnum(c) && c != '_' && c != '-')
+            return false;
+    }
+    return true;
+}
+
 static int dkg_checkpoint_load(const char *session_id, dkg_session_t *session) {
     if (!session_id || !session)
         return -1;
 
     dkg_checkpoint_t cp;
     size_t loaded_len = 0;
-
     int ret = storage_checkpoint_load(session_id, (uint8_t *)&cp, sizeof(cp), &loaded_len);
-    if (ret != STORAGE_OK) {
-        secure_memzero(&cp, sizeof(cp));
-        return ret;
-    }
+    if (ret != STORAGE_OK)
+        goto cleanup;
 
-    bool valid_version = (loaded_len == sizeof(cp) && cp.version == DKG_CHECKPOINT_VERSION);
-    bool valid_state = (cp.state == DKG_ROUND1 || cp.state == DKG_ROUND2);
-    if (!valid_version || !valid_state) {
-        secure_memzero(&cp, sizeof(cp));
-        return STORAGE_ERR_INVALID_DATA;
-    }
+    cp.session_id[DKG_SESSION_ID_LEN] = '\0';
+    cp.group[sizeof(cp.group) - 1] = '\0';
 
-    bool valid_params = cp.threshold >= 2 && cp.threshold <= DKG_MAX_THRESHOLD &&
-                        cp.participant_count >= cp.threshold &&
-                        cp.participant_count <= DKG_MAX_PARTICIPANTS && cp.our_index >= 1 &&
-                        cp.our_index <= cp.participant_count &&
-                        cp.peer_round1_count <= DKG_MAX_PARTICIPANTS &&
-                        cp.received_share_count <= DKG_MAX_PARTICIPANTS &&
-                        cp.secret_share_count <= DKG_MAX_PARTICIPANTS;
-    if (!valid_params) {
-        secure_memzero(&cp, sizeof(cp));
-        return STORAGE_ERR_INVALID_DATA;
+    bool valid =
+        (loaded_len == sizeof(cp)) && (cp.version == DKG_CHECKPOINT_VERSION) &&
+        (cp.state == DKG_ROUND1 || cp.state == DKG_ROUND2) &&
+        (strcmp(cp.session_id, session_id) == 0) && dkg_validate_group_name(cp.group) &&
+        (cp.threshold >= 2) && (cp.threshold <= DKG_MAX_THRESHOLD) &&
+        (cp.participant_count >= cp.threshold) && (cp.participant_count <= DKG_MAX_PARTICIPANTS) &&
+        (cp.our_index >= 1) && (cp.our_index <= cp.participant_count) &&
+        (cp.peer_round1_count <= DKG_MAX_PARTICIPANTS) &&
+        (cp.received_share_count <= DKG_MAX_PARTICIPANTS) &&
+        (cp.secret_share_count <= DKG_MAX_PARTICIPANTS) && (cp.our_round1.num_coefficients >= 1) &&
+        (cp.our_round1.num_coefficients <= MAX_THRESHOLD);
+    if (!valid) {
+        ret = STORAGE_ERR_INVALID_DATA;
+        goto cleanup;
     }
 
     memset(session, 0, sizeof(*session));
@@ -580,9 +590,11 @@ static int dkg_checkpoint_load(const char *session_id, dkg_session_t *session) {
     session->received_share_count = cp.received_share_count;
     strncpy(session->session_id, cp.session_id, DKG_SESSION_ID_LEN);
     session->session_id[DKG_SESSION_ID_LEN] = '\0';
+    ret = STORAGE_OK;
 
+cleanup:
     secure_memzero(&cp, sizeof(cp));
-    return STORAGE_OK;
+    return ret;
 }
 
 int dkg_checkpoint_clear(const char *session_id) {
@@ -608,15 +620,22 @@ void dkg_resume(const rpc_request_t *req, rpc_response_t *resp) {
     dkg_session_t loaded;
     int ret = dkg_checkpoint_load(req->session_id, &loaded);
     if (ret != STORAGE_OK) {
-        if (ret == STORAGE_ERR_NOT_FOUND) {
-            PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint not found");
-        } else if (ret == STORAGE_ERR_CHECKPOINT_EXPIRED) {
-            PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint expired");
-        } else if (ret == STORAGE_ERR_DECRYPT) {
-            PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint decryption failed");
-        } else {
-            PROTOCOL_ERROR(resp, req->id, -1, "Failed to load checkpoint");
+        const char *msg;
+        switch (ret) {
+        case STORAGE_ERR_NOT_FOUND:
+            msg = "Checkpoint not found";
+            break;
+        case STORAGE_ERR_CHECKPOINT_EXPIRED:
+            msg = "Checkpoint invalid or already consumed";
+            break;
+        case STORAGE_ERR_DECRYPT:
+            msg = "Checkpoint decryption failed";
+            break;
+        default:
+            msg = "Failed to load checkpoint";
+            break;
         }
+        PROTOCOL_ERROR(resp, req->id, -1, msg);
         return;
     }
 
