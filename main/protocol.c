@@ -3,6 +3,7 @@
 
 #include "protocol.h"
 #include "error_context.h"
+#include "crypto_asm.h"
 #include "cJSON.h"
 #include <stdint.h>
 #include <string.h>
@@ -201,6 +202,10 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
             snprintf(req->policy_bundle, sizeof(req->policy_bundle), "%s",
                      policy_bundle->valuestring);
         }
+        cJSON *passphrase = cJSON_GetObjectItem(params, "passphrase");
+        if (passphrase && cJSON_IsString(passphrase)) {
+            snprintf(req->passphrase, sizeof(req->passphrase), "%s", passphrase->valuestring);
+        }
     }
 
     cJSON_Delete(root);
@@ -208,9 +213,12 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
 }
 
 void protocol_free_request(rpc_request_t *req) {
-    if (req && req->psbt) {
-        free(req->psbt);
-        req->psbt = NULL;
+    if (req) {
+        secure_memzero(req->passphrase, sizeof(req->passphrase));
+        if (req->psbt) {
+            free(req->psbt);
+            req->psbt = NULL;
+        }
     }
 }
 

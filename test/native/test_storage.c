@@ -78,6 +78,8 @@ esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t off
 
 #include "hex_utils.h"
 #include "storage_crypto.h"
+#include "frost.h"
+#include "random_utils.h"
 #include "storage.h"
 #include "storage.c"
 
@@ -96,6 +98,12 @@ static void reset_flash(void) {
     storage_partition = NULL;
     checkpoint_initialized = false;
     checkpoint_partition = NULL;
+    checkpoint_counter = 0;
+    checkpoint_counter_loaded = false;
+    export_attempt_count = 0;
+    export_lockout_until = 0;
+    export_consecutive_failures = 0;
+    memset(export_attempt_times, 0, sizeof(export_attempt_times));
 }
 
 static int test_init(void) {
@@ -635,6 +643,105 @@ static int test_session_checkpoint_list(void) {
     return 0;
 }
 
+static int test_export_rate_limit_initial(void) {
+    TEST("export rate limit initial state");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    if (storage_export_check_rate_limit() != STORAGE_OK)
+        FAIL("initial state should allow exports");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_rate_limit_after_attempts(void) {
+    TEST("export rate limit after max attempts");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    for (int i = 0; i < EXPORT_RATE_LIMIT_MAX; i++) {
+        storage_export_record_attempt(true);
+    }
+
+    if (storage_export_check_rate_limit() != STORAGE_ERR_RATE_LIMITED)
+        FAIL("should be rate limited after max attempts");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_lockout_after_failures(void) {
+    TEST("export lockout after consecutive failures");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    for (int i = 0; i < EXPORT_LOCKOUT_FAILURE_THRESH; i++) {
+        storage_export_record_attempt(false);
+    }
+
+    if (storage_export_check_rate_limit() != STORAGE_ERR_RATE_LIMITED)
+        FAIL("should be locked out after consecutive failures");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_success_resets_failures(void) {
+    TEST("export success resets consecutive failures");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    for (int i = 0; i < EXPORT_LOCKOUT_FAILURE_THRESH - 1; i++) {
+        storage_export_record_attempt(false);
+    }
+
+    storage_export_record_attempt(true);
+
+    if (export_consecutive_failures != 0)
+        FAIL("success should reset consecutive failures counter");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_share_not_found(void) {
+    TEST("export share not found");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    share_export_t export_data;
+    int ret = storage_export_share("nonexistent", "password123", &export_data);
+    if (ret != STORAGE_ERR_NOT_FOUND)
+        FAIL("should return not found");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_share_invalid_passphrase(void) {
+    TEST("export share invalid passphrase");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    if (storage_save_share("testgroup", "deadbeef") != 0)
+        FAIL("save failed");
+
+    share_export_t export_data;
+    int ret = storage_export_share("testgroup", "short", &export_data);
+    if (ret != STORAGE_ERR_INVALID_DATA)
+        FAIL("should reject short passphrase");
+
+    PASS();
+    return 0;
+}
+
 static int test_checkpoint_save_load(void) {
     TEST("DKG checkpoint save/load roundtrip");
     reset_flash();
@@ -658,6 +765,38 @@ static int test_checkpoint_save_load(void) {
         FAIL("wrong data length");
     if (memcmp(loaded, data, sizeof(data)) != 0)
         FAIL("data mismatch");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_share_invalid_group(void) {
+    TEST("export share invalid group name");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    share_export_t export_data;
+    int ret = storage_export_share("bad/group", "password123", &export_data);
+    if (ret != STORAGE_ERR_INVALID_GROUP)
+        FAIL("should reject invalid group name");
+
+    PASS();
+    return 0;
+}
+
+static int test_export_consecutive_failures_overflow(void) {
+    TEST("export consecutive failures counter overflow protection");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    for (int i = 0; i < 300; i++) {
+        storage_export_record_attempt(false);
+    }
+
+    if (export_consecutive_failures != 255)
+        FAIL("counter should be capped at 255");
 
     PASS();
     return 0;
@@ -779,6 +918,14 @@ int main(void) {
     failures += test_metadata_not_found();
     failures += test_session_checkpoint_save_load();
     failures += test_session_checkpoint_list();
+    failures += test_export_rate_limit_initial();
+    failures += test_export_rate_limit_after_attempts();
+    failures += test_export_lockout_after_failures();
+    failures += test_export_success_resets_failures();
+    failures += test_export_share_not_found();
+    failures += test_export_share_invalid_passphrase();
+    failures += test_export_share_invalid_group();
+    failures += test_export_consecutive_failures_overflow();
 
     printf("\n=== DKG Checkpoint Tests ===\n\n");
     failures += test_checkpoint_save_load();

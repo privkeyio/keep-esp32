@@ -97,6 +97,10 @@ const char *error_name(int code) {
         return "STORAGE_MIGRATION";
     case ERR_STORAGE_ENCRYPT:
         return "STORAGE_ENCRYPT";
+    case ERR_STORAGE_EXPORT:
+        return "STORAGE_EXPORT";
+    case ERR_STORAGE_RATE_LIMITED:
+        return "STORAGE_RATE_LIMITED";
 
     case ERR_POLICY_DENIED:
         return "POLICY_DENIED";
@@ -251,6 +255,10 @@ const char *error_to_string(int code) {
         return "Migration failed";
     case ERR_STORAGE_ENCRYPT:
         return "Encryption failed";
+    case ERR_STORAGE_EXPORT:
+        return "Export operation failed";
+    case ERR_STORAGE_RATE_LIMITED:
+        return "Rate limited, try again later";
 
     case ERR_POLICY_DENIED:
         return "Policy denied operation";
