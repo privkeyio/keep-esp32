@@ -207,6 +207,36 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
     protocol_success(resp, req->id, result);
 }
 
+static void handle_dkg_checkpoint(const rpc_request_t *req, rpc_response_t *resp) {
+    size_t sid_len = strlen(req->session_id);
+    if (sid_len == 0) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "session_id required");
+        return;
+    }
+    if (sid_len > DKG_SESSION_ID_LEN) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "session_id too long");
+        return;
+    }
+
+    dkg_state_t state = dkg_get_state();
+    if (state != DKG_ROUND1 && state != DKG_ROUND2) {
+        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session to checkpoint");
+        return;
+    }
+
+    int ret = dkg_checkpoint_save(req->session_id);
+    if (ret == STORAGE_ERR_CHECKPOINT_EXISTS) {
+        PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint already exists");
+        return;
+    }
+    if (ret != 0) {
+        PROTOCOL_ERROR(resp, req->id, -1, "Failed to save checkpoint");
+        return;
+    }
+
+    protocol_success(resp, req->id, "{\"ok\":true}");
+}
+
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
     frost_signer_cleanup_stale();
@@ -253,6 +283,12 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         break;
     case RPC_METHOD_DKG_FINALIZE:
         dkg_finalize(req, resp);
+        break;
+    case RPC_METHOD_DKG_RESUME:
+        dkg_resume(req, resp);
+        break;
+    case RPC_METHOD_DKG_CHECKPOINT:
+        handle_dkg_checkpoint(req, resp);
         break;
     case RPC_METHOD_BITCOIN_PARSE:
         handle_bitcoin_parse(req, resp);
