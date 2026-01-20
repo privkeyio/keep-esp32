@@ -60,6 +60,16 @@ static bool test_verify_condition_secure_error(void) {
     return result == SECRESULT_ERR_POLICY_DENIED;
 }
 
+static bool test_verify_condition_secure_rejects_zero(void) {
+    secresult_t result = ag_verify_condition_secure(0);
+    return SECRESULT_IS_FALSE(result);
+}
+
+static bool test_verify_condition_secure_rejects_max(void) {
+    secresult_t result = ag_verify_condition_secure(UINT32_MAX);
+    return SECRESULT_IS_FALSE(result);
+}
+
 static bool test_init(void) {
     int ret = ag_init();
     return ret == 0;
@@ -95,6 +105,8 @@ int main(void) {
     TEST(verify_condition_secure_true);
     TEST(verify_condition_secure_false);
     TEST(verify_condition_secure_error);
+    TEST(verify_condition_secure_rejects_zero);
+    TEST(verify_condition_secure_rejects_max);
     TEST(boot_counter);
     TEST(cycle_count);
     TEST(check_min_cycles);

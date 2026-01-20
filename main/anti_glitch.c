@@ -153,12 +153,15 @@ bool ag_check_min_cycles(uint32_t start, uint32_t min_cycles) {
 
 secresult_t ag_verify_condition_secure(secresult_t condition) {
     volatile secresult_t r1 = condition;
-    ag_random_delay_us(100, 5000);
+    ag_random_delay_us(AG_DELAY_MIN_US / 10, AG_DELAY_MAX_US / 10);
     volatile secresult_t r2 = condition;
-    ag_random_delay_us(50, 2000);
+    ag_random_delay_us(AG_DELAY_MIN_US / 20, AG_DELAY_MAX_US / 20);
     volatile secresult_t r3 = condition;
 
     if (r1 != r2 || r2 != r3)
+        return SECRESULT_FALSE;
+
+    if (r1 == 0 || r1 == UINT32_MAX)
         return SECRESULT_FALSE;
 
     return r1;
