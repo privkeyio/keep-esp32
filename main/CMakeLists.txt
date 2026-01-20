@@ -17,7 +17,7 @@ set(PRIV_REQUIRES
 
 if(CONFIG_KEEP_DISPLAY_ENABLED)
     list(APPEND SRCS "ux_display.c" "touch_input.c")
-    list(APPEND PRIV_REQUIRES espressif__m5stack_core_s3)
+    list(APPEND PRIV_REQUIRES espressif__m5stack_core_s3 espressif__esp_lcd_touch espressif__esp_lvgl_port)
 endif()
 
 idf_component_register(

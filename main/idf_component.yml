@@ -5,4 +5,3 @@ dependencies:
     version: "*"
     rules:
       - if: "idf_version >=5.0"
-      - if: "CONFIG_KEEP_DISPLAY_ENABLED=y"

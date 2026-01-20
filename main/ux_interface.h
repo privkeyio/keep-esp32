@@ -19,6 +19,9 @@ typedef struct {
     int output_count;
     bool policy_approved;
     const char *policy_note;
+    bool is_external;
+    uint8_t threshold;
+    uint8_t total_signers;
 } ux_tx_info_t;
 
 typedef void (*ux_decision_cb_t)(bool approved, void *user_data);

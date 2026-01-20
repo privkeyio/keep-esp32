@@ -15,12 +15,10 @@ CONFIG_SE_MOCK_MODE=n
 CONFIG_PRODUCTION_BUILD=n
 
 # Display/UX - disabled by default for headless operation
-CONFIG_KEEP_DISPLAY_ENABLED=n
+CONFIG_KEEP_DISPLAY_ENABLED=y
 
-# SPIRAM for LVGL (only used when display enabled)
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
+# CoreS3 Lite has no PSRAM (regular CoreS3 does)
+CONFIG_SPIRAM=n
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
 # BSP display settings (only used when display enabled)
