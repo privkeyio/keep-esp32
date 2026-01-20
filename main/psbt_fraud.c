@@ -91,24 +91,30 @@ static int analyze_fees_internal(const struct wally_psbt *psbt, uint64_t total_i
     analysis->send_amount_sats = total_out;
 
     if (analysis->send_amount_sats > 0) {
+        uint64_t percent;
         if (analysis->fee_sats <= UINT64_MAX / 10000) {
-            analysis->fee_percent_x100 =
-                (uint32_t)((analysis->fee_sats * 10000) / analysis->send_amount_sats);
+            percent = (analysis->fee_sats * 10000) / analysis->send_amount_sats;
         } else {
-            analysis->fee_percent_x100 =
-                (uint32_t)((analysis->fee_sats / analysis->send_amount_sats) * 10000);
+            percent = (analysis->fee_sats / analysis->send_amount_sats) * 10000;
         }
+        analysis->fee_percent_x100 = (percent > UINT32_MAX) ? UINT32_MAX : (uint32_t)percent;
     }
 
     if (analysis->fee_sats > PSBT_FRAUD_FEE_WARN_ABS_SATS) {
         analysis->fee_warning = true;
-        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg), "Fee exceeds %llu sats",
-                 (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
+        int ret = snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
+                           "Fee exceeds %llu sats", (unsigned long long)PSBT_FRAUD_FEE_WARN_ABS_SATS);
+        if (ret < 0 || (size_t)ret >= sizeof(analysis->warning_msg)) {
+            memcpy(analysis->warning_msg, "High fee", 9);
+        }
     } else if (analysis->fee_percent_x100 > PSBT_FRAUD_FEE_WARN_PERCENT * 100) {
         analysis->fee_warning = true;
-        snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
-                 "Fee is %" PRIu32 ".%02" PRIu32 "%% of amount", analysis->fee_percent_x100 / 100,
-                 analysis->fee_percent_x100 % 100);
+        int ret = snprintf(analysis->warning_msg, sizeof(analysis->warning_msg),
+                           "Fee is %" PRIu32 ".%02" PRIu32 "%% of amount",
+                           analysis->fee_percent_x100 / 100, analysis->fee_percent_x100 % 100);
+        if (ret < 0 || (size_t)ret >= sizeof(analysis->warning_msg)) {
+            memcpy(analysis->warning_msg, "High fee %", 11);
+        }
     }
 
     return 0;
@@ -157,6 +163,10 @@ static int analyze_scripts_internal(const struct wally_psbt *psbt,
 
     analysis->input_count = psbt->num_inputs;
     analysis->output_count = psbt->num_outputs;
+
+    if (!psbt->inputs) {
+        return PSBT_FRAUD_ERR_PARSE;
+    }
 
     for (size_t i = 0; i < psbt->num_inputs; i++) {
         const struct wally_psbt_input *inp = &psbt->inputs[i];
@@ -260,29 +270,52 @@ static bool extract_keypath_fingerprint(const struct wally_map *keypaths,
         return false;
     }
 
+    uint8_t temp_fp[PSBT_FRAUD_FINGERPRINT_LEN] = {0};
+    uint32_t temp_path[5] = {0};
+    size_t temp_path_len = 0;
+    uint32_t found = 0;
+
     for (size_t i = 0; i < keypaths->num_items; i++) {
         const unsigned char *value = keypaths->items[i].value;
         size_t value_len = keypaths->items[i].value_len;
 
-        if (value && value_len >= PSBT_FRAUD_FINGERPRINT_LEN) {
-            memcpy(fingerprint, value, PSBT_FRAUD_FINGERPRINT_LEN);
+        uint32_t valid = (value != NULL && value_len >= PSBT_FRAUD_FINGERPRINT_LEN) ? 1 : 0;
+        uint32_t use_this = valid & ~found;
 
-            if (path && path_len) {
-                size_t remaining = value_len - PSBT_FRAUD_FINGERPRINT_LEN;
-                size_t num_elements = remaining / sizeof(uint32_t);
-                if (num_elements > 5)
-                    num_elements = 5;
+        uint8_t candidate_fp[PSBT_FRAUD_FINGERPRINT_LEN] = {0};
+        uint32_t candidate_path[5] = {0};
+        size_t candidate_path_len = 0;
 
-                for (size_t j = 0; j < num_elements; j++) {
-                    memcpy(&path[j], value + PSBT_FRAUD_FINGERPRINT_LEN + (j * sizeof(uint32_t)),
-                           sizeof(uint32_t));
-                }
-                *path_len = num_elements;
+        if (valid) {
+            memcpy(candidate_fp, value, PSBT_FRAUD_FINGERPRINT_LEN);
+            size_t remaining = value_len - PSBT_FRAUD_FINGERPRINT_LEN;
+            size_t num_elements = remaining / sizeof(uint32_t);
+            if (num_elements > 5)
+                num_elements = 5;
+            for (size_t j = 0; j < num_elements; j++) {
+                memcpy(&candidate_path[j],
+                       value + PSBT_FRAUD_FINGERPRINT_LEN + (j * sizeof(uint32_t)),
+                       sizeof(uint32_t));
             }
-            return true;
+            candidate_path_len = num_elements;
+        }
+
+        ct_select_bytes(temp_fp, temp_fp, candidate_fp, PSBT_FRAUD_FINGERPRINT_LEN, use_this);
+        for (size_t j = 0; j < 5; j++) {
+            temp_path[j] = ct_select32(temp_path[j], candidate_path[j], use_this);
+        }
+        temp_path_len = ct_select32((uint32_t)temp_path_len, (uint32_t)candidate_path_len, use_this);
+        found |= valid;
+    }
+
+    if (found) {
+        memcpy(fingerprint, temp_fp, PSBT_FRAUD_FINGERPRINT_LEN);
+        if (path && path_len) {
+            memcpy(path, temp_path, sizeof(temp_path));
+            *path_len = temp_path_len;
         }
     }
-    return false;
+    return found != 0;
 }
 
 static int analyze_change_internal(const struct wally_psbt *psbt, const uint8_t *wallet_fingerprint,
@@ -364,30 +397,21 @@ int psbt_fraud_analyze(const char *base64, uint64_t total_in_sats,
     }
 
     int ret = analyze_fees_internal(psbt, total_in_sats, &analysis->fee);
-    if (ret != 0) {
-        wally_psbt_free(psbt);
-        return ret;
+    if (ret == 0) {
+        ret = check_dust_internal(psbt, &analysis->dust);
     }
-
-    ret = check_dust_internal(psbt, &analysis->dust);
-    if (ret != 0) {
-        wally_psbt_free(psbt);
-        return ret;
+    if (ret == 0) {
+        ret = analyze_scripts_internal(psbt, &analysis->scripts);
     }
-
-    ret = analyze_scripts_internal(psbt, &analysis->scripts);
-    if (ret != 0) {
-        wally_psbt_free(psbt);
-        return ret;
-    }
-
-    ret = analyze_change_internal(psbt, wallet_fingerprint, &analysis->change);
-    if (ret != 0) {
-        wally_psbt_free(psbt);
-        return ret;
+    if (ret == 0) {
+        ret = analyze_change_internal(psbt, wallet_fingerprint, &analysis->change);
     }
 
     wally_psbt_free(psbt);
+
+    if (ret != 0) {
+        return ret;
+    }
 
     if (analysis->fee.fee_warning) {
         analysis->flags |= PSBT_FRAUD_FLAG_HIGH_FEE;
@@ -414,6 +438,7 @@ int psbt_fraud_analyze(const char *base64, uint64_t total_in_sats,
         if (analysis->change.outputs[i].is_change) {
             uint64_t amount = analysis->change.outputs[i].amount_sats;
             if (change_total > UINT64_MAX - amount) {
+                secure_memzero(analysis, sizeof(*analysis));
                 return PSBT_FRAUD_ERR_OVERFLOW;
             }
             change_total += amount;
