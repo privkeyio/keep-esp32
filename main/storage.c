@@ -800,11 +800,6 @@ int storage_export_share(const char *group, const char *passphrase, share_export
         return STORAGE_ERR_INVALID_DATA;
     }
 
-    if (share_len > STORAGE_SHARE_LEN) {
-        secure_memzero(share_bytes, sizeof(share_bytes));
-        return STORAGE_ERR_INVALID_DATA;
-    }
-
     frost_state_t frost_state;
     if (frost_init(&frost_state, share_bytes, share_len) != 0) {
         secure_memzero(share_bytes, sizeof(share_bytes));
