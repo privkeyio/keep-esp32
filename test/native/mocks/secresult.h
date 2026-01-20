@@ -1,6 +1,7 @@
 #ifndef SECRESULT_H
 #define SECRESULT_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef uint32_t secresult_t;
@@ -14,6 +15,12 @@ typedef uint32_t secresult_t;
 #define SECRESULT_ERR_POLICY_CHANGED  ((secresult_t)0x69696969u)
 #define SECRESULT_ERR_HASH_MISMATCH   ((secresult_t)0x87878787u)
 #define SECRESULT_ERR_LOAD_FAILED     ((secresult_t)0xC3C3C3C3u)
+#define SECRESULT_ERR_HIGH_FEE        ((secresult_t)0xA5A5A5A5u)
+#define SECRESULT_ERR_DUST_OUTPUT     ((secresult_t)0x5A5A5A5Au)
+#define SECRESULT_ERR_UNKNOWN_SCRIPT  ((secresult_t)0x3C3C3C3Cu)
+#define SECRESULT_ERR_NO_CHANGE       ((secresult_t)0x96969696u)
+#define SECRESULT_ERR_OP_RETURN       ((secresult_t)0xB4B4B4B4u)
+#define SECRESULT_ERR_ALL_EXTERNAL    ((secresult_t)0xD2D2D2D2u)
 
 #define SECRESULT_IS_TRUE(r)  ((r) == SECRESULT_TRUE)
 #define SECRESULT_IS_FALSE(r) ((r) == SECRESULT_FALSE)

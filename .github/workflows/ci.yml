@@ -59,11 +59,26 @@ jobs:
           ref: esp-idf-support
           path: secp256k1-frost
 
+      - uses: actions/checkout@v4
+        with:
+          repository: ElementsProject/libwally-core
+          ref: release_1.5.1
+          path: libwally-core
+          submodules: recursive
+
       - name: Build secp256k1-frost
         run: |
           cd secp256k1-frost
           mkdir build && cd build
           cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON -DSECP256K1_ENABLE_MODULE_FROST=ON -DSECP256K1_EXPERIMENTAL=ON
+          make -j$(nproc)
+
+      - name: Build libwally-core
+        run: |
+          sudo apt-get update && sudo apt-get install -y autoconf automake libtool
+          cd libwally-core
+          ./tools/autogen.sh
+          ./configure --disable-elements --disable-tests
           make -j$(nproc)
 
       - name: Run native tests
@@ -78,6 +93,7 @@ jobs:
           ./test_storage
           ./test_secure_element
           [ ! -f ./test_protocol ] || ./test_protocol
+          [ ! -f ./test_psbt_fraud_integration ] || ./test_psbt_fraud_integration
 
   docs:
     runs-on: ubuntu-latest
