@@ -89,16 +89,14 @@ static bool slot_is_v1(const share_slot_t *slot) {
 }
 
 static bool slot_is_corrupt(const share_slot_t *slot) {
-    return slot->format_version == 0x00 ||
-           (slot->format_version != 0xFF && slot->format_version != STORAGE_FORMAT_V1 &&
-            slot->format_version != STORAGE_FORMAT_V2 && slot->format_version != STORAGE_FORMAT_V3);
+    uint8_t version = slot->format_version;
+    return version != 0xFF && version != STORAGE_FORMAT_V1 && version != STORAGE_FORMAT_V2 &&
+           version != STORAGE_FORMAT_V3;
 }
 
 static bool slot_is_valid(const share_slot_t *slot) {
-    if (slot_is_empty(slot) || slot_data_len(slot) > STORAGE_SHARE_LEN) {
-        return false;
-    }
-    return !slot_is_corrupt(slot);
+    return !slot_is_empty(slot) && slot_data_len(slot) <= STORAGE_SHARE_LEN &&
+           !slot_is_corrupt(slot);
 }
 
 static void null_terminate_group(share_slot_t *slot) {
@@ -385,7 +383,7 @@ int storage_migrate_if_needed(void) {
         null_terminate_group(&slot);
 
         if (slot_is_v1(&slot)) {
-            ESP_LOGI(TAG, "Migrating slot %d (%.16s...) from V1 to V2", i, slot.group);
+            ESP_LOGD(TAG, "Migrating slot %d from V1 to V2", i);
             int ret = migrate_slot_v1_to_v2(i, &slot);
             secure_memzero(&slot, sizeof(slot));
             if (ret != STORAGE_OK) {
@@ -594,7 +592,7 @@ int storage_delete_share(const char *group) {
             esp_partition_write(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
         secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "Deleted share for group %.16s...", group);
+            ESP_LOGD(TAG, "Deleted share");
         }
         return err == ESP_OK ? STORAGE_OK : STORAGE_ERR_IO;
     }

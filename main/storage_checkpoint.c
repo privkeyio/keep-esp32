@@ -151,7 +151,7 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
     if (err != ESP_OK)
         return STORAGE_ERR_IO;
 
-    ESP_LOGI(TAG, "Saved checkpoint for session %.16s...", session_id);
+    ESP_LOGD(TAG, "Saved checkpoint");
     return STORAGE_OK;
 }
 
@@ -179,12 +179,12 @@ int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_le
     if (ct_compare(header.session_id, expected_id, CHECKPOINT_SESSION_ID_LEN) != 0)
         return STORAGE_ERR_NOT_FOUND;
 
+    if (header.data_len > max_len || header.data_len > STORAGE_CHECKPOINT_MAX_SIZE - sizeof(header))
+        return STORAGE_ERR_INVALID_DATA;
+
     uint32_t current_counter = checkpoint_get_counter();
     if (header.counter != current_counter)
         return STORAGE_ERR_CHECKPOINT_EXPIRED;
-
-    if (header.data_len > max_len || header.data_len > STORAGE_CHECKPOINT_MAX_SIZE - sizeof(header))
-        return STORAGE_ERR_INVALID_DATA;
 
     uint8_t *encrypted = malloc(header.data_len);
     if (!encrypted)
@@ -205,7 +205,7 @@ int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_le
         return STORAGE_ERR_DECRYPT;
 
     *out_len = header.data_len;
-    ESP_LOGI(TAG, "Loaded checkpoint for session %.16s...", session_id);
+    ESP_LOGD(TAG, "Loaded checkpoint");
     return STORAGE_OK;
 }
 
@@ -242,7 +242,7 @@ int storage_checkpoint_clear(const char *session_id) {
     if (err != ESP_OK)
         return STORAGE_ERR_IO;
 
-    ESP_LOGI(TAG, "Cleared checkpoint for session %.16s...", session_id);
+    ESP_LOGD(TAG, "Cleared checkpoint");
     return STORAGE_OK;
 }
 
