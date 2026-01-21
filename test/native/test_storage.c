@@ -81,7 +81,11 @@ esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t off
 #include "frost.h"
 #include "random_utils.h"
 #include "storage.h"
+#include "storage_internal.h"
 #include "storage.c"
+#include "storage_checkpoint.c"
+#include "storage_metadata.c"
+#include "storage_export.c"
 
 #define TEST(name) printf("  TEST: %s\n", name)
 #define PASS()     printf("    PASS\n")
