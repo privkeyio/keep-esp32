@@ -12,9 +12,9 @@
 
 #define TAG "storage_checkpoint"
 
-#define CHECKPOINT_PARTITION_NAME "checkpoint"
-#define CHECKPOINT_MAGIC          0x434B5054
-#define CHECKPOINT_SESSION_ID_LEN 32
+#define CHECKPOINT_PARTITION_NAME    "checkpoint"
+#define CHECKPOINT_MAGIC             0x434B5054
+#define CHECKPOINT_SESSION_ID_LEN    32
 #define SESSION_CHECKPOINT_SLOT_SIZE 4096
 #define SESSION_CHECKPOINT_MAGIC     0x53455343
 
@@ -125,7 +125,8 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
     }
 
     size_t total_size = sizeof(header) + len;
-    size_t erase_size = ((total_size + STORAGE_SECTOR_SIZE - 1) / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
+    size_t erase_size =
+        ((total_size + STORAGE_SECTOR_SIZE - 1) / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
 
     err = esp_partition_erase_range(checkpoint_partition, 0, erase_size);
     if (err != ESP_OK) {
@@ -269,7 +270,8 @@ static int find_checkpoint_slot(const uint8_t *session_id) {
 
     for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
         session_checkpoint_slot_t slot;
-        size_t offset = STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
+        size_t offset =
+            STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
         if (err != ESP_OK) {
             continue;
@@ -289,7 +291,8 @@ static int find_free_checkpoint_slot(void) {
 
     for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
         session_checkpoint_slot_t slot;
-        size_t offset = STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
+        size_t offset =
+            STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
         if (err != ESP_OK || checkpoint_slot_is_empty(&slot)) {
             return i;
@@ -381,7 +384,8 @@ int storage_load_session_checkpoint(const uint8_t *session_id, void *data, size_
 
     const esp_partition_t *partition = storage_get_partition();
     session_checkpoint_slot_t slot;
-    size_t offset = STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)slot_idx * SESSION_CHECKPOINT_SLOT_SIZE;
+    size_t offset =
+        STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)slot_idx * SESSION_CHECKPOINT_SLOT_SIZE;
     esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
     if (err != ESP_OK) {
         return STORAGE_ERR_IO;
@@ -453,7 +457,8 @@ int storage_list_session_checkpoints(uint8_t session_ids[][STORAGE_SESSION_ID_LE
     int count = 0;
     for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS && count < max_count; i++) {
         session_checkpoint_slot_t slot;
-        size_t offset = STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
+        size_t offset =
+            STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
         if (err != ESP_OK || checkpoint_slot_is_empty(&slot)) {
             continue;
@@ -473,7 +478,8 @@ int storage_count_session_checkpoints(void) {
     int count = 0;
     for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
         session_checkpoint_slot_t slot;
-        size_t offset = STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
+        size_t offset =
+            STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
         if (err == ESP_OK && !checkpoint_slot_is_empty(&slot)) {
             count++;

@@ -154,7 +154,8 @@ int storage_save_metadata(const char *group, const group_metadata_t *metadata) {
     const esp_partition_t *partition = storage_get_partition();
     uint8_t *sector_buf = storage_get_sector_buf();
 
-    size_t slot_offset = STORAGE_METADATA_SECTOR_OFFSET + (size_t)target_slot * STORAGE_METADATA_SLOT_SIZE;
+    size_t slot_offset =
+        STORAGE_METADATA_SECTOR_OFFSET + (size_t)target_slot * STORAGE_METADATA_SLOT_SIZE;
     size_t sector_offset = (slot_offset / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
     esp_err_t err = esp_partition_read(partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
     if (err != ESP_OK) {

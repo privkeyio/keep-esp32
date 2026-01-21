@@ -209,8 +209,10 @@ static int migrate_slot_v1_to_v2(int slot_idx, share_slot_t *slot) {
         return ret;
     }
 
-    size_t sector_offset = (slot_idx * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
-    esp_err_t err = esp_partition_read(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
+    size_t sector_offset =
+        (slot_idx * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
+    esp_err_t err =
+        esp_partition_read(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
     if (err != ESP_OK) {
         secure_memzero(plaintext, sizeof(plaintext));
         secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
@@ -274,8 +276,8 @@ static int migrate_slot_v1_to_v2(int slot_idx, share_slot_t *slot) {
 
 static int recover_interrupted_slot(int slot_idx) {
     share_slot_t slot;
-    esp_err_t err =
-        esp_partition_read(storage_partition, slot_idx * STORAGE_SHARE_SLOT_SIZE, &slot, sizeof(slot));
+    esp_err_t err = esp_partition_read(storage_partition, slot_idx * STORAGE_SHARE_SLOT_SIZE, &slot,
+                                       sizeof(slot));
     if (err != ESP_OK) {
         return STORAGE_ERR_IO;
     }
@@ -321,7 +323,8 @@ static int recover_interrupted_slot(int slot_idx) {
     ESP_LOGW(TAG, "Interrupted slot %d unrecoverable, clearing", slot_idx);
 
 clear_slot:;
-    size_t sector_offset = (slot_idx * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
+    size_t sector_offset =
+        (slot_idx * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
     err = esp_partition_read(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
     if (err != ESP_OK) {
         secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
@@ -425,8 +428,8 @@ int storage_save_share(const char *group, const char *share_hex) {
     int target_slot = -1;
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err =
-            esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err = esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE,
+                                           &slot, sizeof(slot));
         if (err != ESP_OK) {
             continue;
         }
@@ -446,8 +449,10 @@ int storage_save_share(const char *group, const char *share_hex) {
         return STORAGE_ERR_NO_SLOT;
     }
 
-    size_t sector_offset = ((size_t)target_slot * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
-    esp_err_t err = esp_partition_read(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
+    size_t sector_offset =
+        ((size_t)target_slot * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
+    esp_err_t err =
+        esp_partition_read(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
     if (err != ESP_OK) {
         secure_memzero(share_bytes, sizeof(share_bytes));
         return STORAGE_ERR_IO;
@@ -473,7 +478,8 @@ int storage_save_share(const char *group, const char *share_hex) {
     memcpy(work_slot.share_data, encrypted, share_len);
     secure_memzero(encrypted, sizeof(encrypted));
 
-    size_t slot_offset_in_sector = ((size_t)target_slot * STORAGE_SHARE_SLOT_SIZE) % STORAGE_SECTOR_SIZE;
+    size_t slot_offset_in_sector =
+        ((size_t)target_slot * STORAGE_SHARE_SLOT_SIZE) % STORAGE_SECTOR_SIZE;
     memcpy(sector_buf + slot_offset_in_sector, &work_slot, sizeof(work_slot));
     secure_memzero(&work_slot, sizeof(work_slot));
 
@@ -501,8 +507,8 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err =
-            esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err = esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE,
+                                           &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
@@ -553,8 +559,8 @@ int storage_delete_share(const char *group) {
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err =
-            esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err = esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE,
+                                           &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
@@ -564,7 +570,8 @@ int storage_delete_share(const char *group) {
             continue;
         }
 
-        size_t sector_offset = ((size_t)i * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
+        size_t sector_offset =
+            ((size_t)i * STORAGE_SHARE_SLOT_SIZE / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
         err = esp_partition_read(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
         if (err != ESP_OK) {
             secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
@@ -580,7 +587,8 @@ int storage_delete_share(const char *group) {
             return STORAGE_ERR_IO;
         }
 
-        err = esp_partition_write(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
+        err =
+            esp_partition_write(storage_partition, sector_offset, sector_buf, STORAGE_SECTOR_SIZE);
         secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "Deleted share for group %.16s...", group);
@@ -591,7 +599,8 @@ int storage_delete_share(const char *group) {
     return STORAGE_ERR_NOT_FOUND;
 }
 
-_Static_assert(sizeof(share_slot_t) == STORAGE_SHARE_SLOT_SIZE, "share_slot_t must equal STORAGE_SHARE_SLOT_SIZE");
+_Static_assert(sizeof(share_slot_t) == STORAGE_SHARE_SLOT_SIZE,
+               "share_slot_t must equal STORAGE_SHARE_SLOT_SIZE");
 
 int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
     if (!initialized) {
@@ -601,8 +610,8 @@ int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
     int count = 0;
     for (int i = 0; i < MAX_SHARES && count < max_groups; i++) {
         share_slot_t slot;
-        esp_err_t err =
-            esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err = esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE,
+                                           &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
@@ -625,8 +634,8 @@ bool storage_has_share(const char *group) {
 
     for (int i = 0; i < MAX_SHARES; i++) {
         share_slot_t slot;
-        esp_err_t err =
-            esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot, sizeof(slot));
+        esp_err_t err = esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE,
+                                           &slot, sizeof(slot));
         if (err != ESP_OK || !slot_is_valid(&slot)) {
             continue;
         }
