@@ -298,6 +298,51 @@ static void handle_dkg_checkpoint(const rpc_request_t *req, rpc_response_t *resp
     protocol_success(resp, req->id, "{\"ok\":true}");
 }
 
+static SemaphoreHandle_t ux_test_sem = NULL;
+static bool ux_test_result = false;
+
+static void ux_test_cb(bool approved, void *user_data) {
+    (void)user_data;
+    ux_test_result = approved;
+    if (ux_test_sem) {
+        xSemaphoreGive(ux_test_sem);
+    }
+}
+
+static void handle_ux_test(const rpc_request_t *req, rpc_response_t *resp) {
+    const ux_backend_t *ux = ux_get_backend();
+    if (!ux || !ux->confirm_transaction) {
+        PROTOCOL_ERROR(resp, req->id, -1, "No UX backend available");
+        return;
+    }
+
+    if (!ux_test_sem) {
+        ux_test_sem = xSemaphoreCreateBinary();
+    }
+
+    ux_tx_info_t tx_info = {
+        .amount_sats = 50000,
+        .fee_sats = 1200,
+        .threshold = 2,
+        .total_signers = 3,
+        .policy_approved = true,
+    };
+    strncpy(tx_info.destination, "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh", sizeof(tx_info.destination) - 1);
+    strncpy(tx_info.destination_label, "Savings", sizeof(tx_info.destination_label) - 1);
+
+    ux_test_result = false;
+    ux->confirm_transaction(&tx_info, ux_test_cb, NULL);
+
+    if (xSemaphoreTake(ux_test_sem, pdMS_TO_TICKS(35000)) != pdTRUE) {
+        protocol_success(resp, req->id, "{\"result\":\"timeout\"}");
+        return;
+    }
+
+    char result[64];
+    snprintf(result, sizeof(result), "{\"result\":\"%s\"}", ux_test_result ? "approved" : "rejected");
+    protocol_success(resp, req->id, result);
+}
+
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
     frost_signer_cleanup_stale();
@@ -377,6 +422,9 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         break;
     case RPC_METHOD_SESSION_LIST:
         frost_session_list(resp);
+        break;
+    case RPC_METHOD_UX_TEST:
+        handle_ux_test(req, resp);
         break;
     default:
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
