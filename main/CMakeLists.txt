@@ -1,5 +1,5 @@
 set(SRCS
-    "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c"
+    "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c" "storage_checkpoint.c" "storage_metadata.c" "storage_export.c"
     "frost_signer.c" "frost_signer_core.c" "frost_signer_storage.c"
     "frost.c" "session.c"
     "nostr_frost.c" "nostr_frost_sign.c" "nostr_frost_dkg_events.c" "nostr_frost_nip46.c"
