@@ -9,6 +9,7 @@ on:
 jobs:
   clang-format:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +21,7 @@ jobs:
 
   cppcheck:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,6 +60,7 @@ jobs:
 
   clang-tidy:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,6 +109,7 @@ jobs:
 
   scan-build:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4
         with:
