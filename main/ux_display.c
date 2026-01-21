@@ -164,7 +164,7 @@ static void display_show_signing(int current, int total) {
         create_signing_screen(current, total);
         current_state = UI_STATE_SIGNING;
     } else if (signing_bar && signing_label) {
-        lv_bar_set_value(signing_bar, (current * 100) / total, LV_ANIM_ON);
+        lv_bar_set_value(signing_bar, (int)((current * 100LL) / total), LV_ANIM_ON);
         char progress_str[32];
         snprintf(progress_str, sizeof(progress_str), "Input %d of %d", current, total);
         lv_label_set_text(signing_label, progress_str);
@@ -191,14 +191,13 @@ static void display_show_error(const char *title, const char *message) {
 
 static void invoke_pending_callback(bool approved) {
     stop_confirm_timer();
-    if (!pending_callback) {
-        return;
-    }
     ux_decision_cb_t cb = pending_callback;
     void *data = pending_user_data;
     pending_callback = NULL;
     pending_user_data = NULL;
-    cb(approved, data);
+    if (cb) {
+        cb(approved, data);
+    }
 }
 
 static void approve_btn_cb(lv_event_t *e) {
@@ -651,7 +650,7 @@ static void create_signing_screen(int current, int total) {
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 5);
 
-    int progress = (total > 0) ? (current * 100) / total : 0;
+    int progress = (total > 0) ? (int)((current * 100LL) / total) : 0;
 
     signing_bar = lv_bar_create(current_screen);
     lv_obj_set_size(signing_bar, 260, 8);
