@@ -6,6 +6,7 @@
 #include "bsp/esp-bsp.h"
 #include "lvgl.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -65,6 +66,9 @@ static void display_deinit(void) {
 }
 
 static void clear_screen(void) {
+    pending_callback = NULL;
+    pending_user_data = NULL;
+
     if (current_screen) {
         lv_obj_del(current_screen);
         current_screen = NULL;
@@ -75,7 +79,7 @@ static void clear_screen(void) {
 
 static void display_show_idle(const char *device_name, bool policy_loaded,
                               uint32_t policy_version) {
-    bsp_display_lock(0);
+    bsp_display_lock(portMAX_DELAY);
     clear_screen();
     create_idle_screen(device_name, policy_loaded, policy_version);
     current_state = UI_STATE_IDLE;
@@ -83,7 +87,7 @@ static void display_show_idle(const char *device_name, bool policy_loaded,
 }
 
 static void display_show_scanning(void) {
-    bsp_display_lock(0);
+    bsp_display_lock(portMAX_DELAY);
     clear_screen();
     create_scanning_screen();
     current_state = UI_STATE_SCANNING;
@@ -91,7 +95,7 @@ static void display_show_scanning(void) {
 }
 
 static void display_show_signing(int current, int total) {
-    bsp_display_lock(0);
+    bsp_display_lock(portMAX_DELAY);
 
     if (total <= 0) {
         total = 1;
@@ -117,7 +121,7 @@ static void display_show_signing(int current, int total) {
 }
 
 static void display_show_success(const char *message) {
-    bsp_display_lock(0);
+    bsp_display_lock(portMAX_DELAY);
     clear_screen();
     create_success_screen(message);
     current_state = UI_STATE_SUCCESS;
@@ -125,49 +129,47 @@ static void display_show_success(const char *message) {
 }
 
 static void display_show_error(const char *title, const char *message) {
-    bsp_display_lock(0);
+    bsp_display_lock(portMAX_DELAY);
     clear_screen();
     create_error_screen(title, message);
     current_state = UI_STATE_ERROR;
     bsp_display_unlock();
 }
 
+static void invoke_pending_callback(bool approved) {
+    if (!pending_callback) {
+        return;
+    }
+    ux_decision_cb_t cb = pending_callback;
+    void *data = pending_user_data;
+    pending_callback = NULL;
+    pending_user_data = NULL;
+    cb(approved, data);
+}
+
 static void approve_btn_cb(lv_event_t *e) {
     (void)e;
-    if (pending_callback) {
-        ux_decision_cb_t cb = pending_callback;
-        void *data = pending_user_data;
-        pending_callback = NULL;
-        pending_user_data = NULL;
-        cb(true, data);
-    }
+    invoke_pending_callback(true);
 }
 
 static void reject_btn_cb(lv_event_t *e) {
     (void)e;
-    if (pending_callback) {
-        ux_decision_cb_t cb = pending_callback;
-        void *data = pending_user_data;
-        pending_callback = NULL;
-        pending_user_data = NULL;
-        cb(false, data);
-    }
+    invoke_pending_callback(false);
 }
 
 static void display_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t cb,
                                         void *user_data) {
+    bsp_display_lock(portMAX_DELAY);
+    clear_screen();
     pending_callback = cb;
     pending_user_data = user_data;
-
-    bsp_display_lock(0);
-    clear_screen();
     create_transaction_screen(tx);
     current_state = UI_STATE_CONFIRM_TX;
     bsp_display_unlock();
 }
 
 static void display_show_qr(const char *data, size_t len) {
-    bsp_display_lock(0);
+    bsp_display_lock(portMAX_DELAY);
     clear_screen();
     create_qr_screen(data, len);
     current_state = UI_STATE_SHOW_QR;
@@ -259,7 +261,7 @@ static void create_idle_screen(const char *device_name, bool policy_loaded,
     lv_obj_center(scan_label);
 
     lv_obj_t *device_label = lv_label_create(current_screen);
-    lv_label_set_text(device_label, device_name);
+    lv_label_set_text(device_label, device_name ? device_name : "Unknown Device");
     lv_obj_set_style_text_color(device_label, COLOR_MUTED, 0);
     lv_obj_set_style_text_font(device_label, &lv_font_montserrat_12, 0);
     lv_obj_align(device_label, LV_ALIGN_BOTTOM_MID, 0, -15);
@@ -297,7 +299,7 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
-    bool high_fee = (tx->amount_sats >= 10) && (tx->fee_sats > tx->amount_sats / 10);
+    bool high_fee = tx->amount_sats > 0 && tx->fee_sats > tx->amount_sats / 10;
     int y_pos = 8;
 
     lv_obj_t *title = lv_label_create(current_screen);
@@ -340,9 +342,12 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_align(to_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lv_obj_t *dest_label = lv_label_create(dest_box);
-    lv_label_set_text(dest_label, tx->destination);
+    const char *dest_str = tx->destination ? tx->destination : "(none)";
+    lv_label_set_text(dest_label, dest_str);
     lv_obj_set_style_text_color(dest_label, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(dest_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_width(dest_label, 260);
+    lv_label_set_long_mode(dest_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(dest_label, LV_ALIGN_TOP_LEFT, 20, 0);
 
     if (tx->destination_label[0]) {
@@ -522,13 +527,13 @@ static void create_error_screen(const char *title, const char *message) {
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, -50);
 
     lv_obj_t *title_label = lv_label_create(current_screen);
-    lv_label_set_text(title_label, title);
+    lv_label_set_text(title_label, title ? title : "Error");
     lv_obj_set_style_text_color(title_label, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, 0);
     lv_obj_align(title_label, LV_ALIGN_CENTER, 0, -10);
 
     lv_obj_t *msg_label = lv_label_create(current_screen);
-    lv_label_set_text(msg_label, message);
+    lv_label_set_text(msg_label, message ? message : "An error occurred");
     lv_obj_set_style_text_color(msg_label, COLOR_MUTED, 0);
     lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
@@ -562,7 +567,7 @@ static void create_success_screen(const char *message) {
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 10);
 
     lv_obj_t *msg_label = lv_label_create(current_screen);
-    lv_label_set_text(msg_label, message);
+    lv_label_set_text(msg_label, message ? message : "");
     lv_obj_set_style_text_color(msg_label, COLOR_MUTED, 0);
     lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
     lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 45);

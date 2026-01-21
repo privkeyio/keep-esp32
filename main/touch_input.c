@@ -15,6 +15,19 @@
 static esp_lcd_touch_handle_t touch_handle = NULL;
 static bool last_pressed = false;
 static TickType_t last_change_tick = 0;
+static bool single_threaded_check_done = false;
+static TaskHandle_t owner_task = NULL;
+
+static void assert_single_threaded(void) {
+    TaskHandle_t current = xTaskGetCurrentTaskHandle();
+    if (!single_threaded_check_done) {
+        owner_task = current;
+        single_threaded_check_done = true;
+    } else if (owner_task != current) {
+        ESP_LOGE(TAG, "Touch module accessed from multiple tasks - not thread-safe!");
+        configASSERT(0);
+    }
+}
 
 static bool touch_init_if_needed(void) {
     if (touch_handle != NULL) {
@@ -32,6 +45,8 @@ bool touch_poll(touch_point_t *point) {
     if (point == NULL) {
         return false;
     }
+    assert_single_threaded();
+
     point->pressed = false;
     point->x = 0;
     point->y = 0;
