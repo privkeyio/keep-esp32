@@ -3,6 +3,7 @@
 
 #include "ux_display.h"
 #include "ux_interface.h"
+#include "touch_input.h"
 #include "bsp/esp-bsp.h"
 #include "lvgl.h"
 #include "esp_log.h"
@@ -169,6 +170,9 @@ static void display_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t
 }
 
 static void display_show_qr(const char *data, size_t len) {
+    if (data == NULL || len == 0) {
+        return;
+    }
     bsp_display_lock(portMAX_DELAY);
     clear_screen();
     create_qr_screen(data, len);
@@ -189,6 +193,10 @@ static bool display_wait_any_input(uint32_t timeout_ms) {
     TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
 
     while ((xTaskGetTickCount() - start) < timeout) {
+        touch_point_t point;
+        if (touch_poll(&point) && point.pressed) {
+            return true;
+        }
         vTaskDelay(pdMS_TO_TICKS(50));
     }
     return false;

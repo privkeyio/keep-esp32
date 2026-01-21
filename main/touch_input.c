@@ -88,6 +88,7 @@ bool touch_poll(touch_point_t *point) {
 }
 
 bool touch_wait_any(uint32_t timeout_ms) {
+    assert_single_threaded();
     if (!touch_init_if_needed()) {
         vTaskDelay(pdMS_TO_TICKS(timeout_ms));
         return false;
@@ -107,6 +108,7 @@ bool touch_wait_any(uint32_t timeout_ms) {
 }
 
 bool touch_wait_release(uint32_t timeout_ms) {
+    assert_single_threaded();
     if (!touch_init_if_needed()) {
         vTaskDelay(pdMS_TO_TICKS(timeout_ms));
         return true;
