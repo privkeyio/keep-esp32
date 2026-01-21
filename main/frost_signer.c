@@ -13,11 +13,14 @@
 #include "crypto_asm.h"
 #include "secresult.h"
 #include "anti_glitch.h"
+#include "ux_interface.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
 
 #ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "esp_timer.h"
 static uint32_t get_time_ms(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
@@ -39,10 +42,24 @@ static uint32_t elapsed_ms(uint32_t start, uint32_t now) {
 #define TAG                        "frost_signer"
 #define MAX_SESSIONS               4
 #define CONSUMED_SESSION_RING_SIZE 64
+#define CONFIRM_TIMEOUT_MS         35000
 
 static uint8_t consumed_sessions[CONSUMED_SESSION_RING_SIZE][SESSION_ID_LEN];
 static uint8_t consumed_count = 0;
 static uint8_t consumed_head = 0;
+
+#ifdef ESP_PLATFORM
+static SemaphoreHandle_t confirm_sem = NULL;
+static bool confirm_result = false;
+
+static void confirm_cb(bool approved, void *user_data) {
+    (void)user_data;
+    confirm_result = approved;
+    if (confirm_sem) {
+        xSemaphoreGive(confirm_sem);
+    }
+}
+#endif
 
 static bool is_session_consumed(const uint8_t *session_id) {
     uint8_t count =
@@ -419,6 +436,35 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
     }
 
     ag_random_delay_us(100, 1000);
+
+#ifdef ESP_PLATFORM
+    const ux_backend_t *ux = ux_get_backend();
+    if (ux && ux->confirm_transaction && ux->is_available && ux->is_available()) {
+        if (!confirm_sem) {
+            confirm_sem = xSemaphoreCreateBinary();
+        }
+        if (confirm_sem) {
+            ux_tx_info_t tx_info = {0};
+            strncpy(tx_info.destination, s->group, sizeof(tx_info.destination) - 1);
+            tx_info.threshold = s->frost_state.threshold;
+            tx_info.total_signers = s->frost_state.participants;
+            tx_info.policy_approved = true;
+
+            confirm_result = false;
+            ux->confirm_transaction(&tx_info, confirm_cb, NULL);
+
+            if (xSemaphoreTake(confirm_sem, pdMS_TO_TICKS(CONFIRM_TIMEOUT_MS)) != pdTRUE) {
+                PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Confirmation timeout");
+                return;
+            }
+
+            if (!confirm_result) {
+                PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "User rejected signing");
+                return;
+            }
+        }
+    }
+#endif
 
     bool policy_snapshot = s->has_policy;
     uint8_t policy_hash_snapshot[32];
