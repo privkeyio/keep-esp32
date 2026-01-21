@@ -342,8 +342,7 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_align(to_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lv_obj_t *dest_label = lv_label_create(dest_box);
-    const char *dest_str = tx->destination ? tx->destination : "(none)";
-    lv_label_set_text(dest_label, dest_str);
+    lv_label_set_text(dest_label, tx->destination[0] ? tx->destination : "(none)");
     lv_obj_set_style_text_color(dest_label, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(dest_label, &lv_font_montserrat_12, 0);
     lv_obj_set_width(dest_label, 260);
