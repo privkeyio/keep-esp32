@@ -637,21 +637,29 @@ static void create_signing_screen(int current, int total) {
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
+    lv_obj_t *spinner = lv_spinner_create(current_screen);
+    lv_obj_set_size(spinner, 50, 50);
+    lv_obj_set_style_arc_color(spinner, COLOR_SURFACE, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner, COLOR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_INDICATOR);
+    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -55);
+
     lv_obj_t *title = lv_label_create(current_screen);
     lv_label_set_text(title, "Signing");
     lv_obj_set_style_text_color(title, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 5);
 
     int progress = (total > 0) ? (current * 100) / total : 0;
 
     signing_bar = lv_bar_create(current_screen);
-    lv_obj_set_size(signing_bar, 260, 12);
-    lv_obj_align(signing_bar, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_size(signing_bar, 260, 8);
+    lv_obj_align(signing_bar, LV_ALIGN_CENTER, 0, 50);
     lv_obj_set_style_bg_color(signing_bar, COLOR_SURFACE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(signing_bar, COLOR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(signing_bar, 6, LV_PART_MAIN);
-    lv_obj_set_style_radius(signing_bar, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(signing_bar, 4, LV_PART_MAIN);
+    lv_obj_set_style_radius(signing_bar, 4, LV_PART_INDICATOR);
     lv_bar_set_range(signing_bar, 0, 100);
     lv_bar_set_value(signing_bar, progress, LV_ANIM_OFF);
 
@@ -661,7 +669,7 @@ static void create_signing_screen(int current, int total) {
     lv_label_set_text(signing_label, progress_str);
     lv_obj_set_style_text_color(signing_label, COLOR_MUTED, 0);
     lv_obj_set_style_text_font(signing_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(signing_label, LV_ALIGN_CENTER, 0, 30);
+    lv_obj_align(signing_label, LV_ALIGN_CENTER, 0, 75);
 }
 
 static void create_qr_screen(const char *data, size_t len) {
