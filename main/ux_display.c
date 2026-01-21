@@ -677,24 +677,28 @@ static void create_qr_screen(const char *data, size_t len) {
     lv_obj_set_size(current_screen, SCREEN_WIDTH, SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
     lv_obj_set_style_border_width(current_screen, 0, 0);
+    lv_obj_set_style_pad_all(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
     lv_obj_t *title = lv_label_create(current_screen);
-    lv_label_set_text(title, "Scan with wallet");
+    lv_label_set_text(title, "Scan with Wallet");
     lv_obj_set_style_text_color(title, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
     lv_obj_t *qr_container = lv_obj_create(current_screen);
-    lv_obj_set_size(qr_container, 188, 188);
+    lv_obj_set_size(qr_container, 172, 172);
     lv_obj_set_style_bg_color(qr_container, lv_color_white(), 0);
     lv_obj_set_style_border_width(qr_container, 0, 0);
-    lv_obj_set_style_radius(qr_container, 8, 0);
-    lv_obj_set_style_pad_all(qr_container, 4, 0);
-    lv_obj_align(qr_container, LV_ALIGN_CENTER, 0, 5);
+    lv_obj_set_style_radius(qr_container, 12, 0);
+    lv_obj_set_style_pad_all(qr_container, 6, 0);
+    lv_obj_set_style_shadow_width(qr_container, 20, 0);
+    lv_obj_set_style_shadow_color(qr_container, lv_color_hex(0x0a84ff), 0);
+    lv_obj_set_style_shadow_opa(qr_container, 60, 0);
+    lv_obj_align(qr_container, LV_ALIGN_CENTER, 0, 8);
 
     lv_obj_t *qr = lv_qrcode_create(qr_container);
-    lv_qrcode_set_size(qr, 180);
+    lv_qrcode_set_size(qr, 160);
     lv_qrcode_set_dark_color(qr, lv_color_black());
     lv_qrcode_set_light_color(qr, lv_color_white());
     lv_qrcode_update(qr, data, len);
@@ -704,7 +708,7 @@ static void create_qr_screen(const char *data, size_t len) {
     lv_label_set_text(hint, "Tap to continue");
     lv_obj_set_style_text_color(hint, COLOR_MUTED, 0);
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -20);
 }
 
 static void create_error_screen(const char *title, const char *message) {
