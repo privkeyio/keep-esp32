@@ -271,6 +271,9 @@ static void scan_btn_cb(lv_event_t *e) {
     (void)e;
 }
 
+static lv_obj_t *create_action_btn(lv_obj_t *parent, const char *text, lv_color_t bg_color,
+                                    lv_color_t text_color, lv_event_cb_t click_cb);
+
 static void create_idle_screen(const char *device_name, bool policy_loaded,
                                uint32_t policy_version) {
     current_screen = lv_obj_create(lv_scr_act());
@@ -284,52 +287,46 @@ static void create_idle_screen(const char *device_name, bool policy_loaded,
     lv_label_set_text(title, "KEEP");
     lv_obj_set_style_text_color(title, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_32, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
 
     lv_obj_t *subtitle = lv_label_create(current_screen);
-    lv_label_set_text(subtitle, "FROST Threshold Signer");
+    lv_label_set_text(subtitle, "Threshold Signer");
     lv_obj_set_style_text_color(subtitle, COLOR_MUTED, 0);
-    lv_obj_set_style_text_font(subtitle, &lv_font_montserrat_12, 0);
-    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 65);
+    lv_obj_set_style_text_font(subtitle, &lv_font_montserrat_14, 0);
+    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 78);
 
-    lv_obj_t *status_container = lv_obj_create(current_screen);
-    lv_obj_set_size(status_container, 280, 36);
-    lv_obj_set_style_bg_color(status_container, COLOR_SURFACE, 0);
-    lv_obj_set_style_border_width(status_container, 0, 0);
-    lv_obj_set_style_radius(status_container, 8, 0);
-    lv_obj_set_style_pad_all(status_container, 8, 0);
-    lv_obj_align(status_container, LV_ALIGN_TOP_MID, 0, 90);
+    lv_obj_t *status_pill = lv_obj_create(current_screen);
+    lv_obj_set_size(status_pill, LV_SIZE_CONTENT, 28);
+    lv_obj_set_style_bg_color(status_pill, policy_loaded ? lv_color_hex(0x1a3d1a) : lv_color_hex(0x3d3d1a), 0);
+    lv_obj_set_style_border_width(status_pill, 0, 0);
+    lv_obj_set_style_radius(status_pill, 14, 0);
+    lv_obj_set_style_pad_hor(status_pill, 12, 0);
+    lv_obj_set_style_pad_ver(status_pill, 4, 0);
+    lv_obj_align(status_pill, LV_ALIGN_TOP_MID, 0, 105);
 
-    lv_obj_t *policy_label = lv_label_create(status_container);
+    lv_obj_t *policy_label = lv_label_create(status_pill);
     if (policy_loaded) {
         char policy_str[48];
         snprintf(policy_str, sizeof(policy_str), "Policy v%lu", (unsigned long)policy_version);
         lv_label_set_text(policy_label, policy_str);
         lv_obj_set_style_text_color(policy_label, COLOR_SUCCESS, 0);
     } else {
-        lv_label_set_text(policy_label, "No policy");
+        lv_label_set_text(policy_label, "No policy loaded");
         lv_obj_set_style_text_color(policy_label, COLOR_WARNING, 0);
     }
     lv_obj_set_style_text_font(policy_label, &lv_font_montserrat_12, 0);
     lv_obj_center(policy_label);
 
-    lv_obj_t *scan_btn = lv_btn_create(current_screen);
-    lv_obj_set_size(scan_btn, 200, 50);
-    lv_obj_align(scan_btn, LV_ALIGN_CENTER, 0, 30);
-    lv_obj_set_style_bg_color(scan_btn, COLOR_ACCENT, 0);
-    lv_obj_set_style_radius(scan_btn, 8, 0);
-    lv_obj_add_event_cb(scan_btn, scan_btn_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *scan_label = lv_label_create(scan_btn);
-    lv_label_set_text(scan_label, "Scan QR");
-    lv_obj_set_style_text_font(scan_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(scan_label);
+    lv_obj_t *scan_btn = create_action_btn(current_screen, "Scan QR",
+                                            COLOR_ACCENT, COLOR_TEXT, scan_btn_cb);
+    lv_obj_set_size(scan_btn, 180, 52);
+    lv_obj_align(scan_btn, LV_ALIGN_CENTER, 0, 35);
 
     lv_obj_t *device_label = lv_label_create(current_screen);
     lv_label_set_text(device_label, device_name ? device_name : "Unknown Device");
     lv_obj_set_style_text_color(device_label, COLOR_MUTED, 0);
     lv_obj_set_style_text_font(device_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(device_label, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_align(device_label, LV_ALIGN_BOTTOM_MID, 0, -20);
 }
 
 static void create_scanning_screen(void) {
@@ -709,17 +706,24 @@ static void create_error_screen(const char *title, const char *message) {
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
-    lv_obj_t *icon = lv_label_create(current_screen);
+    lv_obj_t *icon_bg = lv_obj_create(current_screen);
+    lv_obj_set_size(icon_bg, 72, 72);
+    lv_obj_set_style_bg_color(icon_bg, lv_color_hex(0x3d1a1a), 0);
+    lv_obj_set_style_border_width(icon_bg, 0, 0);
+    lv_obj_set_style_radius(icon_bg, 36, 0);
+    lv_obj_align(icon_bg, LV_ALIGN_CENTER, 0, -50);
+
+    lv_obj_t *icon = lv_label_create(icon_bg);
     lv_label_set_text(icon, LV_SYMBOL_CLOSE);
     lv_obj_set_style_text_color(icon, COLOR_DANGER, 0);
     lv_obj_set_style_text_font(icon, &lv_font_montserrat_32, 0);
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_center(icon);
 
     lv_obj_t *title_label = lv_label_create(current_screen);
     lv_label_set_text(title_label, title ? title : "Error");
     lv_obj_set_style_text_color(title_label, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, 0);
-    lv_obj_align(title_label, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(title_label, LV_ALIGN_CENTER, 0, 5);
 
     lv_obj_t *msg_label = lv_label_create(current_screen);
     lv_label_set_text(msg_label, message ? message : "An error occurred");
@@ -727,7 +731,7 @@ static void create_error_screen(const char *title, const char *message) {
     lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
     lv_obj_set_width(msg_label, 280);
-    lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 25);
+    lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 35);
 
     lv_obj_t *hint = lv_label_create(current_screen);
     lv_label_set_text(hint, "Tap to continue");
@@ -743,23 +747,30 @@ static void create_success_screen(const char *message) {
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
-    lv_obj_t *check = lv_label_create(current_screen);
+    lv_obj_t *icon_bg = lv_obj_create(current_screen);
+    lv_obj_set_size(icon_bg, 72, 72);
+    lv_obj_set_style_bg_color(icon_bg, lv_color_hex(0x1a3d1a), 0);
+    lv_obj_set_style_border_width(icon_bg, 0, 0);
+    lv_obj_set_style_radius(icon_bg, 36, 0);
+    lv_obj_align(icon_bg, LV_ALIGN_CENTER, 0, -50);
+
+    lv_obj_t *check = lv_label_create(icon_bg);
     lv_label_set_text(check, LV_SYMBOL_OK);
     lv_obj_set_style_text_color(check, COLOR_SUCCESS, 0);
     lv_obj_set_style_text_font(check, &lv_font_montserrat_32, 0);
-    lv_obj_align(check, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_center(check);
 
     lv_obj_t *title = lv_label_create(current_screen);
     lv_label_set_text(title, "Success");
     lv_obj_set_style_text_color(title, COLOR_TEXT, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 5);
 
     lv_obj_t *msg_label = lv_label_create(current_screen);
     lv_label_set_text(msg_label, message ? message : "");
     lv_obj_set_style_text_color(msg_label, COLOR_MUTED, 0);
     lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 45);
+    lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 40);
 
     lv_obj_t *hint = lv_label_create(current_screen);
     lv_label_set_text(hint, "Tap to continue");
