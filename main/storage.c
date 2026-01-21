@@ -54,6 +54,9 @@ uint8_t *storage_get_sector_buf(void) {
 }
 
 bool storage_validate_group_name(const char *group) {
+    if (group == NULL) {
+        return false;
+    }
     size_t len = strnlen(group, STORAGE_GROUP_LEN + 1);
     if (len == 0 || len > STORAGE_GROUP_LEN) {
         return false;

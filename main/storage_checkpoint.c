@@ -102,7 +102,9 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
 
     checkpoint_header_t existing;
     esp_err_t err = esp_partition_read(checkpoint_partition, 0, &existing, sizeof(existing));
-    if (err == ESP_OK && existing.magic == CHECKPOINT_MAGIC) {
+    if (err != ESP_OK)
+        return STORAGE_ERR_IO;
+    if (existing.magic == CHECKPOINT_MAGIC) {
         return STORAGE_ERR_CHECKPOINT_EXISTS;
     }
 
@@ -230,7 +232,13 @@ int storage_checkpoint_clear(const char *session_id) {
 
     checkpoint_increment_counter();
 
-    err = esp_partition_erase_range(checkpoint_partition, 0, STORAGE_SECTOR_SIZE);
+    size_t total_size = sizeof(checkpoint_header_t) + header.data_len;
+    size_t erase_size =
+        ((total_size + STORAGE_SECTOR_SIZE - 1) / STORAGE_SECTOR_SIZE) * STORAGE_SECTOR_SIZE;
+    if (erase_size > checkpoint_partition->size)
+        erase_size = checkpoint_partition->size;
+
+    err = esp_partition_erase_range(checkpoint_partition, 0, erase_size);
     if (err != ESP_OK)
         return STORAGE_ERR_IO;
 
@@ -294,9 +302,10 @@ static int find_free_checkpoint_slot(void) {
         size_t offset =
             STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
-        if (err != ESP_OK || checkpoint_slot_is_empty(&slot)) {
+        if (err != ESP_OK)
+            return -1;
+        if (checkpoint_slot_is_empty(&slot))
             return i;
-        }
     }
     return -1;
 }

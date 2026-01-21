@@ -172,6 +172,7 @@ int storage_export_share(const char *group, const char *passphrase, share_export
 
     uint8_t export_key[32];
     if (derive_export_key(passphrase, pass_len, export_out->salt, export_key) != 0) {
+        secure_memzero(export_key, sizeof(export_key));
         secure_memzero(share_bytes, sizeof(share_bytes));
         secure_memzero(export_out, sizeof(share_export_t));
         return STORAGE_ERR_EXPORT;

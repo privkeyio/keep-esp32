@@ -98,6 +98,13 @@ int storage_save_metadata(const char *group, const group_metadata_t *metadata) {
     if (!metadata) {
         return STORAGE_ERR_INVALID_DATA;
     }
+    if (metadata->participant_count == 0 ||
+        metadata->participant_count > STORAGE_MAX_PARTICIPANTS) {
+        return STORAGE_ERR_INVALID_DATA;
+    }
+    if (metadata->our_index >= metadata->participant_count) {
+        return STORAGE_ERR_INVALID_DATA;
+    }
     if (!storage_crypto_is_initialized()) {
         return STORAGE_ERR_CRYPTO_NOT_INIT;
     }
@@ -252,6 +259,9 @@ int storage_load_metadata(const char *group, group_metadata_t *metadata) {
 
 bool storage_has_metadata(const char *group) {
     if (!storage_is_initialized()) {
+        return false;
+    }
+    if (group == NULL) {
         return false;
     }
     return find_metadata_slot(group) >= 0;
