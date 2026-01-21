@@ -5,3 +5,11 @@ dependencies:
     version: "*"
     rules:
       - if: "idf_version >=5.0"
+  espressif/esp_lcd_touch:
+    version: "*"
+    rules:
+      - if: "idf_version >=5.0"
+  espressif/esp_lvgl_port:
+    version: "^2"
+    rules:
+      - if: "idf_version >=5.0"

@@ -14,7 +14,7 @@ CONFIG_MBEDTLS_HKDF_C=y
 CONFIG_SE_MOCK_MODE=n
 CONFIG_PRODUCTION_BUILD=n
 
-# Display/UX - disabled by default for headless operation
+# Display/UX - enabled by default for CoreS3 with touchscreen
 CONFIG_KEEP_DISPLAY_ENABLED=y
 
 # CoreS3 Lite has no PSRAM (regular CoreS3 does)

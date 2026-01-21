@@ -93,6 +93,15 @@ static void display_show_scanning(void) {
 static void display_show_signing(int current, int total) {
     bsp_display_lock(0);
 
+    if (total <= 0) {
+        total = 1;
+    }
+    if (current < 0) {
+        current = 0;
+    } else if (current > total) {
+        current = total;
+    }
+
     if (current_state != UI_STATE_SIGNING) {
         clear_screen();
         create_signing_screen(current, total);
@@ -288,7 +297,7 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
-    bool high_fee = (tx->fee_sats * 10) > tx->amount_sats;
+    bool high_fee = (tx->amount_sats >= 10) && (tx->fee_sats > tx->amount_sats / 10);
     int y_pos = 8;
 
     lv_obj_t *title = lv_label_create(current_screen);
@@ -443,6 +452,8 @@ static void create_signing_screen(int current, int total) {
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, -50);
 
+    int progress = (total > 0) ? (current * 100) / total : 0;
+
     signing_bar = lv_bar_create(current_screen);
     lv_obj_set_size(signing_bar, 260, 12);
     lv_obj_align(signing_bar, LV_ALIGN_CENTER, 0, 0);
@@ -451,7 +462,7 @@ static void create_signing_screen(int current, int total) {
     lv_obj_set_style_radius(signing_bar, 6, LV_PART_MAIN);
     lv_obj_set_style_radius(signing_bar, 6, LV_PART_INDICATOR);
     lv_bar_set_range(signing_bar, 0, 100);
-    lv_bar_set_value(signing_bar, (current * 100) / total, LV_ANIM_OFF);
+    lv_bar_set_value(signing_bar, progress, LV_ANIM_OFF);
 
     signing_label = lv_label_create(current_screen);
     char progress_str[32];
