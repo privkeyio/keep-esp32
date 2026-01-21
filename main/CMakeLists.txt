@@ -1,11 +1,28 @@
+set(SRCS
+    "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c"
+    "frost_signer.c" "frost_signer_core.c" "frost_signer_storage.c"
+    "frost.c" "session.c"
+    "nostr_frost.c" "nostr_frost_sign.c" "nostr_frost_dkg_events.c" "nostr_frost_nip46.c"
+    "frost_crypto_ops.c" "frost_coordinator.c" "frost_dkg.c" "psbt.c" "psbt_fraud.c" "policy.c"
+    "error_context.c" "error_codes.c" "random_utils.c" "hw_entropy.c" "ux_manager.c" "ux_serial.c" "self_test.c" "anti_glitch.c"
+)
+
+set(REQUIRES
+    esp_partition driver esp_driver_usb_serial_jtag esp_driver_uart esp_driver_gpio esp_adc mbedtls crypto_asm libnostr-c noscrypt secure_element
+)
+
+set(PRIV_REQUIRES
+    secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core
+)
+
+if(CONFIG_KEEP_DISPLAY_ENABLED)
+    list(APPEND SRCS "ux_display.c" "touch_input.c")
+    list(APPEND PRIV_REQUIRES espressif__m5stack_core_s3 espressif__esp_lcd_touch espressif__esp_lvgl_port)
+endif()
+
 idf_component_register(
-    SRCS "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c"
-         "frost_signer.c" "frost_signer_core.c" "frost_signer_storage.c"
-         "frost.c" "session.c"
-         "nostr_frost.c" "nostr_frost_sign.c" "nostr_frost_dkg_events.c" "nostr_frost_nip46.c"
-         "frost_crypto_ops.c" "frost_coordinator.c" "frost_dkg.c" "psbt.c" "psbt_fraud.c" "policy.c"
-         "error_context.c" "error_codes.c" "random_utils.c" "hw_entropy.c" "ux_manager.c" "ux_serial.c" "self_test.c" "anti_glitch.c"
+    SRCS ${SRCS}
     INCLUDE_DIRS "."
-    REQUIRES esp_partition driver esp_driver_usb_serial_jtag esp_driver_uart esp_driver_gpio esp_adc mbedtls crypto_asm libnostr-c noscrypt secure_element
-    PRIV_REQUIRES secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core
+    REQUIRES ${REQUIRES}
+    PRIV_REQUIRES ${PRIV_REQUIRES}
 )
