@@ -40,8 +40,7 @@ generate_key() {
     fi
 
     echo "Generating RSA-3072 signing key..."
-    espsecure.py generate_signing_key --version 2 "$SIGNING_KEY"
-    chmod 600 "$SIGNING_KEY"
+    (umask 077; espsecure.py generate_signing_key --version 2 "$SIGNING_KEY")
 
     echo "Key generated: $SIGNING_KEY"
     echo "CRITICAL: Back up this key securely. Loss means inability to update firmware."
