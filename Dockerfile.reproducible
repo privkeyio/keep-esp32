@@ -6,6 +6,8 @@ FROM espressif/idf:v5.4.1@sha256:6b4adab7b282e9261a154d7130fb4945a3c28bd35c2e914
 ARG SOURCE_DATE_EPOCH=0
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 ENV IDF_CCACHE_ENABLE=0
+ENV IDF_PATH=/opt/esp/idf
+ENV IDF_PATH_FORCE=1
 
 WORKDIR /build
 
@@ -20,7 +22,9 @@ RUN git clone https://github.com/privkeyio/secp256k1-frost.git && \
     git clone https://github.com/ElementsProject/libwally-core.git && \
     cd libwally-core && git checkout 242f841af6819b5d5174da5a9593907f56f1bc89 && cd ..
 
-RUN cd keep-esp32 && \
+RUN . $IDF_PATH/export.sh && \
+    cd keep-esp32 && \
+    idf.py set-target esp32s3 && \
     idf.py build && \
     mkdir -p /out && \
     cp build/keep.bin /out/ && \
@@ -28,7 +32,7 @@ RUN cd keep-esp32 && \
     cp build/partition_table/partition-table.bin /out/ && \
     cp build/ota_data_initial.bin /out/
 
-RUN pip install esptool==5.1.0 && \
+RUN . $IDF_PATH/export.sh && \
     cd /out && \
     esptool.py --chip esp32s3 merge_bin \
         --flash_mode dio \
