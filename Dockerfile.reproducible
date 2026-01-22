@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: © 2026 PrivKey LLC
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+FROM espressif/idf:v5.4.1 AS builder
+
+ARG SOURCE_DATE_EPOCH=0
+ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
+ENV IDF_CCACHE_ENABLE=0
+
+WORKDIR /build
+
+COPY . keep-esp32/
+
+RUN git clone --depth 1 -b esp-idf-support https://github.com/privkeyio/secp256k1-frost.git && \
+    git clone --depth 1 -b v0.1.5 https://github.com/privkeyio/libnostr-c.git && \
+    git clone --depth 1 -b esp-idf-support https://github.com/privkeyio/noscrypt.git && \
+    git clone --depth 1 -b release_1.5.1 https://github.com/ElementsProject/libwally-core.git
+
+RUN cd keep-esp32 && \
+    idf.py build && \
+    mkdir -p /out && \
+    cp build/keep.bin /out/ && \
+    cp build/bootloader/bootloader.bin /out/ && \
+    cp build/partition_table/partition-table.bin /out/ && \
+    cp build/ota_data_initial.bin /out/
+
+RUN pip install esptool && \
+    cd /out && \
+    esptool.py --chip esp32s3 merge_bin \
+        --flash_mode dio \
+        --flash_freq 80m \
+        --flash_size 8MB \
+        -o keep-merged.bin \
+        0x0 bootloader.bin \
+        0x8000 partition-table.bin \
+        0xd000 ota_data_initial.bin \
+        0x10000 keep.bin && \
+    sha256sum keep.bin > keep.bin.sha256 && \
+    sha256sum keep-merged.bin > keep-merged.bin.sha256
+
+FROM scratch AS export
+COPY --from=builder /out/* /
