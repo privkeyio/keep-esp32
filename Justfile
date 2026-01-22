@@ -106,7 +106,7 @@ verify-device:
     #!/usr/bin/env bash
     set -euo pipefail
     [ -f output/keep.bin ] || { echo "Run 'just docker-build' first"; exit 1; }
-    SIZE=$(stat -c%s output/keep.bin)
+    SIZE=$(wc -c < output/keep.bin | tr -d '[:space:]')
     TMP=$(mktemp)
     trap "rm -f $TMP" EXIT
     esptool.py --port {{port}} read_flash 0x10000 "$SIZE" "$TMP"
