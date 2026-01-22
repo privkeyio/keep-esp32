@@ -3,8 +3,10 @@
 
 set shell := ["bash", "-uc"]
 
-docker_cmd := env("DOCKER_CMD", "docker")
-port := env("PORT", "/dev/ttyACM0")
+docker_cmd_raw := env("DOCKER_CMD", "docker")
+docker_cmd := if docker_cmd_raw == "docker" { "docker" } else { if docker_cmd_raw == "podman" { "podman" } else { error("DOCKER_CMD must be 'docker' or 'podman'") } }
+port_raw := env("PORT", "/dev/ttyACM0")
+port := if port_raw =~ '^/dev/tty[A-Za-z0-9]+$' { port_raw } else { error("PORT must match /dev/tty* pattern") }
 
 default:
     @just --list
@@ -41,6 +43,10 @@ fuzz target="" duration="30":
     set -euo pipefail
     if [ -n "{{target}}" ] && ! [[ "{{target}}" =~ ^[a-zA-Z0-9_]+$ ]]; then
         echo "Error: target must be alphanumeric (with underscores)" >&2
+        exit 1
+    fi
+    if ! [[ "{{duration}}" =~ ^[0-9]+$ ]]; then
+        echo "Error: duration must be a positive integer" >&2
         exit 1
     fi
     cd fuzz
@@ -80,6 +86,10 @@ verify-sha expected="":
     BUILT_HASH=$(sha256sum output/keep.bin | cut -d' ' -f1)
     echo "Build hash: $BUILT_HASH"
     if [ -n "{{expected}}" ]; then
+        if ! [[ "{{expected}}" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "Error: expected must be a valid SHA256 hash (64 hex chars)" >&2
+            exit 1
+        fi
         [ "$BUILT_HASH" = "{{expected}}" ] || { echo "Mismatch: expected {{expected}}"; exit 1; }
         echo "Match"
     fi
@@ -95,7 +105,7 @@ verify-release version:
     BUILT_HASH=$(sha256sum output/keep.bin | cut -d' ' -f1)
     TMP=$(mktemp -d)
     trap "rm -rf $TMP" EXIT
-    curl -sL "https://github.com/privkeyio/keep-esp32/releases/download/{{version}}/keep-esp32-firmware-{{version}}.tar.gz" | tar -xz -C "$TMP"
+    curl -fSL "https://github.com/privkeyio/keep-esp32/releases/download/{{version}}/keep-esp32-firmware-{{version}}.tar.gz" | tar -xz -C "$TMP"
     RELEASE_HASH=$(sha256sum "$TMP/keep.bin" | cut -d' ' -f1)
     echo "Built:   $BUILT_HASH"
     echo "Release: $RELEASE_HASH"
