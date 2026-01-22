@@ -39,6 +39,10 @@ test:
 fuzz target="" duration="30":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ -n "{{target}}" ] && ! [[ "{{target}}" =~ ^[a-zA-Z0-9_]+$ ]]; then
+        echo "Error: target must be alphanumeric (with underscores)" >&2
+        exit 1
+    fi
     cd fuzz
     mkdir -p build && cd build
     CC=clang cmake ..
@@ -65,12 +69,7 @@ docker-build:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p output
-    {{docker_cmd}} build -f Dockerfile.reproducible -t keep-esp32-builder .
-    {{docker_cmd}} run --rm keep-esp32-builder cat /keep.bin > output/keep.bin
-    {{docker_cmd}} run --rm keep-esp32-builder cat /keep-merged.bin > output/keep-merged.bin
-    {{docker_cmd}} run --rm keep-esp32-builder cat /bootloader.bin > output/bootloader.bin
-    {{docker_cmd}} run --rm keep-esp32-builder cat /partition-table.bin > output/partition-table.bin
-    {{docker_cmd}} run --rm keep-esp32-builder cat /ota_data_initial.bin > output/ota_data_initial.bin
+    {{docker_cmd}} build -f Dockerfile.reproducible -o output .
     sha256sum output/keep.bin
     sha256sum output/keep-merged.bin
 
@@ -88,6 +87,10 @@ verify-sha expected="":
 verify-release version:
     #!/usr/bin/env bash
     set -euo pipefail
+    if ! [[ "{{version}}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "Error: version must be in semver format (vX.Y.Z)" >&2
+        exit 1
+    fi
     [ -f output/keep.bin ] || { echo "Run 'just docker-build' first"; exit 1; }
     BUILT_HASH=$(sha256sum output/keep.bin | cut -d' ' -f1)
     TMP=$(mktemp -d)

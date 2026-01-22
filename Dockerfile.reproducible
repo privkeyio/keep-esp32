@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 PrivKey LLC
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-FROM espressif/idf:v5.4.1 AS builder
+FROM espressif/idf:v5.4.1@sha256:6b4adab7b282e9261a154d7130fb4945a3c28bd35c2e914357c2f522643cb92a AS builder
 
 ARG SOURCE_DATE_EPOCH=0
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
@@ -11,10 +11,14 @@ WORKDIR /build
 
 COPY . keep-esp32/
 
-RUN git clone --depth 1 -b esp-idf-support https://github.com/privkeyio/secp256k1-frost.git && \
-    git clone --depth 1 -b v0.1.5 https://github.com/privkeyio/libnostr-c.git && \
-    git clone --depth 1 -b esp-idf-support https://github.com/privkeyio/noscrypt.git && \
-    git clone --depth 1 -b release_1.5.1 https://github.com/ElementsProject/libwally-core.git
+RUN git clone https://github.com/privkeyio/secp256k1-frost.git && \
+    cd secp256k1-frost && git checkout 832bac2dbfaf4c35058cd5dadb0f8fe093cb6c65 && cd .. && \
+    git clone https://github.com/privkeyio/libnostr-c.git && \
+    cd libnostr-c && git checkout 4e8d01b8d20680204429aaf3680d069ec222fdaa && cd .. && \
+    git clone https://github.com/privkeyio/noscrypt.git && \
+    cd noscrypt && git checkout 45fcbef32f958145d6797f384a225c0d43616886 && cd .. && \
+    git clone https://github.com/ElementsProject/libwally-core.git && \
+    cd libwally-core && git checkout 242f841af6819b5d5174da5a9593907f56f1bc89 && cd ..
 
 RUN cd keep-esp32 && \
     idf.py build && \
@@ -24,7 +28,7 @@ RUN cd keep-esp32 && \
     cp build/partition_table/partition-table.bin /out/ && \
     cp build/ota_data_initial.bin /out/
 
-RUN pip install esptool && \
+RUN pip install esptool==5.1.0 && \
     cd /out && \
     esptool.py --chip esp32s3 merge_bin \
         --flash_mode dio \
