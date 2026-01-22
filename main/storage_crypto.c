@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "storage_crypto.h"
+#include "error_codes.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
 #include <mbedtls/gcm.h>
@@ -13,19 +14,39 @@
 #ifdef ESP_PLATFORM
 #include "esp_mac.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+static uint32_t get_time_ms(void) {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
 #else
 #include <stdio.h>
+#include <time.h>
 #define ESP_LOGW(tag, ...)            \
     fprintf(stderr, "W (%s): ", tag); \
     fprintf(stderr, __VA_ARGS__);     \
     fprintf(stderr, "\n")
+static uint32_t get_time_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
 #endif
 
 #define TAG            "storage_crypto"
 #define DEVICE_ID_SIZE 6
 
+#define PIN_RATE_LIMIT_WINDOW_MS   60000
+#define PIN_RATE_LIMIT_MAX         3
+#define PIN_LOCKOUT_MS             300000
+#define PIN_LOCKOUT_FAILURE_THRESH 5
+
 static uint8_t storage_key[STORAGE_CRYPTO_KEY_SIZE];
 static bool key_initialized = false;
+
+static uint32_t pin_attempt_times[PIN_RATE_LIMIT_MAX];
+static uint8_t pin_attempt_count = 0;
+static uint32_t pin_lockout_until = 0;
+static uint8_t pin_consecutive_failures = 0;
 
 static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {
 #ifdef ESP_PLATFORM
@@ -86,10 +107,65 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
     return (ret == 0) ? 0 : -1;
 }
 
+int storage_crypto_check_rate_limit(void) {
+    uint32_t now = get_time_ms();
+
+    if (pin_lockout_until > 0) {
+        if ((int32_t)(now - pin_lockout_until) < 0) {
+            return ERR_PIN_LOCKED;
+        }
+        pin_lockout_until = 0;
+        pin_consecutive_failures = 0;
+    }
+
+    int recent = 0;
+    for (int i = 0; i < pin_attempt_count && i < PIN_RATE_LIMIT_MAX; i++) {
+        if ((int32_t)(now - pin_attempt_times[i]) < (int32_t)PIN_RATE_LIMIT_WINDOW_MS) {
+            recent++;
+        }
+    }
+
+    if (recent >= PIN_RATE_LIMIT_MAX) {
+        return ERR_PIN_MUST_WAIT;
+    }
+
+    return 0;
+}
+
+void storage_crypto_record_attempt(bool success) {
+    uint32_t now = get_time_ms();
+
+    if (pin_attempt_count < PIN_RATE_LIMIT_MAX) {
+        pin_attempt_times[pin_attempt_count++] = now;
+    } else {
+        memmove(pin_attempt_times, pin_attempt_times + 1,
+                (PIN_RATE_LIMIT_MAX - 1) * sizeof(pin_attempt_times[0]));
+        pin_attempt_times[PIN_RATE_LIMIT_MAX - 1] = now;
+    }
+
+    if (!success) {
+        if (pin_consecutive_failures < UINT8_MAX) {
+            pin_consecutive_failures++;
+        }
+        if (pin_consecutive_failures >= PIN_LOCKOUT_FAILURE_THRESH) {
+            pin_lockout_until = now + PIN_LOCKOUT_MS;
+            ESP_LOGW(TAG, "PIN lockout activated for %d seconds", PIN_LOCKOUT_MS / 1000);
+        }
+    } else {
+        pin_consecutive_failures = 0;
+    }
+}
+
 int storage_crypto_init(const char *pin) {
+    int rate_limit = storage_crypto_check_rate_limit();
+    if (rate_limit != 0) {
+        return rate_limit;
+    }
+
     size_t pin_len = pin ? strnlen(pin, STORAGE_CRYPTO_MAX_PIN_LEN + 1) : 0;
     if (pin_len == 0 || pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
-        return -1;
+        storage_crypto_record_attempt(false);
+        return ERR_PIN_INVALID;
     }
 
     uint8_t device_id[DEVICE_ID_SIZE];
@@ -100,7 +176,10 @@ int storage_crypto_init(const char *pin) {
     int ret = derive_key(device_id, sizeof(device_id), (const uint8_t *)pin, pin_len, storage_key);
     secure_memzero(device_id, sizeof(device_id));
 
-    key_initialized = (ret == 0);
+    if (ret == 0) {
+        key_initialized = true;
+        storage_crypto_record_attempt(true);
+    }
     return ret;
 }
 
@@ -165,4 +244,11 @@ int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, con
                                  aad_len, tag, STORAGE_CRYPTO_TAG_SIZE, ciphertext, plaintext);
     mbedtls_gcm_free(&gcm);
     return (ret == 0) ? 0 : -1;
+}
+
+void storage_crypto_reset_rate_limit(void) {
+    pin_attempt_count = 0;
+    pin_lockout_until = 0;
+    pin_consecutive_failures = 0;
+    memset(pin_attempt_times, 0, sizeof(pin_attempt_times));
 }
