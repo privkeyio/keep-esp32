@@ -164,3 +164,15 @@ path = "**.html"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "Justfile"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "Dockerfile*"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "© 2026 PrivKey LLC"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
