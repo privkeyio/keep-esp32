@@ -120,7 +120,7 @@ int storage_crypto_check_rate_limit(void) {
 
     int recent = 0;
     for (int i = 0; i < pin_attempt_count && i < PIN_RATE_LIMIT_MAX; i++) {
-        if ((int32_t)(now - pin_attempt_times[i]) < (int32_t)PIN_RATE_LIMIT_WINDOW_MS) {
+        if ((now - pin_attempt_times[i]) < PIN_RATE_LIMIT_WINDOW_MS) {
             recent++;
         }
     }
