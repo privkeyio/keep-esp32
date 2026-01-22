@@ -179,6 +179,8 @@ int storage_crypto_init(const char *pin) {
     if (ret == 0) {
         key_initialized = true;
         storage_crypto_record_attempt(true);
+    } else {
+        storage_crypto_record_attempt(false);
     }
     return ret;
 }
