@@ -134,12 +134,12 @@ static int test_storage_crypto_pass(void) {
     return 0;
 }
 
-static int test_storage_crypto_fail_not_init(void) {
-    TEST("storage_crypto fails when not initialized");
+static int test_storage_crypto_skip_when_not_init(void) {
+    TEST("storage_crypto skips when not initialized");
     reset_state();
     mock_crypto_initialized = false;
-    if (self_test_storage_crypto() == 0)
-        FAIL("should fail");
+    if (self_test_storage_crypto() != 0)
+        FAIL("should pass (skip) when crypto not initialized");
     PASS();
     return 0;
 }
@@ -241,7 +241,7 @@ static int test_run_all_pass(void) {
 static int test_run_all_fail_required(void) {
     TEST("run_all fails when required test fails");
     reset_state();
-    mock_crypto_initialized = false;
+    mock_secp256k1_ctx_fails = true;
     if (self_test_run_all() == 0)
         FAIL("should fail");
     self_test_stats_t stats;
@@ -269,7 +269,7 @@ int main(void) {
 
     int failures = 0;
     failures += test_storage_crypto_pass();
-    failures += test_storage_crypto_fail_not_init();
+    failures += test_storage_crypto_skip_when_not_init();
     failures += test_crypto_lib_pass();
     failures += test_crypto_lib_fail();
     failures += test_flash_partitions_pass();

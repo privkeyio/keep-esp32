@@ -404,18 +404,7 @@ void app_main(void) {
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 
-    if (storage_crypto_init(NULL) != 0) {
-        ESP_LOGE(TAG, "Storage crypto init failed - share storage operations will be unavailable");
-    } else {
-        int migrate_ret = storage_migrate_if_needed();
-        if (migrate_ret == STORAGE_ERR_IO) {
-            ESP_LOGE(TAG, "Storage migration failed with IO error, restarting");
-            esp_restart();
-        } else if (migrate_ret != STORAGE_OK && migrate_ret != STORAGE_ERR_NOT_INIT) {
-            ESP_LOGW(TAG, "Storage migration failed: %d (continuing with existing data)",
-                     migrate_ret);
-        }
-    }
+    ESP_LOGI(TAG, "PIN-protected storage enabled - share operations require PIN");
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 

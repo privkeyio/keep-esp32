@@ -87,20 +87,14 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
 }
 
 int storage_crypto_init(const char *pin) {
-    uint8_t device_id[DEVICE_ID_SIZE];
+    size_t pin_len = pin ? strnlen(pin, STORAGE_CRYPTO_MAX_PIN_LEN + 1) : 0;
+    if (pin_len == 0 || pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
+        return -1;
+    }
 
+    uint8_t device_id[DEVICE_ID_SIZE];
     if (get_device_id(device_id) != 0) {
         return -1;
-    }
-
-    size_t pin_len = pin ? strnlen(pin, STORAGE_CRYPTO_MAX_PIN_LEN + 1) : 0;
-    if (pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
-        secure_memzero(device_id, sizeof(device_id));
-        return -1;
-    }
-
-    if (!pin || pin_len == 0) {
-        ESP_LOGW(TAG, "No PIN provided - using device-derived key only (not PIN-protected)");
     }
 
     int ret = derive_key(device_id, sizeof(device_id), (const uint8_t *)pin, pin_len, storage_key);

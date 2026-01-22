@@ -29,7 +29,10 @@ static inline void mock_crypto_reset_aad(void) {
 }
 
 static inline int storage_crypto_init(const char *pin) {
-    (void)pin;
+    size_t pin_len = pin ? strlen(pin) : 0;
+    if (pin_len == 0 || pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
+        return -1;
+    }
     mock_crypto_initialized = true;
     return 0;
 }

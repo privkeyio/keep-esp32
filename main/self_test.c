@@ -27,7 +27,7 @@ static bool is_valid_group_char(unsigned char c) {
 }
 
 static const self_test_t tests[] = {
-    {SELF_TEST_STORAGE_CRYPTO, "storage_crypto", self_test_storage_crypto, true},
+    {SELF_TEST_STORAGE_CRYPTO, "storage_crypto", self_test_storage_crypto, false},
     {SELF_TEST_CRYPTO_LIB, "crypto_lib", self_test_crypto_lib, true},
     {SELF_TEST_FLASH_PARTITIONS, "flash_partitions", self_test_flash_partitions, true},
     {SELF_TEST_STORAGE_SLOTS, "storage_slots", self_test_storage_slots, false},
@@ -35,7 +35,7 @@ static const self_test_t tests[] = {
 
 int self_test_storage_crypto(void) {
     if (!storage_crypto_is_initialized()) {
-        return -1;
+        return 0;
     }
 
     uint8_t test_data[32];
