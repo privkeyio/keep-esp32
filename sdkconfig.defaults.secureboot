@@ -23,5 +23,12 @@ CONFIG_BOOTLOADER_APP_SECURE_VERSION=1
 # CONFIG_SECURE_FLASH_ENC_ENABLED=y
 # CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
 
+# ROM Download Mode options (mutually exclusive, choose ONE):
+# - DISABLE: Burns eFuse to permanently disable ROM download. Most secure but no recovery.
+# - INSECURE_ALLOW: Keeps full esptool/ROM download access. Use for development only.
+# - SECURE_ROM_DL: Enables secure download mode with restrictions. Middle ground if supported.
 CONFIG_SECURE_DISABLE_ROM_DL_MODE=y
+# CONFIG_SECURE_INSECURE_ALLOW_DL_MODE=y
+# CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE=y
+
 CONFIG_SECURE_BOOT_FLASH_BOOTLOADER_DEFAULT=n
