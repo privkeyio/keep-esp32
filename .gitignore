@@ -7,6 +7,10 @@ sdkconfig.old
 __pycache__/
 .cache/
 
+# Signing keys
+keys/
+*.pem
+
 # Test binaries and build directories
 test_kfp
 test_native_frost
