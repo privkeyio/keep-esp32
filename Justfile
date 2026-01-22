@@ -28,7 +28,7 @@ test:
     mkdir -p build && cd build
     cmake ..
     make -j$(nproc)
-    for t in test_frost test_session test_storage test_secure_element test_secresult test_integration test_self_test test_hw_entropy test_anti_glitch; do
+    for t in test_frost test_session test_storage test_secure_element test_secresult test_integration test_self_test test_hw_entropy test_anti_glitch test_psbt_fraud; do
         [ ! -f "./$t" ] || ./$t
     done
     [ ! -f ./test_frost_signer_core ] || ./test_frost_signer_core
@@ -103,9 +103,10 @@ verify-device:
     #!/usr/bin/env bash
     set -euo pipefail
     [ -f output/keep.bin ] || { echo "Run 'just docker-build' first"; exit 1; }
+    SIZE=$(stat -c%s output/keep.bin)
     TMP=$(mktemp)
     trap "rm -f $TMP" EXIT
-    esptool.py --port {{port}} read_flash 0x10000 0x300000 "$TMP"
+    esptool.py --port {{port}} read_flash 0x10000 "$SIZE" "$TMP"
     DEVICE_HASH=$(sha256sum "$TMP" | cut -d' ' -f1)
     BUILT_HASH=$(sha256sum output/keep.bin | cut -d' ' -f1)
     echo "Device: $DEVICE_HASH"
