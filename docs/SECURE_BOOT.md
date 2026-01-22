@@ -40,8 +40,7 @@ First boot burns the public key hash to eFuse:
 esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
     0x0 build/bootloader/bootloader-signed.bin \
     0xc000 build/partition_table/partition-table.bin \
-    0xd000 build/ota_data_initial.bin \
-    0x10000 build/keep-signed.bin
+    0x20000 build/keep-signed.bin
 ```
 
 ## Key Management

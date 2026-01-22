@@ -29,6 +29,14 @@ check_espsecure() {
     fi
 }
 
+check_signing_key() {
+    if [ ! -f "$SIGNING_KEY" ]; then
+        echo "Error: Signing key not found at $SIGNING_KEY"
+        echo "Run '$0 generate-key' first."
+        exit 1
+    fi
+}
+
 generate_key() {
     check_espsecure
     mkdir -p "$KEYS_DIR"
@@ -48,12 +56,7 @@ generate_key() {
 
 sign_app() {
     check_espsecure
-
-    if [ ! -f "$SIGNING_KEY" ]; then
-        echo "Error: Signing key not found at $SIGNING_KEY"
-        echo "Run '$0 generate-key' first."
-        exit 1
-    fi
+    check_signing_key
 
     local app_bin="${BUILD_DIR}/keep.bin"
     local signed_bin="${BUILD_DIR}/keep-signed.bin"
@@ -73,12 +76,7 @@ sign_app() {
 
 sign_bootloader() {
     check_espsecure
-
-    if [ ! -f "$SIGNING_KEY" ]; then
-        echo "Error: Signing key not found at $SIGNING_KEY"
-        echo "Run '$0 generate-key' first."
-        exit 1
-    fi
+    check_signing_key
 
     local bootloader_bin="${BUILD_DIR}/bootloader/bootloader.bin"
     local signed_bin="${BUILD_DIR}/bootloader/bootloader-signed.bin"
