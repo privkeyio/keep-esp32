@@ -189,14 +189,27 @@ Before submitting PRs that touch security-sensitive code:
 - [ ] No timing side channels in security-critical comparisons
 - [ ] Error messages do not leak sensitive information
 
+## Secure Boot (Optional)
+
+ESP-IDF Secure Boot v2 can be enabled for production deployments:
+
+- RSA-3072/PSS signature verification of bootloader and application
+- Anti-rollback protection via eFuse version counter
+- Optional flash encryption for firmware at rest
+- See `docs/SECURE_BOOT.md` for implementation details
+
+Build with secure boot:
+```bash
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.secureboot" build
+```
+
 ## Known Limitations
 
-- No secure boot (not tamper-evident)
-- No flash encryption at rest (relies on AES-256-GCM layer)
 - MAC address readable, used in key derivation
 - PIN not rate-limited at hardware level; a weak or short PIN provides no meaningful
   protection against offline brute-force when flash can be extracted
 - Single-threaded, no concurrent request handling
+- Secure boot requires careful key management (key loss = bricked device)
 
 ## Reporting Vulnerabilities
 
