@@ -13,14 +13,15 @@ WORKDIR /build
 
 COPY . keep-esp32/
 
-RUN git clone https://github.com/privkeyio/secp256k1-frost.git && \
-    cd secp256k1-frost && git checkout 832bac2dbfaf4c35058cd5dadb0f8fe093cb6c65 && cd .. && \
-    git clone https://github.com/privkeyio/libnostr-c.git && \
-    cd libnostr-c && git checkout 4e8d01b8d20680204429aaf3680d069ec222fdaa && cd .. && \
-    git clone https://github.com/privkeyio/noscrypt.git && \
-    cd noscrypt && git checkout 45fcbef32f958145d6797f384a225c0d43616886 && cd .. && \
-    git clone https://github.com/ElementsProject/libwally-core.git && \
-    cd libwally-core && git checkout 242f841af6819b5d5174da5a9593907f56f1bc89 && cd ..
+RUN for repo in \
+        "privkeyio/secp256k1-frost 832bac2dbfaf4c35058cd5dadb0f8fe093cb6c65" \
+        "privkeyio/libnostr-c 4e8d01b8d20680204429aaf3680d069ec222fdaa" \
+        "privkeyio/noscrypt 45fcbef32f958145d6797f384a225c0d43616886" \
+        "ElementsProject/libwally-core 242f841af6819b5d5174da5a9593907f56f1bc89"; do \
+        set -- $repo; \
+        git clone "https://github.com/$1.git" && \
+        git -C "$(basename $1)" checkout "$2"; \
+    done
 
 RUN . $IDF_PATH/export.sh && \
     cd keep-esp32 && \
