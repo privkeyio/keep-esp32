@@ -165,3 +165,15 @@ target_include_directories(test_anti_glitch PRIVATE
     ${MAIN_DIR}
 )
 target_compile_definitions(test_anti_glitch PRIVATE NATIVE_TEST=1)
+
+add_executable(test_pin_prefix test_pin_prefix.c)
+target_include_directories(test_pin_prefix PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${MAIN_DIR}
+)
+target_compile_definitions(test_pin_prefix PRIVATE NATIVE_TEST=1)
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+    target_compile_definitions(test_pin_prefix PRIVATE HAS_OPENSSL=1)
+    target_link_libraries(test_pin_prefix OpenSSL::Crypto)
+endif()
