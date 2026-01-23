@@ -65,6 +65,48 @@ static void handle_restart(const rpc_request_t *req, rpc_response_t *resp) {
     esp_restart();
 }
 
+static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
+    if (storage_crypto_is_initialized()) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Already unlocked");
+        return;
+    }
+
+    if (strlen(req->pin) == 0) {
+        PROTOCOL_ERROR(resp, req->id, ERR_PIN_INVALID, "PIN required");
+        return;
+    }
+
+    int ret = storage_crypto_init(req->pin);
+    if (ret == ERR_PIN_LOCKED) {
+        PROTOCOL_ERROR(resp, req->id, ERR_PIN_LOCKED, "Device locked");
+        return;
+    }
+    if (ret == ERR_PIN_MUST_WAIT) {
+        PROTOCOL_ERROR(resp, req->id, ERR_PIN_MUST_WAIT, "Too many attempts, please wait");
+        return;
+    }
+    if (ret == ERR_PIN_INVALID) {
+        PROTOCOL_ERROR(resp, req->id, ERR_PIN_INVALID, "Invalid PIN");
+        return;
+    }
+    if (ret != 0) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "Unlock failed");
+        return;
+    }
+
+    int migrate_ret = storage_migrate_if_needed();
+    if (migrate_ret == STORAGE_ERR_IO) {
+        storage_crypto_clear();
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Migration failed");
+        return;
+    }
+    if (migrate_ret != STORAGE_OK && migrate_ret != STORAGE_ERR_NOT_INIT) {
+        ESP_LOGW(TAG, "Storage migration warning: %d", migrate_ret);
+    }
+
+    protocol_success(resp, req->id, "{\"unlocked\":true}");
+}
+
 static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
     char groups[STORAGE_MAX_SHARES][STORAGE_GROUP_LEN + 1];
     int count = storage_list_shares(groups, STORAGE_MAX_SHARES);
@@ -378,6 +420,9 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     case RPC_METHOD_SESSION_LIST:
         frost_session_list(resp);
         break;
+    case RPC_METHOD_UNLOCK:
+        handle_unlock(req, resp);
+        break;
     default:
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
     }
@@ -404,18 +449,7 @@ void app_main(void) {
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 
-    if (storage_crypto_init(NULL) != 0) {
-        ESP_LOGE(TAG, "Storage crypto init failed - share storage operations will be unavailable");
-    } else {
-        int migrate_ret = storage_migrate_if_needed();
-        if (migrate_ret == STORAGE_ERR_IO) {
-            ESP_LOGE(TAG, "Storage migration failed with IO error, restarting");
-            esp_restart();
-        } else if (migrate_ret != STORAGE_OK && migrate_ret != STORAGE_ERR_NOT_INIT) {
-            ESP_LOGW(TAG, "Storage migration failed: %d (continuing with existing data)",
-                     migrate_ret);
-        }
-    }
+    ESP_LOGI(TAG, "PIN-protected storage enabled - share operations require PIN");
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 

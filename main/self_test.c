@@ -8,6 +8,7 @@
 #include "esp_partition.h"
 #include "esp_log.h"
 #include <secp256k1.h>
+#include <mbedtls/gcm.h>
 #include <string.h>
 
 #define TAG "self_test"
@@ -33,37 +34,56 @@ static const self_test_t tests[] = {
     {SELF_TEST_STORAGE_SLOTS, "storage_slots", self_test_storage_slots, false},
 };
 
+static const uint8_t AES_GCM_TEST_KEY[32] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f};
+static const uint8_t AES_GCM_TEST_NONCE[12] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t AES_GCM_TEST_PT[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t AES_GCM_TEST_CT[16] = {0x0e, 0xbc, 0xb5, 0xde, 0xb5, 0x2c, 0x83, 0xbd,
+                                            0x08, 0xa8, 0xa9, 0x35, 0x18, 0x2c, 0x91, 0x99};
+static const uint8_t AES_GCM_TEST_TAG[16] = {0x38, 0x62, 0x64, 0x29, 0x86, 0xc9, 0x53, 0xe8,
+                                             0x7b, 0x3c, 0xe9, 0x9b, 0x0d, 0xec, 0xdf, 0x34};
+
 int self_test_storage_crypto(void) {
-    if (!storage_crypto_is_initialized()) {
-        return -1;
-    }
+    mbedtls_gcm_context gcm;
+    mbedtls_gcm_init(&gcm);
 
-    uint8_t test_data[32];
-    uint8_t encrypted[32];
-    uint8_t decrypted[32];
-    uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE];
-    uint8_t tag[STORAGE_CRYPTO_TAG_SIZE];
     int result = -1;
+    uint8_t output[16];
+    uint8_t tag[16];
 
-    if (rng_fill_checked(test_data, sizeof(test_data)) != 0) {
+    if (mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, AES_GCM_TEST_KEY, 256) != 0) {
         goto cleanup;
     }
 
-    if (storage_crypto_encrypt(test_data, sizeof(test_data), NULL, 0, nonce, encrypted, tag) != 0) {
+    if (mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, sizeof(AES_GCM_TEST_PT),
+                                  AES_GCM_TEST_NONCE, sizeof(AES_GCM_TEST_NONCE), NULL, 0,
+                                  AES_GCM_TEST_PT, output, sizeof(tag), tag) != 0) {
         goto cleanup;
     }
 
-    if (storage_crypto_decrypt(encrypted, sizeof(encrypted), NULL, 0, nonce, tag, decrypted) != 0) {
+    if (ct_compare(output, AES_GCM_TEST_CT, sizeof(AES_GCM_TEST_CT)) != 0 ||
+        ct_compare(tag, AES_GCM_TEST_TAG, sizeof(AES_GCM_TEST_TAG)) != 0) {
         goto cleanup;
     }
 
-    result = ct_compare(test_data, decrypted, sizeof(test_data)) == 0 ? 0 : -1;
+    if (mbedtls_gcm_auth_decrypt(&gcm, sizeof(AES_GCM_TEST_CT), AES_GCM_TEST_NONCE,
+                                 sizeof(AES_GCM_TEST_NONCE), NULL, 0, AES_GCM_TEST_TAG,
+                                 sizeof(AES_GCM_TEST_TAG), AES_GCM_TEST_CT, output) != 0) {
+        goto cleanup;
+    }
+
+    if (ct_compare(output, AES_GCM_TEST_PT, sizeof(AES_GCM_TEST_PT)) != 0) {
+        goto cleanup;
+    }
+
+    result = 0;
 
 cleanup:
-    secure_memzero(test_data, sizeof(test_data));
-    secure_memzero(encrypted, sizeof(encrypted));
-    secure_memzero(decrypted, sizeof(decrypted));
-    secure_memzero(nonce, sizeof(nonce));
+    mbedtls_gcm_free(&gcm);
+    secure_memzero(output, sizeof(output));
     secure_memzero(tag, sizeof(tag));
     return result;
 }

@@ -502,6 +502,10 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
     if (!storage_crypto_is_initialized()) {
         return STORAGE_ERR_CRYPTO_NOT_INIT;
     }
+    int rate_check = storage_crypto_check_rate_limit();
+    if (rate_check != 0) {
+        return rate_check;
+    }
 
     char padded_group[STORAGE_GROUP_LEN + 1];
     storage_pad_group_name(padded_group, group);
@@ -538,6 +542,7 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         if (storage_crypto_decrypt(slot.share_data, actual_len, aad, aad_len, slot.nonce, slot.tag,
                                    decrypted) != 0) {
             ESP_LOGE(TAG, "Share decryption failed - tampered or wrong PIN");
+            storage_crypto_record_attempt(false);
             secure_memzero(&slot, sizeof(slot));
             return STORAGE_ERR_DECRYPT;
         }

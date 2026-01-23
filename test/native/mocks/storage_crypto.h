@@ -15,6 +15,7 @@
 #define STORAGE_CRYPTO_MAX_PIN_LEN 64
 
 static bool mock_crypto_initialized = true;
+static int mock_rate_limit_result = 0;
 
 static uint8_t mock_last_encrypt_aad[128];
 static size_t mock_last_encrypt_aad_len = 0;
@@ -28,8 +29,29 @@ static inline void mock_crypto_reset_aad(void) {
     mock_last_decrypt_aad_len = 0;
 }
 
+static inline int storage_crypto_check_rate_limit(void) {
+    return mock_rate_limit_result;
+}
+
+static inline void storage_crypto_record_attempt(bool success) {
+    (void)success;
+}
+
+#ifdef UNIT_TEST
+static inline void storage_crypto_reset_rate_limit(void) {
+    mock_rate_limit_result = 0;
+}
+#endif
+
 static inline int storage_crypto_init(const char *pin) {
-    (void)pin;
+    int rate_limit = storage_crypto_check_rate_limit();
+    if (rate_limit != 0) {
+        return rate_limit;
+    }
+    size_t pin_len = pin ? strlen(pin) : 0;
+    if (pin_len == 0 || pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
+        return -1;
+    }
     mock_crypto_initialized = true;
     return 0;
 }

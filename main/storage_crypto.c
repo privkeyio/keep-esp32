@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "storage_crypto.h"
+#include "error_codes.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
 #include <mbedtls/gcm.h>
@@ -13,42 +14,101 @@
 #ifdef ESP_PLATFORM
 #include "esp_mac.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+static uint32_t get_time_ms(void) {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
 #else
 #include <stdio.h>
+#include <time.h>
 #define ESP_LOGW(tag, ...)            \
     fprintf(stderr, "W (%s): ", tag); \
     fprintf(stderr, __VA_ARGS__);     \
     fprintf(stderr, "\n")
+#define ESP_LOGE(tag, ...)            \
+    fprintf(stderr, "E (%s): ", tag); \
+    fprintf(stderr, __VA_ARGS__);     \
+    fprintf(stderr, "\n")
+static uint32_t get_time_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
 #endif
 
 #define TAG            "storage_crypto"
 #define DEVICE_ID_SIZE 6
 
+#define PIN_RATE_LIMIT_WINDOW_MS   60000
+#define PIN_RATE_LIMIT_MAX         3
+#define PIN_LOCKOUT_MS             300000
+#define PIN_LOCKOUT_FAILURE_THRESH 5
+
+#define NVS_NAMESPACE    "pin_rl"
+#define NVS_KEY_FAILURES "failures"
+#define NVS_KEY_LOCKOUT  "lockout"
+
 static uint8_t storage_key[STORAGE_CRYPTO_KEY_SIZE];
 static bool key_initialized = false;
+
+static uint32_t pin_attempt_times[PIN_RATE_LIMIT_MAX];
+static uint8_t pin_attempt_count = 0;
+static uint32_t pin_lockout_until = 0;
+static uint8_t pin_consecutive_failures = 0;
+
+static void load_rate_limit_state(void) {
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        uint8_t failures = 0;
+        uint32_t lockout = 0;
+        nvs_get_u8(handle, NVS_KEY_FAILURES, &failures);
+        nvs_get_u32(handle, NVS_KEY_LOCKOUT, &lockout);
+        nvs_close(handle);
+        pin_consecutive_failures = failures;
+        pin_lockout_until = lockout;
+    }
+#endif
+}
+
+static void save_rate_limit_state(void) {
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_u8(handle, NVS_KEY_FAILURES, pin_consecutive_failures);
+        nvs_set_u32(handle, NVS_KEY_LOCKOUT, pin_lockout_until);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+#endif
+}
 
 static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {
 #ifdef ESP_PLATFORM
     return esp_read_mac(device_id, ESP_MAC_EFUSE_FACTORY) == ESP_OK ? 0 : -1;
 #else
-    memset(device_id, 0x42, DEVICE_ID_SIZE);
     FILE *fp = fopen("/etc/machine-id", "r");
-    if (!fp)
-        return 0;
+    if (!fp) {
+        ESP_LOGE(TAG, "Cannot read /etc/machine-id - device ID unavailable");
+        return -1;
+    }
 
     char buf[13] = {0};
     size_t bytes_read = fread(buf, 1, 12, fp);
     fclose(fp);
 
     if (bytes_read < 12) {
-        return 0;
+        ESP_LOGE(TAG, "Machine ID too short");
+        return -1;
     }
 
     for (int i = 0; i < DEVICE_ID_SIZE; i++) {
         unsigned int val = 0;
         if (sscanf(buf + i * 2, "%2x", &val) != 1) {
-            memset(device_id, 0x42, DEVICE_ID_SIZE);
-            return 0;
+            ESP_LOGE(TAG, "Invalid machine ID format");
+            return -1;
         }
         device_id[i] = (uint8_t)val;
     }
@@ -86,27 +146,89 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
     return (ret == 0) ? 0 : -1;
 }
 
-int storage_crypto_init(const char *pin) {
-    uint8_t device_id[DEVICE_ID_SIZE];
+static bool rate_limit_loaded = false;
 
-    if (get_device_id(device_id) != 0) {
-        return -1;
+int storage_crypto_check_rate_limit(void) {
+    if (!rate_limit_loaded) {
+        load_rate_limit_state();
+        rate_limit_loaded = true;
+    }
+
+    uint32_t now = get_time_ms();
+
+    if (pin_lockout_until > 0) {
+        if ((int32_t)(now - pin_lockout_until) < 0) {
+            return ERR_PIN_LOCKED;
+        }
+        pin_lockout_until = 0;
+        pin_consecutive_failures = 0;
+        save_rate_limit_state();
+    }
+
+    int recent = 0;
+    for (int i = 0; i < pin_attempt_count; i++) {
+        if ((now - pin_attempt_times[i]) < PIN_RATE_LIMIT_WINDOW_MS) {
+            recent++;
+        }
+    }
+    if (recent >= PIN_RATE_LIMIT_MAX) {
+        return ERR_PIN_MUST_WAIT;
+    }
+
+    return 0;
+}
+
+void storage_crypto_record_attempt(bool success) {
+    uint32_t now = get_time_ms();
+
+    if (pin_attempt_count < PIN_RATE_LIMIT_MAX) {
+        pin_attempt_times[pin_attempt_count++] = now;
+    } else {
+        memmove(pin_attempt_times, pin_attempt_times + 1,
+                (PIN_RATE_LIMIT_MAX - 1) * sizeof(pin_attempt_times[0]));
+        pin_attempt_times[PIN_RATE_LIMIT_MAX - 1] = now;
+    }
+
+    if (success) {
+        pin_consecutive_failures = 0;
+    } else {
+        if (pin_consecutive_failures < UINT8_MAX) {
+            pin_consecutive_failures++;
+        }
+        if (pin_consecutive_failures >= PIN_LOCKOUT_FAILURE_THRESH) {
+            pin_lockout_until = now + PIN_LOCKOUT_MS;
+            ESP_LOGW(TAG, "PIN lockout activated for %d seconds", PIN_LOCKOUT_MS / 1000);
+        }
+    }
+    save_rate_limit_state();
+}
+
+int storage_crypto_init(const char *pin) {
+    int rate_limit = storage_crypto_check_rate_limit();
+    if (rate_limit != 0) {
+        return rate_limit;
     }
 
     size_t pin_len = pin ? strnlen(pin, STORAGE_CRYPTO_MAX_PIN_LEN + 1) : 0;
-    if (pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
-        secure_memzero(device_id, sizeof(device_id));
-        return -1;
+    if (pin_len == 0 || pin_len > STORAGE_CRYPTO_MAX_PIN_LEN) {
+        storage_crypto_record_attempt(false);
+        return ERR_PIN_INVALID;
     }
 
-    if (!pin || pin_len == 0) {
-        ESP_LOGW(TAG, "No PIN provided - using device-derived key only (not PIN-protected)");
+    uint8_t device_id[DEVICE_ID_SIZE];
+    if (get_device_id(device_id) != 0) {
+        return -1;
     }
 
     int ret = derive_key(device_id, sizeof(device_id), (const uint8_t *)pin, pin_len, storage_key);
     secure_memzero(device_id, sizeof(device_id));
 
-    key_initialized = (ret == 0);
+    if (ret == 0) {
+        key_initialized = true;
+        storage_crypto_record_attempt(true);
+    } else {
+        storage_crypto_record_attempt(false);
+    }
     return ret;
 }
 
@@ -172,3 +294,13 @@ int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, con
     mbedtls_gcm_free(&gcm);
     return (ret == 0) ? 0 : -1;
 }
+
+#ifdef UNIT_TEST
+void storage_crypto_reset_rate_limit(void) {
+    pin_attempt_count = 0;
+    pin_lockout_until = 0;
+    pin_consecutive_failures = 0;
+    memset(pin_attempt_times, 0, sizeof(pin_attempt_times));
+    rate_limit_loaded = false;
+}
+#endif
