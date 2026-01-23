@@ -18,15 +18,12 @@ _Static_assert(sizeof(BIP39_WORDLIST) / sizeof(BIP39_WORDLIST[0]) == BIP39_WORD_
 
 int pin_prefix_derive_words(const pin_prefix_t *prefix, const uint8_t *device_secret,
                             size_t secret_len, uint16_t *word1_index, uint16_t *word2_index) {
-    if (!prefix || !device_secret || !word1_index || !word2_index) {
+    if (!prefix || !device_secret || !word1_index || !word2_index)
         return -1;
-    }
-    if (prefix->len < PIN_PREFIX_MIN_LEN || prefix->len > PIN_PREFIX_MAX_LEN) {
+    if (prefix->len < PIN_PREFIX_MIN_LEN || prefix->len > PIN_PREFIX_MAX_LEN)
         return -1;
-    }
-    if (secret_len == 0 || secret_len > SECRET_LEN_MAX) {
+    if (secret_len == 0 || secret_len > SECRET_LEN_MAX)
         return -1;
-    }
 
     uint8_t input[CONTEXT_LEN + PIN_PREFIX_MAX_LEN];
     memcpy(input, ANTI_PHISHING_CONTEXT, CONTEXT_LEN);
@@ -61,9 +58,8 @@ const char *bip39_get_word(uint16_t index) {
 int pin_prefix_get_words(const pin_prefix_t *prefix, const uint8_t *device_secret,
                          size_t secret_len, char *word1, size_t word1_size, char *word2,
                          size_t word2_size) {
-    if (!word1 || !word2 || word1_size == 0 || word2_size == 0) {
+    if (!word1 || !word2 || word1_size == 0 || word2_size == 0)
         return -1;
-    }
 
     uint16_t idx1, idx2;
     if (pin_prefix_derive_words(prefix, device_secret, secret_len, &idx1, &idx2) != 0) {
@@ -88,15 +84,8 @@ int pin_prefix_get_words(const pin_prefix_t *prefix, const uint8_t *device_secre
 }
 
 int pin_prefix_set_digit(pin_prefix_t *prefix, uint8_t digit) {
-    if (!prefix) {
+    if (!prefix || digit > 9 || prefix->len >= PIN_PREFIX_MAX_LEN)
         return -1;
-    }
-    if (digit > 9) {
-        return -1;
-    }
-    if (prefix->len >= PIN_PREFIX_MAX_LEN) {
-        return -1;
-    }
     prefix->digits[prefix->len++] = digit;
     return 0;
 }
@@ -108,8 +97,5 @@ void pin_prefix_clear(pin_prefix_t *prefix) {
 }
 
 bool pin_prefix_is_ready(const pin_prefix_t *prefix) {
-    if (!prefix) {
-        return false;
-    }
-    return prefix->len >= PIN_PREFIX_MIN_LEN;
+    return prefix && prefix->len >= PIN_PREFIX_MIN_LEN;
 }

@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "crypto_asm.h"
+
 typedef enum { MBEDTLS_MD_SHA256 = 6 } mbedtls_md_type_t;
 
 typedef struct mbedtls_md_info_t {
@@ -167,17 +169,11 @@ static inline int mbedtls_md_hmac(const mbedtls_md_info_t *md_info, const unsign
     memcpy(outer + 64, inner_hash, 32);
     sha256(outer, 64 + 32, output);
 
-    volatile uint8_t *p;
-    p = k_ipad;
-    for (size_t i = 0; i < 64; i++) p[i] = 0;
-    p = k_opad;
-    for (size_t i = 0; i < 64; i++) p[i] = 0;
-    p = tk;
-    for (size_t i = 0; i < 32; i++) p[i] = 0;
-    p = inner;
-    for (size_t i = 0; i < sizeof(inner); i++) p[i] = 0;
-    p = inner_hash;
-    for (size_t i = 0; i < 32; i++) p[i] = 0;
+    secure_memzero(k_ipad, sizeof(k_ipad));
+    secure_memzero(k_opad, sizeof(k_opad));
+    secure_memzero(tk, sizeof(tk));
+    secure_memzero(inner, sizeof(inner));
+    secure_memzero(inner_hash, sizeof(inner_hash));
 
     return 0;
 }
