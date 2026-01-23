@@ -46,9 +46,9 @@ static uint32_t get_time_ms(void) {
 #define PIN_LOCKOUT_MS             300000
 #define PIN_LOCKOUT_FAILURE_THRESH 5
 
-#define NVS_NAMESPACE       "pin_rl"
-#define NVS_KEY_FAILURES    "failures"
-#define NVS_KEY_LOCKOUT     "lockout"
+#define NVS_NAMESPACE    "pin_rl"
+#define NVS_KEY_FAILURES "failures"
+#define NVS_KEY_LOCKOUT  "lockout"
 
 static uint8_t storage_key[STORAGE_CRYPTO_KEY_SIZE];
 static bool key_initialized = false;
