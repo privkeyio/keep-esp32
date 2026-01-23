@@ -108,6 +108,8 @@ static uint32_t calculate_backoff(uint8_t attempt) {
 }
 
 static void buffer_event(const char *event_json) {
+    COORDINATOR_LOCK();
+
     if (g_ctx.buffer_count >= WS_EVENT_BUFFER_SIZE) {
         uint8_t oldest =
             (g_ctx.buffer_head + WS_EVENT_BUFFER_SIZE - g_ctx.buffer_count) % WS_EVENT_BUFFER_SIZE;
@@ -125,9 +127,11 @@ static void buffer_event(const char *event_json) {
         g_ctx.buffer_head = (g_ctx.buffer_head + 1) % WS_EVENT_BUFFER_SIZE;
         g_ctx.buffer_count++;
     }
+
+    COORDINATOR_UNLOCK();
 }
 
-static void clear_event_buffer(void) {
+static void clear_event_buffer_unlocked(void) {
     for (int i = 0; i < WS_EVENT_BUFFER_SIZE; i++) {
         if (g_ctx.event_buffer[i].json) {
             free(g_ctx.event_buffer[i].json);
@@ -136,6 +140,12 @@ static void clear_event_buffer(void) {
     }
     g_ctx.buffer_head = 0;
     g_ctx.buffer_count = 0;
+}
+
+static void clear_event_buffer(void) {
+    COORDINATOR_LOCK();
+    clear_event_buffer_unlocked();
+    COORDINATOR_UNLOCK();
 }
 
 #ifdef ESP_PLATFORM
@@ -158,7 +168,7 @@ static void replay_buffered_events(void) {
             }
         }
     }
-    clear_event_buffer();
+    clear_event_buffer_unlocked();
 }
 #endif
 
@@ -322,15 +332,25 @@ static void handle_ws_error(relay_connection_t *relay) {
     COORDINATOR_LOCK();
     ESP_LOGE(TAG, "Relay error: %s", relay->url);
 
+    relay->fail_count++;
+    relay->health.healthy = false;
+
     if (relay->reconnect.attempt_count >= WS_RECONNECT_MAX_ATTEMPTS) {
-        relay->fail_count++;
-        relay->health.healthy = false;
         relay->state = COORDINATOR_STATE_ERROR;
         COORDINATOR_UNLOCK();
         return;
     }
 
-    save_reconnect_state(relay);
+    relay->reconnect.state_before_disconnect = relay->state;
+    relay->reconnect.had_subscription = g_ctx.has_subscription;
+    if (g_ctx.has_subscription) {
+        copy_subscription_id(relay->reconnect.subscription_id,
+                             sizeof(relay->reconnect.subscription_id), g_ctx.current_subscription);
+    }
+    relay->state = COORDINATOR_STATE_RECONNECTING;
+    if (g_ctx.disconnect_time == 0) {
+        g_ctx.disconnect_time = coordinator_now_ms();
+    }
     COORDINATOR_UNLOCK();
 }
 
@@ -839,7 +859,7 @@ int frost_coordinator_poll(int timeout_ms) {
         if (disconnect_elapsed > WS_SESSION_RECOVERY_MS) {
             ESP_LOGE(TAG, "Session recovery timeout exceeded");
             g_ctx.state = COORDINATOR_STATE_ERROR;
-            clear_event_buffer();
+            clear_event_buffer_unlocked();
             g_ctx.disconnect_time = 0;
             COORDINATOR_UNLOCK();
             return -1;
