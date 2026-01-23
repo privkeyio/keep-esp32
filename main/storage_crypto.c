@@ -15,6 +15,8 @@
 #include "esp_mac.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 static uint32_t get_time_ms(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
@@ -23,6 +25,10 @@ static uint32_t get_time_ms(void) {
 #include <time.h>
 #define ESP_LOGW(tag, ...)            \
     fprintf(stderr, "W (%s): ", tag); \
+    fprintf(stderr, __VA_ARGS__);     \
+    fprintf(stderr, "\n")
+#define ESP_LOGE(tag, ...)            \
+    fprintf(stderr, "E (%s): ", tag); \
     fprintf(stderr, __VA_ARGS__);     \
     fprintf(stderr, "\n")
 static uint32_t get_time_ms(void) {
@@ -40,6 +46,10 @@ static uint32_t get_time_ms(void) {
 #define PIN_LOCKOUT_MS             300000
 #define PIN_LOCKOUT_FAILURE_THRESH 5
 
+#define NVS_NAMESPACE       "pin_rl"
+#define NVS_KEY_FAILURES    "failures"
+#define NVS_KEY_LOCKOUT     "lockout"
+
 static uint8_t storage_key[STORAGE_CRYPTO_KEY_SIZE];
 static bool key_initialized = false;
 
@@ -48,28 +58,57 @@ static uint8_t pin_attempt_count = 0;
 static uint32_t pin_lockout_until = 0;
 static uint8_t pin_consecutive_failures = 0;
 
+static void load_rate_limit_state(void) {
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        uint8_t failures = 0;
+        uint32_t lockout = 0;
+        nvs_get_u8(handle, NVS_KEY_FAILURES, &failures);
+        nvs_get_u32(handle, NVS_KEY_LOCKOUT, &lockout);
+        nvs_close(handle);
+        pin_consecutive_failures = failures;
+        pin_lockout_until = lockout;
+    }
+#endif
+}
+
+static void save_rate_limit_state(void) {
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_u8(handle, NVS_KEY_FAILURES, pin_consecutive_failures);
+        nvs_set_u32(handle, NVS_KEY_LOCKOUT, pin_lockout_until);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+#endif
+}
+
 static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {
 #ifdef ESP_PLATFORM
     return esp_read_mac(device_id, ESP_MAC_EFUSE_FACTORY) == ESP_OK ? 0 : -1;
 #else
-    memset(device_id, 0x42, DEVICE_ID_SIZE);
     FILE *fp = fopen("/etc/machine-id", "r");
-    if (!fp)
-        return 0;
+    if (!fp) {
+        ESP_LOGE(TAG, "Cannot read /etc/machine-id - device ID unavailable");
+        return -1;
+    }
 
     char buf[13] = {0};
     size_t bytes_read = fread(buf, 1, 12, fp);
     fclose(fp);
 
     if (bytes_read < 12) {
-        return 0;
+        ESP_LOGE(TAG, "Machine ID too short");
+        return -1;
     }
 
     for (int i = 0; i < DEVICE_ID_SIZE; i++) {
         unsigned int val = 0;
         if (sscanf(buf + i * 2, "%2x", &val) != 1) {
-            memset(device_id, 0x42, DEVICE_ID_SIZE);
-            return 0;
+            ESP_LOGE(TAG, "Invalid machine ID format");
+            return -1;
         }
         device_id[i] = (uint8_t)val;
     }
@@ -107,7 +146,14 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
     return (ret == 0) ? 0 : -1;
 }
 
+static bool rate_limit_loaded = false;
+
 int storage_crypto_check_rate_limit(void) {
+    if (!rate_limit_loaded) {
+        load_rate_limit_state();
+        rate_limit_loaded = true;
+    }
+
     uint32_t now = get_time_ms();
 
     if (pin_lockout_until > 0) {
@@ -116,11 +162,12 @@ int storage_crypto_check_rate_limit(void) {
         }
         pin_lockout_until = 0;
         pin_consecutive_failures = 0;
+        save_rate_limit_state();
     }
 
     int recent = 0;
-    for (int i = 0; i < pin_attempt_count && i < PIN_RATE_LIMIT_MAX; i++) {
-        if ((now - pin_attempt_times[i]) < PIN_RATE_LIMIT_WINDOW_MS) {
+    for (int i = 0; i < PIN_RATE_LIMIT_MAX; i++) {
+        if (i < pin_attempt_count && (now - pin_attempt_times[i]) < PIN_RATE_LIMIT_WINDOW_MS) {
             recent++;
         }
     }
@@ -151,8 +198,10 @@ void storage_crypto_record_attempt(bool success) {
             pin_lockout_until = now + PIN_LOCKOUT_MS;
             ESP_LOGW(TAG, "PIN lockout activated for %d seconds", PIN_LOCKOUT_MS / 1000);
         }
+        save_rate_limit_state();
     } else {
         pin_consecutive_failures = 0;
+        save_rate_limit_state();
     }
 }
 
@@ -248,9 +297,12 @@ int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, con
     return (ret == 0) ? 0 : -1;
 }
 
+#ifdef UNIT_TEST
 void storage_crypto_reset_rate_limit(void) {
     pin_attempt_count = 0;
     pin_lockout_until = 0;
     pin_consecutive_failures = 0;
     memset(pin_attempt_times, 0, sizeof(pin_attempt_times));
+    rate_limit_loaded = false;
 }
+#endif

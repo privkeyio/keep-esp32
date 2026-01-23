@@ -37,9 +37,11 @@ static inline void storage_crypto_record_attempt(bool success) {
     (void)success;
 }
 
+#ifdef UNIT_TEST
 static inline void storage_crypto_reset_rate_limit(void) {
     mock_rate_limit_result = 0;
 }
+#endif
 
 static inline int storage_crypto_init(const char *pin) {
     int rate_limit = storage_crypto_check_rate_limit();

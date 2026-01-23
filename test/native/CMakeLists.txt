@@ -92,12 +92,29 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
     target_compile_definitions(test_integration_full PRIVATE NATIVE_TEST=1 HAS_CJSON=1)
 endif()
 
-add_executable(test_self_test test_self_test.c)
-target_include_directories(test_self_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-    ${MAIN_DIR}
-)
-target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1)
+find_package(MbedTLS QUIET)
+if(MbedTLS_FOUND)
+    add_executable(test_self_test test_self_test.c)
+    target_include_directories(test_self_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${MAIN_DIR}
+    )
+    target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1 UNIT_TEST=1)
+    target_link_libraries(test_self_test MbedTLS::mbedcrypto)
+else()
+    find_library(MBEDCRYPTO_LIB mbedcrypto)
+    if(MBEDCRYPTO_LIB)
+        add_executable(test_self_test test_self_test.c)
+        target_include_directories(test_self_test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+            ${MAIN_DIR}
+        )
+        target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1 UNIT_TEST=1)
+        target_link_libraries(test_self_test ${MBEDCRYPTO_LIB})
+    else()
+        message(STATUS "Skipping test_self_test (mbedtls not found)")
+    endif()
+endif()
 
 add_executable(test_hw_entropy test_hw_entropy.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/random_utils.c)
 target_include_directories(test_hw_entropy PRIVATE

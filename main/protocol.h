@@ -18,6 +18,7 @@
 #define PROTOCOL_API_VERSION        1
 #define PROTOCOL_MAX_PARTICIPANTS   16
 #define PROTOCOL_COMMITMENT_HEX_LEN 264
+#define PROTOCOL_MAX_PIN_LEN        64
 #define MAX_COMMITMENTS_SIZE        ((PROTOCOL_MAX_PARTICIPANTS - 1) * PROTOCOL_COMMITMENT_HEX_LEN + 1)
 
 typedef enum {
@@ -46,6 +47,7 @@ typedef enum {
     RPC_METHOD_EXPORT_SHARE,
     RPC_METHOD_SESSION_RESUME,
     RPC_METHOD_SESSION_LIST,
+    RPC_METHOD_UNLOCK,
     RPC_METHOD_UNKNOWN
 } rpc_method_t;
 
@@ -66,6 +68,7 @@ typedef struct {
     size_t input_idx;
     char policy_bundle[5120];
     char passphrase[256];
+    char pin[PROTOCOL_MAX_PIN_LEN + 1];
 } rpc_request_t;
 
 typedef struct {

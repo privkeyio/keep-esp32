@@ -12,7 +12,7 @@ set(REQUIRES
 )
 
 set(PRIV_REQUIRES
-    secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core
+    secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core nvs_flash
 )
 
 if(CONFIG_KEEP_DISPLAY_ENABLED)

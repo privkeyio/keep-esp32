@@ -85,6 +85,8 @@ static rpc_method_t parse_method(const char *method) {
         return RPC_METHOD_SESSION_RESUME;
     if (strcmp(method, "frost_session_list") == 0)
         return RPC_METHOD_SESSION_LIST;
+    if (strcmp(method, "unlock") == 0)
+        return RPC_METHOD_UNLOCK;
     return RPC_METHOD_UNKNOWN;
 }
 
@@ -206,6 +208,10 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (passphrase && cJSON_IsString(passphrase)) {
             snprintf(req->passphrase, sizeof(req->passphrase), "%s", passphrase->valuestring);
         }
+        cJSON *pin = cJSON_GetObjectItem(params, "pin");
+        if (pin && cJSON_IsString(pin)) {
+            snprintf(req->pin, sizeof(req->pin), "%s", pin->valuestring);
+        }
     }
 
     cJSON_Delete(root);
@@ -215,6 +221,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
 void protocol_free_request(rpc_request_t *req) {
     if (req) {
         secure_memzero(req->passphrase, sizeof(req->passphrase));
+        secure_memzero(req->pin, sizeof(req->pin));
         if (req->psbt) {
             free(req->psbt);
             req->psbt = NULL;

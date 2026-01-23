@@ -19,7 +19,6 @@ void storage_crypto_clear(void);
 
 int storage_crypto_check_rate_limit(void);
 void storage_crypto_record_attempt(bool success);
-void storage_crypto_reset_rate_limit(void);
 
 int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len, const uint8_t *aad,
                            size_t aad_len, uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],

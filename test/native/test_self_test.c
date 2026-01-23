@@ -104,6 +104,7 @@ int secp256k1_ec_pubkey_create(const secp256k1_context *ctx, secp256k1_pubkey *p
     return 1;
 }
 
+#include <mbedtls/gcm.h>
 #include "self_test.h"
 #include "self_test.c"
 
@@ -134,12 +135,12 @@ static int test_storage_crypto_pass(void) {
     return 0;
 }
 
-static int test_storage_crypto_skip_when_not_init(void) {
-    TEST("storage_crypto skips when not initialized");
+static int test_storage_crypto_uses_test_vectors(void) {
+    TEST("storage_crypto uses test vectors without initialized crypto");
     reset_state();
     mock_crypto_initialized = false;
     if (self_test_storage_crypto() != 0)
-        FAIL("should pass (skip) when crypto not initialized");
+        FAIL("should pass using test vectors");
     PASS();
     return 0;
 }
@@ -269,7 +270,7 @@ int main(void) {
 
     int failures = 0;
     failures += test_storage_crypto_pass();
-    failures += test_storage_crypto_skip_when_not_init();
+    failures += test_storage_crypto_uses_test_vectors();
     failures += test_crypto_lib_pass();
     failures += test_crypto_lib_fail();
     failures += test_flash_partitions_pass();
