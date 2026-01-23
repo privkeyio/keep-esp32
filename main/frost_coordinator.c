@@ -15,6 +15,7 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_websocket_client.h"
+#include "esp_crt_bundle.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #endif
@@ -385,6 +386,7 @@ static int reconnect_relay(relay_connection_t *relay) {
     esp_websocket_client_config_t ws_cfg = {
         .uri = relay->url,
         .buffer_size = 4096,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     relay->ws_handle = esp_websocket_client_init(&ws_cfg);
@@ -547,6 +549,7 @@ int frost_coordinator_connect(void) {
         esp_websocket_client_config_t ws_cfg = {
             .uri = relay->url,
             .buffer_size = 4096,
+            .crt_bundle_attach = esp_crt_bundle_attach,
         };
 
         relay->ws_handle = esp_websocket_client_init(&ws_cfg);
