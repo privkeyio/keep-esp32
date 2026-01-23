@@ -32,7 +32,7 @@ static bool is_safe_subscription_id(const char *id) {
                      c == '-' || c == '_';
         if (!valid)
             return false;
-        if (++len > 64)
+        if (++len > WS_MAX_SUBSCRIPTION_ID)
             return false;
     }
     return true;
@@ -519,11 +519,14 @@ int frost_coordinator_add_relay(const char *url) {
         ESP_LOGE(TAG, "Invalid WebSocket URL: %s", url);
         return -3;
     }
+    if (strlen(url) >= RELAY_URL_LEN) {
+        ESP_LOGE(TAG, "Relay URL too long: %s", url);
+        return -4;
+    }
 
     relay_connection_t *relay = &g_ctx.relays[g_ctx.relay_count];
     memset(relay, 0, sizeof(*relay));
-    strncpy(relay->url, url, RELAY_URL_LEN - 1);
-    relay->url[RELAY_URL_LEN - 1] = '\0';
+    memcpy(relay->url, url, strlen(url) + 1);
     relay->state = COORDINATOR_STATE_IDLE;
 
     g_ctx.relay_count++;
