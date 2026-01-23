@@ -102,11 +102,8 @@ static uint32_t coordinator_now_ms(void) {
 }
 
 static uint32_t calculate_backoff(uint8_t attempt) {
-    uint32_t delay = WS_RECONNECT_BASE_MS;
-    for (uint8_t i = 0; i < attempt && delay < WS_RECONNECT_MAX_MS; i++) {
-        delay *= 2;
-    }
-    return (delay > WS_RECONNECT_MAX_MS) ? WS_RECONNECT_MAX_MS : delay;
+    uint32_t delay = WS_RECONNECT_BASE_MS << attempt;
+    return delay > WS_RECONNECT_MAX_MS ? WS_RECONNECT_MAX_MS : delay;
 }
 
 static void buffer_event(const char *event_json) {
@@ -140,8 +137,37 @@ static void clear_event_buffer(void) {
     g_ctx.buffer_count = 0;
 }
 
+#ifdef ESP_PLATFORM
+static void replay_buffered_events(void) {
+    ESP_LOGI(TAG, "Replaying %d buffered events", g_ctx.buffer_count);
+    uint8_t start =
+        (g_ctx.buffer_head + WS_EVENT_BUFFER_SIZE - g_ctx.buffer_count) % WS_EVENT_BUFFER_SIZE;
+
+    for (uint8_t j = 0; j < g_ctx.buffer_count; j++) {
+        uint8_t idx = (start + j) % WS_EVENT_BUFFER_SIZE;
+        if (!g_ctx.event_buffer[idx].json)
+            continue;
+
+        for (int k = 0; k < g_ctx.relay_count; k++) {
+            relay_connection_t *relay = &g_ctx.relays[k];
+            if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws_handle) {
+                esp_websocket_client_send_text(relay->ws_handle, g_ctx.event_buffer[idx].json,
+                                               g_ctx.event_buffer[idx].len,
+                                               pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
+            }
+        }
+    }
+    clear_event_buffer();
+}
+#endif
+
 static int reconnect_relay(relay_connection_t *relay);
 static void send_ping(relay_connection_t *relay);
+
+static void copy_subscription_id(char *dest, size_t dest_size, const char *src) {
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
+}
 
 #ifdef ESP_PLATFORM
 static void dispatch_frost_event(int kind, const char *event_str) {
@@ -207,6 +233,9 @@ static void handle_nostr_message(const char *msg) {
 }
 
 static void handle_ws_connected(relay_connection_t *relay) {
+    char sub_id[64] = {0};
+    bool needs_resubscribe = false;
+
     COORDINATOR_LOCK();
     ESP_LOGI(TAG, "Relay connected: %s", relay->url);
     relay->state = COORDINATOR_STATE_CONNECTED;
@@ -215,11 +244,10 @@ static void handle_ws_connected(relay_connection_t *relay) {
     relay->health.last_pong_received = coordinator_now_ms();
     relay->success_count++;
     relay->reconnect.attempt_count = 0;
-    bool needs_resubscribe = relay->reconnect.had_subscription && g_ctx.has_subscription;
-    char sub_id[64];
-    if (needs_resubscribe) {
-        strncpy(sub_id, g_ctx.current_subscription, sizeof(sub_id) - 1);
-        sub_id[sizeof(sub_id) - 1] = '\0';
+
+    if (relay->reconnect.had_subscription && g_ctx.has_subscription) {
+        needs_resubscribe = true;
+        copy_subscription_id(sub_id, sizeof(sub_id), g_ctx.current_subscription);
         relay->reconnect.had_subscription = false;
     }
     COORDINATOR_UNLOCK();
@@ -229,14 +257,12 @@ static void handle_ws_connected(relay_connection_t *relay) {
     }
 }
 
-static void handle_ws_disconnected(relay_connection_t *relay) {
-    COORDINATOR_LOCK();
-    ESP_LOGW(TAG, "Relay disconnected: %s", relay->url);
+static void save_reconnect_state(relay_connection_t *relay) {
     relay->reconnect.state_before_disconnect = relay->state;
     relay->reconnect.had_subscription = g_ctx.has_subscription;
     if (g_ctx.has_subscription) {
-        strncpy(relay->reconnect.subscription_id, g_ctx.current_subscription, 63);
-        relay->reconnect.subscription_id[63] = '\0';
+        copy_subscription_id(relay->reconnect.subscription_id,
+                             sizeof(relay->reconnect.subscription_id), g_ctx.current_subscription);
     }
     relay->state = COORDINATOR_STATE_RECONNECTING;
     relay->health.healthy = false;
@@ -244,13 +270,22 @@ static void handle_ws_disconnected(relay_connection_t *relay) {
     if (g_ctx.disconnect_time == 0) {
         g_ctx.disconnect_time = coordinator_now_ms();
     }
+}
+
+static void handle_ws_disconnected(relay_connection_t *relay) {
+    COORDINATOR_LOCK();
+    ESP_LOGW(TAG, "Relay disconnected: %s", relay->url);
+    save_reconnect_state(relay);
     COORDINATOR_UNLOCK();
 }
 
 static void handle_ws_data(relay_connection_t *relay, esp_websocket_event_data_t *data) {
+    const uint8_t WS_OPCODE_PONG = 0x0A;
+    const uint8_t WS_OPCODE_TEXT = 0x01;
+
     COORDINATOR_LOCK();
 
-    if (data->op_code == 0x0A) {
+    if (data->op_code == WS_OPCODE_PONG) {
         relay->health.last_pong_received = coordinator_now_ms();
         relay->health.missed_pongs = 0;
         relay->health.healthy = true;
@@ -258,7 +293,7 @@ static void handle_ws_data(relay_connection_t *relay, esp_websocket_event_data_t
         return;
     }
 
-    if (data->op_code != 0x01 || data->data_len == 0) {
+    if (data->op_code != WS_OPCODE_TEXT || data->data_len == 0) {
         COORDINATOR_UNLOCK();
         return;
     }
@@ -285,19 +320,16 @@ static void handle_ws_data(relay_connection_t *relay, esp_websocket_event_data_t
 static void handle_ws_error(relay_connection_t *relay) {
     COORDINATOR_LOCK();
     ESP_LOGE(TAG, "Relay error: %s", relay->url);
-    relay->fail_count++;
-    relay->health.healthy = false;
+
     if (relay->reconnect.attempt_count >= WS_RECONNECT_MAX_ATTEMPTS) {
+        relay->fail_count++;
+        relay->health.healthy = false;
         relay->state = COORDINATOR_STATE_ERROR;
         COORDINATOR_UNLOCK();
         return;
     }
-    relay->reconnect.state_before_disconnect = relay->state;
-    relay->reconnect.had_subscription = g_ctx.has_subscription;
-    relay->state = COORDINATOR_STATE_RECONNECTING;
-    if (g_ctx.disconnect_time == 0) {
-        g_ctx.disconnect_time = coordinator_now_ms();
-    }
+
+    save_reconnect_state(relay);
     COORDINATOR_UNLOCK();
 }
 
@@ -473,11 +505,9 @@ coordinator_state_t frost_coordinator_get_state(void) {
 }
 
 static bool validate_websocket_url(const char *url) {
-    if (!url || strlen(url) < 6)
+    if (!url)
         return false;
-    if (strncmp(url, "wss://", 6) == 0 || strncmp(url, "ws://", 5) == 0)
-        return true;
-    return false;
+    return strncmp(url, "wss://", 6) == 0 || strncmp(url, "ws://", 5) == 0;
 }
 
 int frost_coordinator_add_relay(const char *url) {
@@ -587,8 +617,8 @@ int frost_coordinator_subscribe(const char *subscription_id) {
     if (!is_safe_subscription_id(subscription_id))
         return -2;
 
-    strncpy(g_ctx.current_subscription, subscription_id, sizeof(g_ctx.current_subscription) - 1);
-    g_ctx.current_subscription[sizeof(g_ctx.current_subscription) - 1] = '\0';
+    copy_subscription_id(g_ctx.current_subscription, sizeof(g_ctx.current_subscription),
+                         subscription_id);
     g_ctx.has_subscription = true;
 
     char pubkey_hex[65];
@@ -775,14 +805,7 @@ int frost_coordinator_poll(int timeout_ms) {
                 if (relay->health.missed_pongs >= WS_MAX_MISSED_PONGS) {
                     ESP_LOGW(TAG, "Relay unhealthy (missed %d pongs): %s",
                              relay->health.missed_pongs, relay->url);
-                    relay->health.healthy = false;
-                    relay->reconnect.state_before_disconnect = relay->state;
-                    relay->reconnect.had_subscription = g_ctx.has_subscription;
-                    relay->state = COORDINATOR_STATE_RECONNECTING;
-                    relay->fail_count++;
-                    if (g_ctx.disconnect_time == 0) {
-                        g_ctx.disconnect_time = now;
-                    }
+                    save_reconnect_state(relay);
                     continue;
                 }
             }
@@ -822,23 +845,7 @@ int frost_coordinator_poll(int timeout_ms) {
 
 #ifdef ESP_PLATFORM
         if (g_ctx.buffer_count > 0) {
-            ESP_LOGI(TAG, "Replaying %d buffered events", g_ctx.buffer_count);
-            uint8_t start = (g_ctx.buffer_head + WS_EVENT_BUFFER_SIZE - g_ctx.buffer_count) %
-                            WS_EVENT_BUFFER_SIZE;
-            for (uint8_t j = 0; j < g_ctx.buffer_count; j++) {
-                uint8_t idx = (start + j) % WS_EVENT_BUFFER_SIZE;
-                if (g_ctx.event_buffer[idx].json) {
-                    for (int k = 0; k < g_ctx.relay_count; k++) {
-                        relay_connection_t *relay = &g_ctx.relays[k];
-                        if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws_handle) {
-                            esp_websocket_client_send_text(
-                                relay->ws_handle, g_ctx.event_buffer[idx].json,
-                                g_ctx.event_buffer[idx].len, pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
-                        }
-                    }
-                }
-            }
-            clear_event_buffer();
+            replay_buffered_events();
         }
 #endif
 
@@ -893,14 +900,14 @@ bool frost_coordinator_is_healthy(void) {
         return false;
 
     COORDINATOR_LOCK();
-    int healthy_count = 0;
-    for (int i = 0; i < g_ctx.relay_count; i++) {
+    bool healthy = false;
+    for (int i = 0; i < g_ctx.relay_count && !healthy; i++) {
         if (g_ctx.relays[i].state == COORDINATOR_STATE_CONNECTED &&
             g_ctx.relays[i].health.healthy) {
-            healthy_count++;
+            healthy = true;
         }
     }
     COORDINATOR_UNLOCK();
 
-    return healthy_count > 0;
+    return healthy;
 }
