@@ -219,3 +219,16 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
         message(STATUS "test_coordinator_race: ThreadSanitizer unavailable")
     endif()
 endif()
+
+find_library(MBEDCRYPTO_LIB mbedcrypto)
+if(MBEDCRYPTO_LIB)
+    add_executable(test_pin_attempt_limit test_pin_attempt_limit.c ${MAIN_DIR}/random_utils.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/error_codes.c)
+    target_include_directories(test_pin_attempt_limit PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${MAIN_DIR}
+    )
+    target_compile_definitions(test_pin_attempt_limit PRIVATE NATIVE_TEST=1 UNIT_TEST=1 MOCK_MBEDTLS=1)
+    target_link_libraries(test_pin_attempt_limit ${MBEDCRYPTO_LIB})
+else()
+    message(STATUS "Skipping test_pin_attempt_limit (mbedtls not found)")
+endif()

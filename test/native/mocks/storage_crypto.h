@@ -16,6 +16,8 @@
 
 static bool mock_crypto_initialized = true;
 static int mock_rate_limit_result = 0;
+static uint8_t mock_pin_attempts = 0;
+static bool mock_is_bricked = false;
 
 static uint8_t mock_last_encrypt_aad[128];
 static size_t mock_last_encrypt_aad_len = 0;
@@ -37,9 +39,27 @@ static inline void storage_crypto_record_attempt(bool success) {
     (void)success;
 }
 
+static inline uint8_t storage_crypto_get_attempts(void) {
+    return mock_pin_attempts;
+}
+
+static inline uint8_t storage_crypto_get_max_attempts(void) {
+    return 21;
+}
+
+static inline uint32_t storage_crypto_get_delay_remaining(void) {
+    return 0;
+}
+
+static inline bool storage_crypto_is_bricked(void) {
+    return mock_is_bricked;
+}
+
 #ifdef UNIT_TEST
 static inline void storage_crypto_reset_rate_limit(void) {
     mock_rate_limit_result = 0;
+    mock_pin_attempts = 0;
+    mock_is_bricked = false;
 }
 #endif
 
