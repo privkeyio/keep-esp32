@@ -31,8 +31,13 @@ int pin_prefix_derive_words(const pin_prefix_t *prefix, const uint8_t *device_se
     size_t input_len = CONTEXT_LEN + prefix->len;
 
     uint8_t hmac_out[HMAC_OUTPUT_SIZE];
-    int ret = mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), device_secret,
-                              secret_len, input, input_len, hmac_out);
+    const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (!md_info) {
+        secure_memzero(input, sizeof(input));
+        secure_memzero(hmac_out, sizeof(hmac_out));
+        return -1;
+    }
+    int ret = mbedtls_md_hmac(md_info, device_secret, secret_len, input, input_len, hmac_out);
 
     secure_memzero(input, sizeof(input));
 

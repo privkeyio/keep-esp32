@@ -158,8 +158,12 @@ static inline int mbedtls_md_hmac(const mbedtls_md_info_t *md_info, const unsign
         k_opad[i] ^= key[i];
     }
     uint8_t inner[64 + 1024];
-    if (ilen > 1024)
+    if (ilen > 1024) {
+        memset(k_ipad, 0, sizeof(k_ipad));
+        memset(k_opad, 0, sizeof(k_opad));
+        memset(tk, 0, sizeof(tk));
         return -1;
+    }
     memcpy(inner, k_ipad, 64);
     memcpy(inner + 64, input, ilen);
     uint8_t inner_hash[32];

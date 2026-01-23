@@ -166,7 +166,7 @@ target_include_directories(test_anti_glitch PRIVATE
 )
 target_compile_definitions(test_anti_glitch PRIVATE NATIVE_TEST=1)
 
-add_executable(test_pin_prefix test_pin_prefix.c)
+add_executable(test_pin_prefix test_pin_prefix.c ${MAIN_DIR}/pin_prefix.c)
 target_include_directories(test_pin_prefix PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     ${MAIN_DIR}

@@ -7,7 +7,6 @@
 
 #include "crypto_asm.h"
 #include "pin_prefix.h"
-#include "pin_prefix.c"
 
 #define TEST(name) printf("  TEST: %s\n", name)
 #define PASS()     printf("    PASS\n")
