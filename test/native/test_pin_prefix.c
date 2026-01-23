@@ -172,6 +172,19 @@ static int test_zero_secret_len(void) {
     return 0;
 }
 
+static int test_secret_len_too_large(void) {
+    TEST("secret length too large");
+
+    pin_prefix_t prefix = {.digits = {1, 2, 3, 4}, .len = 4};
+    uint16_t word1, word2;
+
+    if (pin_prefix_derive_words(&prefix, TEST_SECRET, 1025, &word1, &word2) == 0)
+        FAIL("should fail with secret length > 1024");
+
+    PASS();
+    return 0;
+}
+
 static int test_bip39_get_word(void) {
     TEST("bip39_get_word");
 
@@ -348,6 +361,7 @@ int main(void) {
     failures += test_prefix_too_long();
     failures += test_null_params();
     failures += test_zero_secret_len();
+    failures += test_secret_len_too_large();
     failures += test_bip39_get_word();
     failures += test_get_words();
     failures += test_get_words_buffer_too_small();

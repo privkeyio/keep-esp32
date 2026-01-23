@@ -8,9 +8,13 @@
 #include <stdbool.h>
 #include <string.h>
 
+_Static_assert(sizeof(BIP39_WORDLIST) / sizeof(BIP39_WORDLIST[0]) == BIP39_WORD_COUNT,
+               "BIP39_WORDLIST size mismatch");
+
 #define HMAC_OUTPUT_SIZE      32
 #define ANTI_PHISHING_CONTEXT "anti-phishing"
 #define CONTEXT_LEN           13
+#define SECRET_LEN_MAX        1024
 
 int pin_prefix_derive_words(const pin_prefix_t *prefix, const uint8_t *device_secret,
                             size_t secret_len, uint16_t *word1_index, uint16_t *word2_index) {
@@ -20,7 +24,7 @@ int pin_prefix_derive_words(const pin_prefix_t *prefix, const uint8_t *device_se
     if (prefix->len < PIN_PREFIX_MIN_LEN || prefix->len > PIN_PREFIX_MAX_LEN) {
         return -1;
     }
-    if (secret_len == 0) {
+    if (secret_len == 0 || secret_len > SECRET_LEN_MAX) {
         return -1;
     }
 

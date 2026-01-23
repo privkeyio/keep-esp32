@@ -166,6 +166,19 @@ static inline int mbedtls_md_hmac(const mbedtls_md_info_t *md_info, const unsign
     memcpy(outer, k_opad, 64);
     memcpy(outer + 64, inner_hash, 32);
     sha256(outer, 64 + 32, output);
+
+    volatile uint8_t *p;
+    p = k_ipad;
+    for (size_t i = 0; i < 64; i++) p[i] = 0;
+    p = k_opad;
+    for (size_t i = 0; i < 64; i++) p[i] = 0;
+    p = tk;
+    for (size_t i = 0; i < 32; i++) p[i] = 0;
+    p = inner;
+    for (size_t i = 0; i < sizeof(inner); i++) p[i] = 0;
+    p = inner_hash;
+    for (size_t i = 0; i < 32; i++) p[i] = 0;
+
     return 0;
 }
 
