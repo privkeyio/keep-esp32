@@ -166,12 +166,11 @@ int storage_crypto_check_rate_limit(void) {
     }
 
     int recent = 0;
-    for (int i = 0; i < PIN_RATE_LIMIT_MAX; i++) {
-        if (i < pin_attempt_count && (now - pin_attempt_times[i]) < PIN_RATE_LIMIT_WINDOW_MS) {
+    for (int i = 0; i < pin_attempt_count; i++) {
+        if ((now - pin_attempt_times[i]) < PIN_RATE_LIMIT_WINDOW_MS) {
             recent++;
         }
     }
-
     if (recent >= PIN_RATE_LIMIT_MAX) {
         return ERR_PIN_MUST_WAIT;
     }
@@ -190,7 +189,9 @@ void storage_crypto_record_attempt(bool success) {
         pin_attempt_times[PIN_RATE_LIMIT_MAX - 1] = now;
     }
 
-    if (!success) {
+    if (success) {
+        pin_consecutive_failures = 0;
+    } else {
         if (pin_consecutive_failures < UINT8_MAX) {
             pin_consecutive_failures++;
         }
@@ -198,11 +199,8 @@ void storage_crypto_record_attempt(bool success) {
             pin_lockout_until = now + PIN_LOCKOUT_MS;
             ESP_LOGW(TAG, "PIN lockout activated for %d seconds", PIN_LOCKOUT_MS / 1000);
         }
-        save_rate_limit_state();
-    } else {
-        pin_consecutive_failures = 0;
-        save_rate_limit_state();
     }
+    save_rate_limit_state();
 }
 
 int storage_crypto_init(const char *pin) {
