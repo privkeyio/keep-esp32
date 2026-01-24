@@ -20,15 +20,15 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
-static uint32_t get_time_ms(void) {
-    return (uint32_t)(esp_timer_get_time() / 1000);
+static uint64_t get_time_ms(void) {
+    return (uint64_t)(esp_timer_get_time() / 1000);
 }
 #else
 #include <time.h>
-static uint32_t get_time_ms(void) {
+static uint64_t get_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 #endif
 
@@ -39,12 +39,12 @@ static uint32_t get_time_ms(void) {
 #define PIN_PBKDF2_ITERATIONS 100000
 #define PIN_PBKDF2_SALT_LEN   16
 
-#define NVS_NAMESPACE     "pin_rl"
-#define NVS_KEY_FAILURES  "failures"
-#define NVS_KEY_LOCKOUT   "lockout"
-#define NVS_KEY_BRICKED   "bricked"
-#define NVS_KEY_SALT      "salt"
-#define NVS_KEY_HMAC      "hmac"
+#define NVS_NAMESPACE    "pin_rl"
+#define NVS_KEY_FAILURES "failures"
+#define NVS_KEY_LOCKOUT  "lockout"
+#define NVS_KEY_BRICKED  "bricked"
+#define NVS_KEY_SALT     "salt"
+#define NVS_KEY_HMAC     "hmac"
 
 #define SE_SLOT_PIN_STATE 0
 #define SE_SLOT_HMAC_KEY  1
@@ -53,7 +53,7 @@ static uint32_t get_time_ms(void) {
 typedef struct __attribute__((packed)) {
     uint8_t magic[4];
     uint8_t failed_attempts;
-    uint32_t lockout_deadline;
+    uint64_t lockout_deadline;
     uint8_t bricked;
     uint8_t reserved[2];
 } pin_state_t;
@@ -142,11 +142,11 @@ static int get_hmac_secret_key(uint8_t key_out[HMAC_KEY_SIZE]) {
 #endif
 }
 
-static void compute_state_hmac(const pin_state_t *state, uint8_t hmac_out[32]) {
+static int compute_state_hmac(const pin_state_t *state, uint8_t hmac_out[32]) {
     uint8_t secret_key[HMAC_KEY_SIZE];
     if (get_hmac_secret_key(secret_key) != 0) {
-        memset(hmac_out, 0, 32);
-        return;
+        secure_memzero(secret_key, sizeof(secret_key));
+        return -1;
     }
 
     uint8_t ipad[64], opad[64];
@@ -181,6 +181,7 @@ static void compute_state_hmac(const pin_state_t *state, uint8_t hmac_out[32]) {
     secure_memzero(opad, sizeof(opad));
     secure_memzero(key_padded, sizeof(key_padded));
     secure_memzero(inner_hash, sizeof(inner_hash));
+    return 0;
 }
 
 static void load_pin_state(void) {
@@ -207,13 +208,13 @@ static void load_pin_state(void) {
         nvs_handle_t handle;
         if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
             uint8_t failures = 0;
-            uint32_t lockout = 0;
+            uint64_t lockout = 0;
             uint8_t bricked = 0;
             uint8_t stored_hmac[32];
             size_t hmac_len = sizeof(stored_hmac);
 
             nvs_get_u8(handle, NVS_KEY_FAILURES, &failures);
-            nvs_get_u32(handle, NVS_KEY_LOCKOUT, &lockout);
+            nvs_get_u64(handle, NVS_KEY_LOCKOUT, &lockout);
             nvs_get_u8(handle, NVS_KEY_BRICKED, &bricked);
 
             pin_state_t temp_state;
@@ -226,8 +227,8 @@ static void load_pin_state(void) {
             if (nvs_get_blob(handle, NVS_KEY_HMAC, stored_hmac, &hmac_len) == ESP_OK &&
                 hmac_len == 32) {
                 uint8_t computed_hmac[32];
-                compute_state_hmac(&temp_state, computed_hmac);
-                if (secure_memcmp(stored_hmac, computed_hmac, 32) == 0) {
+                if (compute_state_hmac(&temp_state, computed_hmac) == 0 &&
+                    secure_memcmp(stored_hmac, computed_hmac, 32) == 0) {
                     memcpy(&pin_state, &temp_state, sizeof(pin_state));
                 }
             }
@@ -250,10 +251,13 @@ static void save_pin_state(void) {
         nvs_handle_t handle;
         if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
             uint8_t hmac[32];
-            compute_state_hmac(&pin_state, hmac);
+            if (compute_state_hmac(&pin_state, hmac) != 0) {
+                nvs_close(handle);
+                return;
+            }
 
             nvs_set_u8(handle, NVS_KEY_FAILURES, pin_state.failed_attempts);
-            nvs_set_u32(handle, NVS_KEY_LOCKOUT, pin_state.lockout_deadline);
+            nvs_set_u64(handle, NVS_KEY_LOCKOUT, pin_state.lockout_deadline);
             nvs_set_u8(handle, NVS_KEY_BRICKED, pin_state.bricked);
             nvs_set_blob(handle, NVS_KEY_HMAC, hmac, sizeof(hmac));
             nvs_commit(handle);
@@ -419,7 +423,7 @@ int storage_crypto_check_rate_limit(void) {
     }
 
     if (pin_state.lockout_deadline > 0) {
-        uint32_t now = get_time_ms();
+        uint64_t now = get_time_ms();
         if (now < pin_state.lockout_deadline) {
             return ERR_PIN_MUST_WAIT;
         }
@@ -479,11 +483,11 @@ uint32_t storage_crypto_get_delay_remaining(void) {
         return 0;
     }
 
-    uint32_t now = get_time_ms();
+    uint64_t now = get_time_ms();
     if (now >= pin_state.lockout_deadline) {
         return 0;
     }
-    return pin_state.lockout_deadline - now;
+    return (uint32_t)(pin_state.lockout_deadline - now);
 }
 
 bool storage_crypto_is_bricked(void) {

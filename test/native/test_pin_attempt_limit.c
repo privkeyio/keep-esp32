@@ -136,8 +136,12 @@ static int test_delay_schedule(void) {
         FAIL("10 attempts should have 15min delay");
     if (get_delay_ms(12) != 900000)
         FAIL("12 attempts should have 15min delay");
-    if (get_delay_ms(13) != UINT32_MAX)
-        FAIL("13+ attempts should return max delay (bricked)");
+    if (get_delay_ms(13) != 900000)
+        FAIL("13 attempts should have 15min delay");
+    if (get_delay_ms(20) != 900000)
+        FAIL("20 attempts should have 15min delay");
+    if (get_delay_ms(21) != UINT32_MAX)
+        FAIL("21 attempts should return max delay (bricked)");
 
     PASS();
     return 0;
@@ -278,18 +282,19 @@ static int test_hmac_tamper_detection(void) {
     pin_state_t state1, state2;
     memcpy(state1.magic, "PIN\0", 4);
     state1.failed_attempts = 5;
-    state1.last_failure_time = 12345;
+    state1.lockout_deadline = 12345;
     state1.bricked = 0;
     memset(state1.reserved, 0, sizeof(state1.reserved));
 
     memcpy(&state2, &state1, sizeof(state1));
     state2.failed_attempts = 0;
 
-    uint8_t device_id[6] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
     uint8_t hmac1[32], hmac2[32];
 
-    compute_state_hmac(&state1, device_id, hmac1);
-    compute_state_hmac(&state2, device_id, hmac2);
+    if (compute_state_hmac(&state1, hmac1) != 0)
+        FAIL("compute_state_hmac should succeed for state1");
+    if (compute_state_hmac(&state2, hmac2) != 0)
+        FAIL("compute_state_hmac should succeed for state2");
 
     if (memcmp(hmac1, hmac2, 32) == 0)
         FAIL("different states should produce different HMACs");
