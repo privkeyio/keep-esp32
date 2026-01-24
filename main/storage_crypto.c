@@ -41,17 +41,19 @@ static uint32_t get_time_ms(void) {
 
 #define NVS_NAMESPACE     "pin_rl"
 #define NVS_KEY_FAILURES  "failures"
-#define NVS_KEY_LAST_FAIL "last_fail"
+#define NVS_KEY_LOCKOUT   "lockout"
 #define NVS_KEY_BRICKED   "bricked"
 #define NVS_KEY_SALT      "salt"
 #define NVS_KEY_HMAC      "hmac"
 
 #define SE_SLOT_PIN_STATE 0
+#define SE_SLOT_HMAC_KEY  1
+#define HMAC_KEY_SIZE     32
 
 typedef struct __attribute__((packed)) {
     uint8_t magic[4];
     uint8_t failed_attempts;
-    uint32_t last_failure_time;
+    uint32_t lockout_deadline;
     uint8_t bricked;
     uint8_t reserved[2];
 } pin_state_t;
@@ -68,12 +70,90 @@ static pin_state_t pin_state;
 static bool pin_state_loaded = false;
 static bool se_available = false;
 
-static void compute_state_hmac(const pin_state_t *state, const uint8_t *device_id,
-                               uint8_t hmac_out[32]) {
+static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]);
+
+static int get_hmac_secret_key(uint8_t key_out[HMAC_KEY_SIZE]) {
+    if (se_available) {
+        uint8_t se_data[SE_SLOT_SIZE];
+        if (se_read_slot(SE_SLOT_HMAC_KEY, se_data, sizeof(se_data)) == SE_OK) {
+            bool key_set = false;
+            for (size_t i = 0; i < HMAC_KEY_SIZE; i++) {
+                if (se_data[i] != 0) {
+                    key_set = true;
+                    break;
+                }
+            }
+            if (key_set) {
+                memcpy(key_out, se_data, HMAC_KEY_SIZE);
+                secure_memzero(se_data, sizeof(se_data));
+                return 0;
+            }
+        }
+        if (rng_fill_checked(key_out, HMAC_KEY_SIZE) != 0) {
+            return -1;
+        }
+        uint8_t se_write_data[SE_SLOT_SIZE];
+        memset(se_write_data, 0, sizeof(se_write_data));
+        memcpy(se_write_data, key_out, HMAC_KEY_SIZE);
+        se_write_slot(SE_SLOT_HMAC_KEY, se_write_data, sizeof(se_write_data));
+        secure_memzero(se_write_data, sizeof(se_write_data));
+        return 0;
+    }
+
+#ifdef ESP_PLATFORM
+    uint8_t serial[SE_SERIAL_SIZE];
+    uint8_t device_id[DEVICE_ID_SIZE];
+    if (get_device_id(device_id) != 0) {
+        return -1;
+    }
+    if (se_get_serial(serial) == SE_OK) {
+        mbedtls_sha256_context ctx;
+        mbedtls_sha256_init(&ctx);
+        mbedtls_sha256_starts(&ctx, 0);
+        mbedtls_sha256_update(&ctx, serial, SE_SERIAL_SIZE);
+        mbedtls_sha256_update(&ctx, device_id, DEVICE_ID_SIZE);
+        mbedtls_sha256_finish(&ctx, key_out);
+        mbedtls_sha256_free(&ctx);
+        secure_memzero(serial, sizeof(serial));
+        secure_memzero(device_id, sizeof(device_id));
+        return 0;
+    }
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);
+    mbedtls_sha256_update(&ctx, device_id, DEVICE_ID_SIZE);
+    mbedtls_sha256_finish(&ctx, key_out);
+    mbedtls_sha256_free(&ctx);
+    secure_memzero(device_id, sizeof(device_id));
+    return 0;
+#else
+    uint8_t device_id[DEVICE_ID_SIZE];
+    if (get_device_id(device_id) != 0) {
+        return -1;
+    }
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);
+    mbedtls_sha256_update(&ctx, device_id, DEVICE_ID_SIZE);
+    mbedtls_sha256_finish(&ctx, key_out);
+    mbedtls_sha256_free(&ctx);
+    secure_memzero(device_id, sizeof(device_id));
+    return 0;
+#endif
+}
+
+static void compute_state_hmac(const pin_state_t *state, uint8_t hmac_out[32]) {
+    uint8_t secret_key[HMAC_KEY_SIZE];
+    if (get_hmac_secret_key(secret_key) != 0) {
+        memset(hmac_out, 0, 32);
+        return;
+    }
+
     uint8_t ipad[64], opad[64];
     uint8_t key_padded[64];
     memset(key_padded, 0, sizeof(key_padded));
-    memcpy(key_padded, device_id, DEVICE_ID_SIZE);
+    memcpy(key_padded, secret_key, HMAC_KEY_SIZE);
+    secure_memzero(secret_key, sizeof(secret_key));
 
     for (int i = 0; i < 64; i++) {
         ipad[i] = key_padded[i] ^ 0x36;
@@ -103,8 +183,6 @@ static void compute_state_hmac(const pin_state_t *state, const uint8_t *device_i
     secure_memzero(inner_hash, sizeof(inner_hash));
 }
 
-static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]);
-
 static void load_pin_state(void) {
     if (pin_state_loaded) {
         return;
@@ -112,7 +190,7 @@ static void load_pin_state(void) {
 
     memcpy(pin_state.magic, PIN_STATE_MAGIC, 4);
     pin_state.failed_attempts = 0;
-    pin_state.last_failure_time = 0;
+    pin_state.lockout_deadline = 0;
     pin_state.bricked = 0;
     memset(pin_state.reserved, 0, sizeof(pin_state.reserved));
 
@@ -128,34 +206,30 @@ static void load_pin_state(void) {
 #ifdef ESP_PLATFORM
         nvs_handle_t handle;
         if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
-            uint8_t device_id[DEVICE_ID_SIZE];
-            if (get_device_id(device_id) == 0) {
-                uint8_t failures = 0;
-                uint32_t last_fail = 0;
-                uint8_t bricked = 0;
-                uint8_t stored_hmac[32];
-                size_t hmac_len = sizeof(stored_hmac);
+            uint8_t failures = 0;
+            uint32_t lockout = 0;
+            uint8_t bricked = 0;
+            uint8_t stored_hmac[32];
+            size_t hmac_len = sizeof(stored_hmac);
 
-                nvs_get_u8(handle, NVS_KEY_FAILURES, &failures);
-                nvs_get_u32(handle, NVS_KEY_LAST_FAIL, &last_fail);
-                nvs_get_u8(handle, NVS_KEY_BRICKED, &bricked);
+            nvs_get_u8(handle, NVS_KEY_FAILURES, &failures);
+            nvs_get_u32(handle, NVS_KEY_LOCKOUT, &lockout);
+            nvs_get_u8(handle, NVS_KEY_BRICKED, &bricked);
 
-                pin_state_t temp_state;
-                memcpy(temp_state.magic, PIN_STATE_MAGIC, 4);
-                temp_state.failed_attempts = failures;
-                temp_state.last_failure_time = last_fail;
-                temp_state.bricked = bricked;
-                memset(temp_state.reserved, 0, sizeof(temp_state.reserved));
+            pin_state_t temp_state;
+            memcpy(temp_state.magic, PIN_STATE_MAGIC, 4);
+            temp_state.failed_attempts = failures;
+            temp_state.lockout_deadline = lockout;
+            temp_state.bricked = bricked;
+            memset(temp_state.reserved, 0, sizeof(temp_state.reserved));
 
-                if (nvs_get_blob(handle, NVS_KEY_HMAC, stored_hmac, &hmac_len) == ESP_OK &&
-                    hmac_len == 32) {
-                    uint8_t computed_hmac[32];
-                    compute_state_hmac(&temp_state, device_id, computed_hmac);
-                    if (secure_memcmp(stored_hmac, computed_hmac, 32) == 0) {
-                        memcpy(&pin_state, &temp_state, sizeof(pin_state));
-                    }
+            if (nvs_get_blob(handle, NVS_KEY_HMAC, stored_hmac, &hmac_len) == ESP_OK &&
+                hmac_len == 32) {
+                uint8_t computed_hmac[32];
+                compute_state_hmac(&temp_state, computed_hmac);
+                if (secure_memcmp(stored_hmac, computed_hmac, 32) == 0) {
+                    memcpy(&pin_state, &temp_state, sizeof(pin_state));
                 }
-                secure_memzero(device_id, sizeof(device_id));
             }
             nvs_close(handle);
         }
@@ -175,18 +249,14 @@ static void save_pin_state(void) {
 #ifdef ESP_PLATFORM
         nvs_handle_t handle;
         if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-            uint8_t device_id[DEVICE_ID_SIZE];
-            if (get_device_id(device_id) == 0) {
-                uint8_t hmac[32];
-                compute_state_hmac(&pin_state, device_id, hmac);
+            uint8_t hmac[32];
+            compute_state_hmac(&pin_state, hmac);
 
-                nvs_set_u8(handle, NVS_KEY_FAILURES, pin_state.failed_attempts);
-                nvs_set_u32(handle, NVS_KEY_LAST_FAIL, pin_state.last_failure_time);
-                nvs_set_u8(handle, NVS_KEY_BRICKED, pin_state.bricked);
-                nvs_set_blob(handle, NVS_KEY_HMAC, hmac, sizeof(hmac));
-                nvs_commit(handle);
-                secure_memzero(device_id, sizeof(device_id));
-            }
+            nvs_set_u8(handle, NVS_KEY_FAILURES, pin_state.failed_attempts);
+            nvs_set_u32(handle, NVS_KEY_LOCKOUT, pin_state.lockout_deadline);
+            nvs_set_u8(handle, NVS_KEY_BRICKED, pin_state.bricked);
+            nvs_set_blob(handle, NVS_KEY_HMAC, hmac, sizeof(hmac));
+            nvs_commit(handle);
             nvs_close(handle);
         }
 #endif
@@ -304,7 +374,7 @@ static uint32_t get_delay_ms(uint8_t attempts) {
     if (attempts <= 9) {
         return 60 * 1000;
     }
-    if (attempts <= 12) {
+    if (attempts <= (PIN_MAX_ATTEMPTS - 1)) {
         return 15 * 60 * 1000;
     }
     return UINT32_MAX;
@@ -348,10 +418,9 @@ int storage_crypto_check_rate_limit(void) {
         return ERR_PIN_BRICKED;
     }
 
-    if (delay_ms > 0 && pin_state.last_failure_time > 0) {
+    if (pin_state.lockout_deadline > 0) {
         uint32_t now = get_time_ms();
-        uint32_t elapsed = now - pin_state.last_failure_time;
-        if (elapsed < delay_ms) {
+        if (now < pin_state.lockout_deadline) {
             return ERR_PIN_MUST_WAIT;
         }
     }
@@ -364,12 +433,11 @@ void storage_crypto_record_attempt(bool success) {
 
     if (success) {
         pin_state.failed_attempts = 0;
-        pin_state.last_failure_time = 0;
+        pin_state.lockout_deadline = 0;
     } else {
         if (pin_state.failed_attempts < UINT8_MAX) {
             pin_state.failed_attempts++;
         }
-        pin_state.last_failure_time = get_time_ms();
 
         if (pin_state.failed_attempts >= PIN_MAX_ATTEMPTS) {
             ESP_LOGE(TAG, "Max PIN attempts exceeded - wiping device");
@@ -381,8 +449,11 @@ void storage_crypto_record_attempt(bool success) {
 
         uint32_t delay_ms = get_delay_ms(pin_state.failed_attempts);
         if (delay_ms > 0 && delay_ms != UINT32_MAX) {
+            pin_state.lockout_deadline = get_time_ms() + delay_ms;
             ESP_LOGW(TAG, "PIN attempt %d/%d - next attempt in %lu seconds",
                      pin_state.failed_attempts, PIN_MAX_ATTEMPTS, (unsigned long)(delay_ms / 1000));
+        } else {
+            pin_state.lockout_deadline = 0;
         }
     }
     save_pin_state();
@@ -404,21 +475,15 @@ uint32_t storage_crypto_get_delay_remaining(void) {
         return UINT32_MAX;
     }
 
-    uint32_t delay_ms = get_delay_ms(pin_state.failed_attempts);
-    if (delay_ms == 0 || delay_ms == UINT32_MAX) {
-        return delay_ms;
-    }
-
-    if (pin_state.last_failure_time == 0) {
+    if (pin_state.lockout_deadline == 0) {
         return 0;
     }
 
     uint32_t now = get_time_ms();
-    uint32_t elapsed = now - pin_state.last_failure_time;
-    if (elapsed >= delay_ms) {
+    if (now >= pin_state.lockout_deadline) {
         return 0;
     }
-    return delay_ms - elapsed;
+    return pin_state.lockout_deadline - now;
 }
 
 bool storage_crypto_is_bricked(void) {
@@ -537,7 +602,7 @@ int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, con
 void storage_crypto_reset_rate_limit(void) {
     memcpy(pin_state.magic, PIN_STATE_MAGIC, 4);
     pin_state.failed_attempts = 0;
-    pin_state.last_failure_time = 0;
+    pin_state.lockout_deadline = 0;
     pin_state.bricked = 0;
     memset(pin_state.reserved, 0, sizeof(pin_state.reserved));
     pin_state_loaded = true;
@@ -548,7 +613,12 @@ void storage_crypto_reset_rate_limit(void) {
 void storage_crypto_set_attempts_for_test(uint8_t attempts) {
     load_pin_state();
     pin_state.failed_attempts = attempts;
-    pin_state.last_failure_time = get_time_ms();
+    uint32_t delay_ms = get_delay_ms(attempts);
+    if (delay_ms > 0 && delay_ms != UINT32_MAX) {
+        pin_state.lockout_deadline = get_time_ms() + delay_ms;
+    } else {
+        pin_state.lockout_deadline = 0;
+    }
 }
 
 void storage_crypto_set_bricked_for_test(bool bricked) {
