@@ -385,9 +385,12 @@ int frost_coordinator_subscribe(const char *subscription_id) {
     for (int i = 0; i < g_ctx.relay_count; i++) {
         relay_connection_t *relay = &g_ctx.relays[i];
         if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws_handle) {
-            esp_websocket_client_send_text(relay->ws_handle, filter, strlen(filter),
-                                           pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
-            ESP_LOGI(TAG, "Subscribed on %s", relay->url);
+            int ret = esp_websocket_client_send_text(relay->ws_handle, filter, strlen(filter),
+                                                     pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
+            if (ret < 0)
+                ESP_LOGW(TAG, "Subscribe send failed on %s: %d", relay->url, ret);
+            else
+                ESP_LOGI(TAG, "Subscribed on %s", relay->url);
         }
     }
 #endif
@@ -409,8 +412,10 @@ int frost_coordinator_unsubscribe(const char *subscription_id) {
     for (int i = 0; i < g_ctx.relay_count; i++) {
         relay_connection_t *relay = &g_ctx.relays[i];
         if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws_handle) {
-            esp_websocket_client_send_text(relay->ws_handle, close_msg, strlen(close_msg),
-                                           pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
+            int ret = esp_websocket_client_send_text(relay->ws_handle, close_msg, strlen(close_msg),
+                                                     pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
+            if (ret < 0)
+                ESP_LOGW(TAG, "Unsubscribe send failed on %s: %d", relay->url, ret);
         }
     }
 #endif
