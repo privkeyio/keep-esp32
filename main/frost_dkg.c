@@ -235,10 +235,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     peer->participant_index = req->peer_index;
 
     size_t dkg_data_len = strlen(req->dkg_data);
-    if (dkg_data_len >= sizeof(req->dkg_data)) {
-        PROTOCOL_ERROR(resp, req->id, -1, "dkg_data too long");
-        return;
-    }
     char data[sizeof(req->dkg_data)];
     memcpy(data, req->dkg_data, dkg_data_len + 1);
 
@@ -349,10 +345,12 @@ void dkg_round2(const rpc_request_t *req, rpc_response_t *resp) {
         first = false;
         offset += snprintf(result + offset, sizeof(result) - offset,
                            "{\"recipient_index\":%d,\"share\":\"%s\"}", i + 1, share_hex);
+        secure_memzero(share_hex, sizeof(share_hex));
     }
 
     offset += snprintf(result + offset, sizeof(result) - offset, "]}");
     protocol_success(resp, req->id, result);
+    secure_memzero(result, sizeof(result));
 }
 
 void dkg_receive_share(const rpc_request_t *req, rpc_response_t *resp) {

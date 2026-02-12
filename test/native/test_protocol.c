@@ -161,7 +161,7 @@ static int test_format_error(void) {
         FAIL("missing id");
     if (strstr(buf, "\"error\"") == NULL)
         FAIL("missing error");
-    if (strstr(buf, "\"code\":-1") == NULL)
+    if (strstr(buf, "\"code\":-32603") == NULL)
         FAIL("missing code");
     if (strstr(buf, "Share not found") == NULL)
         FAIL("missing message");
@@ -183,7 +183,7 @@ static int test_format_error_with_context(void) {
         FAIL("missing id");
     if (strstr(buf, "\"error\"") == NULL)
         FAIL("missing error");
-    if (strstr(buf, "\"code\":-2") == NULL)
+    if (strstr(buf, "\"code\":-32603") == NULL)
         FAIL("missing code");
     if (strstr(buf, "Test error") == NULL)
         FAIL("missing message");

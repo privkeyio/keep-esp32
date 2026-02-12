@@ -686,7 +686,7 @@ static int frost_session_resume_load(const uint8_t *session_id, session_t *resto
     }
 
     uint32_t now = get_time_ms();
-    uint32_t extended_timeout = SESSION_TIMEOUT_MS * 10;
+    uint32_t extended_timeout = SESSION_TIMEOUT_MS * 3;
 
     if (elapsed_ms(restored_session->created_at, now) > extended_timeout) {
         session_checkpoint_clear(session_id);

@@ -367,6 +367,8 @@ int error_to_jsonrpc_code(int code) {
     case ERR_PROTOCOL_INTERNAL:
         return -32603;
     default:
-        return code;
+        if (code >= -32768 && code <= -32000)
+            return code;
+        return -32603;
     }
 }

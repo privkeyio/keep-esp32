@@ -75,7 +75,7 @@ int frost_dkg_round1_generate(const frost_group_t *group, uint8_t our_index,
     KEEP_ASSERT(group->threshold > 0);
 
     secp256k1_context *ctx = get_secp_ctx();
-    if (!ctx || !group || !round1 || !secret_shares_out || !share_count)
+    if (!ctx)
         return -1;
     if (group->threshold > MAX_THRESHOLD || group->participant_count > MAX_GROUP_PARTICIPANTS)
         return -2;
@@ -83,11 +83,6 @@ int frost_dkg_round1_generate(const frost_group_t *group, uint8_t our_index,
     secp256k1_frost_vss_commitments *vss = secp256k1_frost_vss_commitments_create(group->threshold);
     if (!vss)
         return -3;
-
-    if (group->participant_count > MAX_GROUP_PARTICIPANTS) {
-        secp256k1_frost_vss_commitments_destroy(vss);
-        return -4;
-    }
     secp256k1_frost_keygen_secret_share shares[MAX_GROUP_PARTICIPANTS];
 
     int ret = secp256k1_frost_keygen_dkg_begin(
@@ -162,7 +157,7 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
     KEEP_ASSERT(share_count > 0);
 
     secp256k1_context *ctx = get_secp_ctx();
-    if (!ctx || !group || !all_round1 || !received_shares || !our_share || !group_pubkey)
+    if (!ctx)
         return -1;
     if (round1_count != group->participant_count || share_count != group->participant_count)
         return -2;
@@ -193,11 +188,6 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
         memcpy(commitments[i]->zkp_z, all_round1[i].zkp_z, 32);
     }
 
-    if (share_count > MAX_GROUP_PARTICIPANTS) {
-        for (size_t i = 0; i < round1_count; i++)
-            secp256k1_frost_vss_commitments_destroy(commitments[i]);
-        return -6;
-    }
     secp256k1_frost_keygen_secret_share shares[MAX_GROUP_PARTICIPANTS];
 
     for (size_t i = 0; i < share_count; i++) {
@@ -238,10 +228,6 @@ int frost_sign_partial(const frost_group_t *group, const frost_sign_request_t *r
     KEEP_ASSERT(request != NULL);
     KEEP_ASSERT(our_share != NULL);
     KEEP_ASSERT(response != NULL);
-
-    if (!group || !request || !our_share || !response) {
-        return -1;
-    }
 
     memset(response, 0, sizeof(*response));
     memcpy(response->request_id, request->request_id, 32);

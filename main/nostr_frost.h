@@ -78,7 +78,7 @@ typedef struct {
     uint8_t group_id[GROUP_ID_LEN];
     uint8_t request_id[32];
     frost_message_type_t message_type;
-    uint8_t payload[MAX_SIGN_PAYLOAD_SIZE];
+    uint8_t *payload;
     size_t payload_len;
     uint32_t nonce_index;
     uint8_t policy_hash[32];
