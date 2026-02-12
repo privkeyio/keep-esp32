@@ -326,8 +326,8 @@ static int test_psbt_allocation(void) {
     if (protocol_parse_request(
             "{\"id\":1,\"method\":\"bitcoin_sign\",\"params\":{\"psbt\":\"cHNidP8B\"}}", &req) != 0)
         FAIL("parse failed");
-    if (req.psbt == NULL)
-        FAIL("psbt should be allocated");
+    if (req.psbt[0] == '\0')
+        FAIL("psbt should be populated");
     if (strcmp(req.psbt, "cHNidP8B") != 0)
         FAIL("wrong psbt value");
     protocol_free_request(&req);

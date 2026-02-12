@@ -25,6 +25,7 @@
 #define MAX_RELAYS             4
 #define RELAY_URL_LEN          128
 #define DKG_CONTEXT_TAG        "frost-keygen"
+#define MAX_SIGN_PAYLOAD_SIZE  4096
 
 typedef struct {
     uint8_t npub[32];
@@ -77,7 +78,7 @@ typedef struct {
     uint8_t group_id[GROUP_ID_LEN];
     uint8_t request_id[32];
     frost_message_type_t message_type;
-    uint8_t *payload;
+    uint8_t payload[MAX_SIGN_PAYLOAD_SIZE];
     size_t payload_len;
     uint32_t nonce_index;
     uint8_t policy_hash[32];

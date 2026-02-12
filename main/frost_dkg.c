@@ -9,18 +9,15 @@
 #include "random_utils.h"
 #include <ctype.h>
 #include <stdbool.h>
+#include "log_compat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #ifdef ESP_PLATFORM
-#include "esp_log.h"
 #include <sys/time.h>
 #else
 #include <time.h>
-#define ESP_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
-#define ESP_LOGW(tag, fmt, ...) printf("[%s] WARN: " fmt "\n", tag, ##__VA_ARGS__)
-#define ESP_LOGE(tag, fmt, ...) printf("[%s] ERROR: " fmt "\n", tag, ##__VA_ARGS__)
 #endif
 
 static uint64_t get_unix_time(void) {
@@ -237,11 +234,13 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     memset(peer, 0, sizeof(*peer));
     peer->participant_index = req->peer_index;
 
-    char *data = strdup(req->dkg_data);
-    if (!data) {
-        PROTOCOL_ERROR(resp, req->id, -1, "Memory error");
+    size_t dkg_data_len = strlen(req->dkg_data);
+    if (dkg_data_len >= sizeof(req->dkg_data)) {
+        PROTOCOL_ERROR(resp, req->id, -1, "dkg_data too long");
         return;
     }
+    char data[sizeof(req->dkg_data)];
+    memcpy(data, req->dkg_data, dkg_data_len + 1);
 
     char *num_coeff_str = strstr(data, "num_coefficients\":");
     char *coeffs_str = strstr(data, "coefficient_commitments\":\"");
@@ -249,7 +248,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     char *zkp_z_str = strstr(data, "zkp_z\":\"");
 
     if (!num_coeff_str || !coeffs_str || !zkp_r_str || !zkp_z_str) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "Malformed dkg_data");
         return;
     }
@@ -257,7 +255,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     char *endptr;
     long num_coeff_tmp = strtol(num_coeff_str + 18, &endptr, 10);
     if (endptr == num_coeff_str + 18 || num_coeff_tmp <= 0 || num_coeff_tmp > MAX_THRESHOLD) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "Invalid num_coefficients");
         return;
     }
@@ -266,7 +263,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     char *coeffs_start = coeffs_str + 26;
     char *coeffs_end = strchr(coeffs_start, '"');
     if (!coeffs_end) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "Parse error");
         return;
     }
@@ -281,7 +277,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
         strncpy(coeff_hex, coeffs_start + coeff_offset, 128);
         coeff_hex[128] = '\0';
         if (hex_to_bytes(coeff_hex, peer->coefficient_commitments[i], 64) != 64) {
-            free(data);
             PROTOCOL_ERROR(resp, req->id, -1, "Invalid coefficient hex");
             return;
         }
@@ -293,7 +288,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     char *zkp_r_start = zkp_r_str + 8;
     size_t zkp_r_remaining = strlen(zkp_r_start);
     if (zkp_r_remaining < 128) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "zkp_r too short");
         return;
     }
@@ -301,7 +295,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     strncpy(zkp_r_hex, zkp_r_start, 128);
     zkp_r_hex[128] = '\0';
     if (hex_to_bytes(zkp_r_hex, peer->zkp_r, 64) != 64) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "Invalid zkp_r hex");
         return;
     }
@@ -309,7 +302,6 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     char *zkp_z_start = zkp_z_str + 8;
     size_t zkp_z_remaining = strlen(zkp_z_start);
     if (zkp_z_remaining < 64) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "zkp_z too short");
         return;
     }
@@ -317,12 +309,9 @@ void dkg_round1_peer(const rpc_request_t *req, rpc_response_t *resp) {
     strncpy(zkp_z_hex, zkp_z_start, 64);
     zkp_z_hex[64] = '\0';
     if (hex_to_bytes(zkp_z_hex, peer->zkp_z, 32) != 32) {
-        free(data);
         PROTOCOL_ERROR(resp, req->id, -1, "Invalid zkp_z hex");
         return;
     }
-
-    free(data);
 
     int ret = frost_dkg_round1_validate(peer);
     if (ret != 0) {

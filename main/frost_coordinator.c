@@ -11,19 +11,17 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "log_compat.h"
+
 #ifdef ESP_PLATFORM
-#include "esp_log.h"
 #include "esp_websocket_client.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#else
-#include <stdio.h>
-#define ESP_LOGI(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
-#define ESP_LOGE(tag, fmt, ...) printf("[%s] ERROR: " fmt "\n", tag, ##__VA_ARGS__)
-#define ESP_LOGW(tag, fmt, ...) printf("[%s] WARN: " fmt "\n", tag, ##__VA_ARGS__)
 #endif
 
-#define TAG "frost_coord"
+#define TAG                  "frost_coord"
+#define MAX_WS_MESSAGE_SIZE  4096
+#define MAX_PUBLISH_MSG_SIZE 4108
 
 typedef struct {
     char url[RELAY_URL_LEN];
@@ -71,83 +69,80 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         break;
 
     case WEBSOCKET_EVENT_DATA:
-        if (data->op_code == 0x01 && data->data_len > 0) {
-            char *msg = malloc(data->data_len + 1);
-            if (msg) {
-                memcpy(msg, data->data_ptr, data->data_len);
-                msg[data->data_len] = '\0';
+        if (data->op_code == 0x01 && data->data_len > 0 &&
+            (size_t)data->data_len < MAX_WS_MESSAGE_SIZE) {
+            char msg[MAX_WS_MESSAGE_SIZE];
+            memcpy(msg, data->data_ptr, data->data_len);
+            msg[data->data_len] = '\0';
 
-                cJSON *arr = cJSON_Parse(msg);
-                if (arr && cJSON_IsArray(arr) && cJSON_GetArraySize(arr) >= 1) {
-                    cJSON *type = cJSON_GetArrayItem(arr, 0);
-                    if (type && cJSON_IsString(type)) {
-                        if (strcmp(type->valuestring, "EVENT") == 0 &&
-                            cJSON_GetArraySize(arr) >= 3) {
-                            cJSON *event = cJSON_GetArrayItem(arr, 2);
-                            if (event && cJSON_IsObject(event)) {
-                                cJSON *kind = cJSON_GetObjectItem(event, "kind");
-                                if (kind && cJSON_IsNumber(kind)) {
-                                    char *event_str = cJSON_PrintUnformatted(event);
-                                    if (event_str) {
-                                        int k = kind->valueint;
-                                        if (k == FROST_KIND_SIGN_REQUEST &&
-                                            g_ctx.callbacks.on_sign_request) {
-                                            frost_sign_request_t req;
-                                            if (frost_parse_sign_request(
-                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
-                                                    &req) == 0) {
-                                                g_ctx.callbacks.on_sign_request(
-                                                    &req, g_ctx.callbacks.user_ctx);
-                                                frost_sign_request_free(&req);
-                                            }
-                                        } else if (k == FROST_KIND_SIGN_RESPONSE &&
-                                                   g_ctx.callbacks.on_sign_response) {
-                                            frost_sign_response_t resp;
-                                            if (frost_parse_sign_response(
-                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
-                                                    &resp) == 0) {
-                                                g_ctx.callbacks.on_sign_response(
-                                                    &resp, g_ctx.callbacks.user_ctx);
-                                            }
-                                        } else if (k == FROST_KIND_DKG_ROUND1 &&
-                                                   g_ctx.callbacks.on_dkg_round1) {
-                                            frost_dkg_round1_t r1;
-                                            if (frost_parse_dkg_round1_event(
-                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
-                                                    &r1) == 0) {
-                                                g_ctx.callbacks.on_dkg_round1(
-                                                    &r1, g_ctx.callbacks.user_ctx);
-                                            }
-                                        } else if (k == FROST_KIND_DKG_ROUND2 &&
-                                                   g_ctx.callbacks.on_dkg_round2) {
-                                            frost_dkg_round2_t r2;
-                                            if (frost_parse_dkg_round2_event(
-                                                    event_str, &g_ctx.current_group, g_ctx.privkey,
-                                                    &r2) == 0) {
-                                                g_ctx.callbacks.on_dkg_round2(
-                                                    &r2, g_ctx.callbacks.user_ctx);
-                                            }
-                                        } else if (k == NIP46_KIND_NOSTR_CONNECT &&
-                                                   g_ctx.callbacks.on_nip46_request) {
-                                            nip46_request_t nip46_req;
-                                            if (frost_parse_nip46_event(event_str, g_ctx.privkey,
-                                                                        &nip46_req) == 0) {
-                                                g_ctx.callbacks.on_nip46_request(
-                                                    &nip46_req, g_ctx.callbacks.user_ctx);
-                                                frost_nip46_request_free(&nip46_req);
-                                            }
+            cJSON *arr = cJSON_Parse(msg);
+            if (arr && cJSON_IsArray(arr) && cJSON_GetArraySize(arr) >= 1) {
+                cJSON *type = cJSON_GetArrayItem(arr, 0);
+                if (type && cJSON_IsString(type)) {
+                    if (strcmp(type->valuestring, "EVENT") == 0 && cJSON_GetArraySize(arr) >= 3) {
+                        cJSON *event = cJSON_GetArrayItem(arr, 2);
+                        if (event && cJSON_IsObject(event)) {
+                            cJSON *kind = cJSON_GetObjectItem(event, "kind");
+                            if (kind && cJSON_IsNumber(kind)) {
+                                char *event_str = cJSON_PrintUnformatted(event);
+                                if (event_str) {
+                                    int k = kind->valueint;
+                                    if (k == FROST_KIND_SIGN_REQUEST &&
+                                        g_ctx.callbacks.on_sign_request) {
+                                        frost_sign_request_t req;
+                                        if (frost_parse_sign_request(event_str,
+                                                                     &g_ctx.current_group,
+                                                                     g_ctx.privkey, &req) == 0) {
+                                            g_ctx.callbacks.on_sign_request(
+                                                &req, g_ctx.callbacks.user_ctx);
+                                            frost_sign_request_free(&req);
                                         }
-                                        free(event_str);
+                                    } else if (k == FROST_KIND_SIGN_RESPONSE &&
+                                               g_ctx.callbacks.on_sign_response) {
+                                        frost_sign_response_t resp;
+                                        if (frost_parse_sign_response(event_str,
+                                                                      &g_ctx.current_group,
+                                                                      g_ctx.privkey, &resp) == 0) {
+                                            g_ctx.callbacks.on_sign_response(
+                                                &resp, g_ctx.callbacks.user_ctx);
+                                        }
+                                    } else if (k == FROST_KIND_DKG_ROUND1 &&
+                                               g_ctx.callbacks.on_dkg_round1) {
+                                        frost_dkg_round1_t r1;
+                                        if (frost_parse_dkg_round1_event(event_str,
+                                                                         &g_ctx.current_group,
+                                                                         g_ctx.privkey, &r1) == 0) {
+                                            g_ctx.callbacks.on_dkg_round1(&r1,
+                                                                          g_ctx.callbacks.user_ctx);
+                                        }
+                                    } else if (k == FROST_KIND_DKG_ROUND2 &&
+                                               g_ctx.callbacks.on_dkg_round2) {
+                                        frost_dkg_round2_t r2;
+                                        if (frost_parse_dkg_round2_event(event_str,
+                                                                         &g_ctx.current_group,
+                                                                         g_ctx.privkey, &r2) == 0) {
+                                            g_ctx.callbacks.on_dkg_round2(&r2,
+                                                                          g_ctx.callbacks.user_ctx);
+                                        }
+                                    } else if (k == NIP46_KIND_NOSTR_CONNECT &&
+                                               g_ctx.callbacks.on_nip46_request) {
+                                        nip46_request_t nip46_req;
+                                        if (frost_parse_nip46_event(event_str, g_ctx.privkey,
+                                                                    &nip46_req) == 0) {
+                                            g_ctx.callbacks.on_nip46_request(
+                                                &nip46_req, g_ctx.callbacks.user_ctx);
+                                            frost_nip46_request_free(&nip46_req);
+                                        }
                                     }
+                                    free(event_str);
                                 }
                             }
                         }
                     }
-                    cJSON_Delete(arr);
-                } else if (arr) {
-                    cJSON_Delete(arr);
                 }
-                free(msg);
+                cJSON_Delete(arr);
+            } else if (arr) {
+                cJSON_Delete(arr);
             }
         }
         break;
@@ -402,11 +397,11 @@ static int publish_event(const char *event_json) {
         return -1;
 
     size_t msg_len = strlen(event_json) + 12;
-    char *msg = malloc(msg_len);
-    if (!msg)
+    if (msg_len > MAX_PUBLISH_MSG_SIZE)
         return -1;
+    char msg[MAX_PUBLISH_MSG_SIZE];
 
-    snprintf(msg, msg_len, "[\"EVENT\",%s]", event_json);
+    snprintf(msg, sizeof(msg), "[\"EVENT\",%s]", event_json);
 
     int published = 0;
 #ifdef ESP_PLATFORM
@@ -418,8 +413,6 @@ static int publish_event(const char *event_json) {
         }
     }
 #endif
-
-    free(msg);
     ESP_LOGI(TAG, "Published to %d relays", published);
     return published;
 }

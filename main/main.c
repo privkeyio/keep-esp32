@@ -247,7 +247,7 @@ static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp)
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
         return;
     }
-    if (!req->psbt) {
+    if (!req->psbt[0]) {
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
         return;
     }
@@ -275,7 +275,7 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
         return;
     }
-    if (!req->psbt) {
+    if (!req->psbt[0]) {
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
         return;
     }
@@ -428,7 +428,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     }
 }
 
-void app_main(void) {
+static void app_init(void) {
     ESP_LOGI(TAG, "=================================");
     ESP_LOGI(TAG, "  Keep Hardware - FROST Signer");
     ESP_LOGI(TAG, "  Version: %s", VERSION);
@@ -496,6 +496,10 @@ void app_main(void) {
     } else {
         ESP_LOGW(TAG, "UX backend or show_idle unavailable");
     }
+}
+
+void app_main(void) {
+    app_init();
 
     static char line_buf[PROTOCOL_MAX_MESSAGE_LEN];
     static char resp_buf[PROTOCOL_MAX_MESSAGE_LEN];

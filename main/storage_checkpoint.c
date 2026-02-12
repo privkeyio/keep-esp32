@@ -8,7 +8,6 @@
 #include "esp_partition.h"
 #include "esp_log.h"
 #include <string.h>
-#include <stdlib.h>
 
 #define TAG "storage_checkpoint"
 
@@ -34,6 +33,9 @@ typedef struct {
 } __attribute__((packed)) checkpoint_header_t;
 
 _Static_assert(sizeof(checkpoint_header_t) == 96, "checkpoint_header_t must be 96 bytes");
+
+#define CHECKPOINT_MAX_DATA_SIZE (STORAGE_CHECKPOINT_MAX_SIZE - sizeof(checkpoint_header_t))
+static uint8_t checkpoint_crypto_buf[CHECKPOINT_MAX_DATA_SIZE];
 
 typedef struct {
     uint32_t magic;
@@ -115,14 +117,12 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
     header.counter = checkpoint_get_counter();
     header.data_len = (uint16_t)len;
 
-    uint8_t *encrypted = malloc(len);
-    if (!encrypted)
-        return STORAGE_ERR_IO;
+    if (len > CHECKPOINT_MAX_DATA_SIZE)
+        return STORAGE_ERR_INVALID_DATA;
 
     int ret = storage_crypto_encrypt(data, len, header.session_id, CHECKPOINT_SESSION_ID_LEN,
-                                     header.nonce, encrypted, header.tag);
+                                     header.nonce, checkpoint_crypto_buf, header.tag);
     if (ret != 0) {
-        free(encrypted);
         return STORAGE_ERR_ENCRYPT;
     }
 
@@ -132,21 +132,18 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
 
     err = esp_partition_erase_range(checkpoint_partition, 0, erase_size);
     if (err != ESP_OK) {
-        secure_memzero(encrypted, len);
-        free(encrypted);
+        secure_memzero(checkpoint_crypto_buf, len);
         return STORAGE_ERR_IO;
     }
 
     err = esp_partition_write(checkpoint_partition, 0, &header, sizeof(header));
     if (err != ESP_OK) {
-        secure_memzero(encrypted, len);
-        free(encrypted);
+        secure_memzero(checkpoint_crypto_buf, len);
         return STORAGE_ERR_IO;
     }
 
-    err = esp_partition_write(checkpoint_partition, sizeof(header), encrypted, len);
-    secure_memzero(encrypted, len);
-    free(encrypted);
+    err = esp_partition_write(checkpoint_partition, sizeof(header), checkpoint_crypto_buf, len);
+    secure_memzero(checkpoint_crypto_buf, len);
 
     if (err != ESP_OK)
         return STORAGE_ERR_IO;
@@ -186,20 +183,18 @@ int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_le
     if (header.counter != current_counter)
         return STORAGE_ERR_CHECKPOINT_EXPIRED;
 
-    uint8_t *encrypted = malloc(header.data_len);
-    if (!encrypted)
-        return STORAGE_ERR_IO;
+    if (header.data_len > CHECKPOINT_MAX_DATA_SIZE)
+        return STORAGE_ERR_INVALID_DATA;
 
-    err = esp_partition_read(checkpoint_partition, sizeof(header), encrypted, header.data_len);
+    err = esp_partition_read(checkpoint_partition, sizeof(header), checkpoint_crypto_buf,
+                             header.data_len);
     if (err != ESP_OK) {
-        free(encrypted);
         return STORAGE_ERR_IO;
     }
 
-    int ret = storage_crypto_decrypt(encrypted, header.data_len, header.session_id,
+    int ret = storage_crypto_decrypt(checkpoint_crypto_buf, header.data_len, header.session_id,
                                      CHECKPOINT_SESSION_ID_LEN, header.nonce, header.tag, data);
-    secure_memzero(encrypted, header.data_len);
-    free(encrypted);
+    secure_memzero(checkpoint_crypto_buf, header.data_len);
 
     if (ret != 0)
         return STORAGE_ERR_DECRYPT;
@@ -311,6 +306,10 @@ static int find_free_checkpoint_slot(void) {
 }
 
 int storage_save_session_checkpoint(const uint8_t *session_id, const void *data, size_t len) {
+    KEEP_ASSERT(session_id != NULL);
+    KEEP_ASSERT(data != NULL);
+    KEEP_ASSERT(len > 0);
+
     if (!storage_is_initialized()) {
         return STORAGE_ERR_NOT_INIT;
     }
@@ -376,6 +375,10 @@ int storage_save_session_checkpoint(const uint8_t *session_id, const void *data,
 }
 
 int storage_load_session_checkpoint(const uint8_t *session_id, void *data, size_t len) {
+    KEEP_ASSERT(session_id != NULL);
+    KEEP_ASSERT(data != NULL);
+    KEEP_ASSERT(len > 0);
+
     if (!storage_is_initialized()) {
         return STORAGE_ERR_NOT_INIT;
     }

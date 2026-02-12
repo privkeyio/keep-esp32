@@ -11,17 +11,12 @@
 
 static rng_health_stats_t g_rng_stats = {0};
 
-#ifdef ESP_PLATFORM
-#include "esp_log.h"
+#include "log_compat.h"
+
 static const char *TAG = "rng";
 #define RNG_LOG_ERROR(fmt, ...) ESP_LOGE(TAG, fmt, ##__VA_ARGS__)
 #define RNG_LOG_WARN(fmt, ...)  ESP_LOGW(TAG, fmt, ##__VA_ARGS__)
 #define RNG_LOG_INFO(fmt, ...)  ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
-#else
-#define RNG_LOG_ERROR(fmt, ...) ((void)0)
-#define RNG_LOG_WARN(fmt, ...)  ((void)0)
-#define RNG_LOG_INFO(fmt, ...)  ((void)0)
-#endif
 
 int rng_health_check(const uint8_t *buf, size_t len) {
     if (len < 8)

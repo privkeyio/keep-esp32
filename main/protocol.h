@@ -64,7 +64,7 @@ typedef struct {
     uint8_t our_index;
     uint8_t peer_index;
     char dkg_data[2048];
-    char *psbt;
+    char psbt[PROTOCOL_MAX_PSBT_LEN];
     size_t input_idx;
     char policy_bundle[5120];
     char passphrase[256];
