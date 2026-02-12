@@ -102,7 +102,7 @@ jobs:
             -I ../secp256k1-frost/build/include \
             -I components/crypto_asm/include \
             -I components/secure_element/include \
-            -DESP_PLATFORM=0
+            -std=c11
 
   scan-build:
     runs-on: ubuntu-latest
