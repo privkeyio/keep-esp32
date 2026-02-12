@@ -89,6 +89,9 @@ static int find_free_metadata_slot(void) {
 }
 
 int storage_save_metadata(const char *group, const group_metadata_t *metadata) {
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(metadata != NULL);
+
     if (!storage_is_initialized()) {
         return STORAGE_ERR_NOT_INIT;
     }
@@ -186,6 +189,9 @@ int storage_save_metadata(const char *group, const group_metadata_t *metadata) {
 }
 
 int storage_load_metadata(const char *group, group_metadata_t *metadata) {
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(metadata != NULL);
+
     if (!storage_is_initialized()) {
         return STORAGE_ERR_NOT_INIT;
     }

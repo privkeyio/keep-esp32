@@ -27,6 +27,8 @@ const char *error_category_name(int code) {
         return "psbt";
     case ERR_CAT_NOSTR:
         return "nostr";
+    case ERR_CAT_ASSERT:
+        return "assert";
     default:
         return "unknown";
     }
@@ -184,6 +186,9 @@ const char *error_name(int code) {
         return "NOSTR_SIGN";
     case ERR_NOSTR_RELAY:
         return "NOSTR_RELAY";
+
+    case ERR_ASSERT:
+        return "ASSERT";
 
     default:
         return "UNKNOWN";
@@ -343,6 +348,9 @@ const char *error_to_string(int code) {
     case ERR_NOSTR_RELAY:
         return "Nostr relay error";
 
+    case ERR_ASSERT:
+        return "Assertion failed";
+
     default:
         return "Unknown error";
     }
@@ -359,6 +367,8 @@ int error_to_jsonrpc_code(int code) {
     case ERR_PROTOCOL_INTERNAL:
         return -32603;
     default:
-        return code;
+        if (code >= -32768 && code <= -32000)
+            return code;
+        return -32603;
     }
 }

@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <limits.h>
 
 static bool is_valid_base64(const char *str, size_t len) {
@@ -185,11 +184,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
                 cJSON_Delete(root);
                 return ERR_PROTOCOL_PARAMS;
             }
-            req->psbt = strdup(psbt->valuestring);
-            if (!req->psbt) {
-                cJSON_Delete(root);
-                return ERR_PROTOCOL_INTERNAL;
-            }
+            memcpy(req->psbt, psbt->valuestring, len + 1);
         }
         cJSON *input_idx = cJSON_GetObjectItem(params, "input_idx");
         if (input_idx && cJSON_IsNumber(input_idx)) {
@@ -222,10 +217,9 @@ void protocol_free_request(rpc_request_t *req) {
     if (req) {
         secure_memzero(req->passphrase, sizeof(req->passphrase));
         secure_memzero(req->pin, sizeof(req->pin));
-        if (req->psbt) {
-            free(req->psbt);
-            req->psbt = NULL;
-        }
+        secure_memzero(req->psbt, sizeof(req->psbt));
+        secure_memzero(req->share, sizeof(req->share));
+        secure_memzero(req->dkg_data, sizeof(req->dkg_data));
     }
 }
 
@@ -263,6 +257,7 @@ int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) 
         cJSON_AddStringToObject(error, "name", error_name(resp->error_code));
         cJSON_AddStringToObject(error, "message", resp->error_msg);
         cJSON_AddStringToObject(error, "category", error_category_name(resp->error_code));
+#ifndef NDEBUG
         if (resp->error_ctx.file[0] != '\0') {
             cJSON *ctx = cJSON_AddObjectToObject(error, "context");
             if (ctx) {
@@ -271,6 +266,7 @@ int protocol_format_response(const rpc_response_t *resp, char *buf, size_t len) 
                 cJSON_AddStringToObject(ctx, "func", resp->error_ctx.func);
             }
         }
+#endif
     }
 
     cJSON_bool ok = cJSON_PrintPreallocated(root, buf, (int)len, 0);

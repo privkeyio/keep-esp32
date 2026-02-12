@@ -11,9 +11,10 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "log_compat.h"
+
 #ifdef ESP_PLATFORM
 #include "esp_mac.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -21,16 +22,7 @@ static uint32_t get_time_ms(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 #else
-#include <stdio.h>
 #include <time.h>
-#define ESP_LOGW(tag, ...)            \
-    fprintf(stderr, "W (%s): ", tag); \
-    fprintf(stderr, __VA_ARGS__);     \
-    fprintf(stderr, "\n")
-#define ESP_LOGE(tag, ...)            \
-    fprintf(stderr, "E (%s): ", tag); \
-    fprintf(stderr, __VA_ARGS__);     \
-    fprintf(stderr, "\n")
 static uint32_t get_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -249,6 +241,12 @@ static int gcm_init_with_key(mbedtls_gcm_context *gcm) {
 int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len, const uint8_t *aad,
                            size_t aad_len, uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
                            uint8_t *ciphertext, uint8_t tag[STORAGE_CRYPTO_TAG_SIZE]) {
+    KEEP_ASSERT(plaintext != NULL);
+    KEEP_ASSERT(nonce != NULL);
+    KEEP_ASSERT(ciphertext != NULL);
+    KEEP_ASSERT(tag != NULL);
+    KEEP_ASSERT(plaintext_len > 0);
+
     if (!key_initialized || !plaintext || !nonce || !ciphertext || !tag) {
         return -1;
     }
@@ -275,6 +273,12 @@ int storage_crypto_encrypt(const uint8_t *plaintext, size_t plaintext_len, const
 int storage_crypto_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, const uint8_t *aad,
                            size_t aad_len, const uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
                            const uint8_t tag[STORAGE_CRYPTO_TAG_SIZE], uint8_t *plaintext) {
+    KEEP_ASSERT(ciphertext != NULL);
+    KEEP_ASSERT(nonce != NULL);
+    KEEP_ASSERT(tag != NULL);
+    KEEP_ASSERT(plaintext != NULL);
+    KEEP_ASSERT(ciphertext_len > 0);
+
     if (!key_initialized || !ciphertext || !nonce || !tag || !plaintext) {
         return -1;
     }

@@ -15,16 +15,15 @@
 #include <mbedtls/sha256.h>
 #include <string.h>
 
+#include "log_compat.h"
+
 #ifdef ESP_PLATFORM
-#include "esp_log.h"
 #include "esp_timer.h"
 static uint32_t get_time_ms(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 #else
 #include <time.h>
-#include <stdio.h>
-#define ESP_LOGW(tag, fmt, ...) fprintf(stderr, "W (%s): " fmt "\n", tag, ##__VA_ARGS__)
 static uint32_t get_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);

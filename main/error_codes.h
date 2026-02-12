@@ -17,6 +17,7 @@
 #define ERR_CAT_SE       0x0900
 #define ERR_CAT_PSBT     0x0A00
 #define ERR_CAT_NOSTR    0x0B00
+#define ERR_CAT_ASSERT   0x0C00
 
 #define ERROR_CATEGORY(code) ((code) & 0xFF00)
 #define ERROR_DETAIL(code)   ((code) & 0x00FF)
@@ -101,6 +102,33 @@
 #define ERR_NOSTR_DECRYPT (ERR_CAT_NOSTR | 0x02)
 #define ERR_NOSTR_SIGN    (ERR_CAT_NOSTR | 0x03)
 #define ERR_NOSTR_RELAY   (ERR_CAT_NOSTR | 0x04)
+
+#define ERR_ASSERT (ERR_CAT_ASSERT | 0x01)
+
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#define KEEP_ASSERT_LOG(expr_str) ESP_LOGE("ASSERT", "%s:%d: %s", __FILE__, __LINE__, expr_str)
+#else
+#include <stdio.h>
+#define KEEP_ASSERT_LOG(expr_str) \
+    fprintf(stderr, "E (ASSERT): %s:%d: %s\n", __FILE__, __LINE__, expr_str)
+#endif
+
+#define KEEP_ASSERT(expr)           \
+    do {                            \
+        if (!(expr)) {              \
+            KEEP_ASSERT_LOG(#expr); \
+            return ERR_ASSERT;      \
+        }                           \
+    } while (0)
+
+#define KEEP_ASSERT_VOID(expr)      \
+    do {                            \
+        if (!(expr)) {              \
+            KEEP_ASSERT_LOG(#expr); \
+            return;                 \
+        }                           \
+    } while (0)
 
 const char *error_to_string(int code);
 const char *error_name(int code);

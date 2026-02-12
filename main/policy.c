@@ -50,6 +50,8 @@ int policy_init(void) {
 }
 
 int policy_save_bundle(const policy_bundle_t *bundle) {
+    KEEP_ASSERT(bundle != NULL);
+
     if (!initialized)
         return POLICY_ERR_STORAGE;
     if (bundle->version != POLICY_VERSION)
@@ -85,6 +87,8 @@ int policy_save_bundle(const policy_bundle_t *bundle) {
 }
 
 int policy_load_bundle(policy_bundle_t *bundle) {
+    KEEP_ASSERT(bundle != NULL);
+
     if (!initialized)
         return POLICY_ERR_STORAGE;
 
@@ -142,6 +146,8 @@ bool policy_has_bundle(void) {
 }
 
 static int policy_verify_signature(const policy_bundle_t *bundle) {
+    KEEP_ASSERT(bundle != NULL);
+
     secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
     if (!ctx)
         return POLICY_ERR_INVALID_SIG;

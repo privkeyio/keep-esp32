@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "nostr_frost.h"
+#include "error_codes.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
 #include <secp256k1.h>
 #include <secp256k1_frost.h>
 #include <mbedtls/sha256.h>
 #include <string.h>
-#include <stdlib.h>
 
 static void safe_str_copy(char *dest, size_t dest_size, const char *src) {
     if (dest_size == 0)
@@ -67,8 +67,15 @@ static secp256k1_context *get_secp_ctx(void) {
 int frost_dkg_round1_generate(const frost_group_t *group, uint8_t our_index,
                               frost_dkg_round1_t *round1, uint8_t *secret_shares_out,
                               size_t *share_count) {
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(round1 != NULL);
+    KEEP_ASSERT(secret_shares_out != NULL);
+    KEEP_ASSERT(share_count != NULL);
+    KEEP_ASSERT(group->participant_count > 0);
+    KEEP_ASSERT(group->threshold > 0);
+
     secp256k1_context *ctx = get_secp_ctx();
-    if (!ctx || !group || !round1 || !secret_shares_out || !share_count)
+    if (!ctx)
         return -1;
     if (group->threshold > MAX_THRESHOLD || group->participant_count > MAX_GROUP_PARTICIPANTS)
         return -2;
@@ -76,20 +83,13 @@ int frost_dkg_round1_generate(const frost_group_t *group, uint8_t our_index,
     secp256k1_frost_vss_commitments *vss = secp256k1_frost_vss_commitments_create(group->threshold);
     if (!vss)
         return -3;
-
-    secp256k1_frost_keygen_secret_share *shares =
-        malloc(sizeof(secp256k1_frost_keygen_secret_share) * group->participant_count);
-    if (!shares) {
-        secp256k1_frost_vss_commitments_destroy(vss);
-        return -4;
-    }
+    secp256k1_frost_keygen_secret_share shares[MAX_GROUP_PARTICIPANTS];
 
     int ret = secp256k1_frost_keygen_dkg_begin(
         ctx, vss, shares, group->participant_count, group->threshold, our_index,
         (const unsigned char *)DKG_CONTEXT_TAG, strlen(DKG_CONTEXT_TAG));
 
     if (ret != 1) {
-        free(shares);
         secp256k1_frost_vss_commitments_destroy(vss);
         return -5;
     }
@@ -113,7 +113,6 @@ int frost_dkg_round1_generate(const frost_group_t *group, uint8_t our_index,
     }
     *share_count = group->participant_count;
 
-    free(shares);
     secp256k1_frost_vss_commitments_destroy(vss);
     return 0;
 }
@@ -149,29 +148,34 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
                        size_t round1_count, const frost_dkg_share_t *received_shares,
                        size_t share_count, uint8_t our_index, uint8_t our_share[32],
                        uint8_t group_pubkey[33]) {
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(all_round1 != NULL);
+    KEEP_ASSERT(received_shares != NULL);
+    KEEP_ASSERT(our_share != NULL);
+    KEEP_ASSERT(group_pubkey != NULL);
+    KEEP_ASSERT(round1_count > 0);
+    KEEP_ASSERT(share_count > 0);
+
     secp256k1_context *ctx = get_secp_ctx();
-    if (!ctx || !group || !all_round1 || !received_shares || !our_share || !group_pubkey)
+    if (!ctx)
         return -1;
     if (round1_count != group->participant_count || share_count != group->participant_count)
         return -2;
 
-    secp256k1_frost_vss_commitments **commitments = (secp256k1_frost_vss_commitments **)malloc(
-        sizeof(secp256k1_frost_vss_commitments *) * round1_count);
-    if (!commitments)
+    if (round1_count > MAX_GROUP_PARTICIPANTS)
         return -3;
+    secp256k1_frost_vss_commitments *commitments[MAX_GROUP_PARTICIPANTS];
 
     for (size_t i = 0; i < round1_count; i++) {
         if (all_round1[i].num_coefficients == 0 || all_round1[i].num_coefficients > MAX_THRESHOLD) {
             for (size_t j = 0; j < i; j++)
                 secp256k1_frost_vss_commitments_destroy(commitments[j]);
-            free(commitments);
             return -4;
         }
         commitments[i] = secp256k1_frost_vss_commitments_create(all_round1[i].num_coefficients);
         if (!commitments[i]) {
             for (size_t j = 0; j < i; j++)
                 secp256k1_frost_vss_commitments_destroy(commitments[j]);
-            free(commitments);
             return -5;
         }
         commitments[i]->index = all_round1[i].participant_index;
@@ -184,14 +188,7 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
         memcpy(commitments[i]->zkp_z, all_round1[i].zkp_z, 32);
     }
 
-    secp256k1_frost_keygen_secret_share *shares =
-        malloc(sizeof(secp256k1_frost_keygen_secret_share) * share_count);
-    if (!shares) {
-        for (size_t i = 0; i < round1_count; i++)
-            secp256k1_frost_vss_commitments_destroy(commitments[i]);
-        free(commitments);
-        return -6;
-    }
+    secp256k1_frost_keygen_secret_share shares[MAX_GROUP_PARTICIPANTS];
 
     for (size_t i = 0; i < share_count; i++) {
         shares[i].generator_index = received_shares[i].generator_index;
@@ -201,10 +198,8 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
 
     secp256k1_frost_keypair *keypair = secp256k1_frost_keypair_create(our_index);
     if (!keypair) {
-        free(shares);
         for (size_t i = 0; i < round1_count; i++)
             secp256k1_frost_vss_commitments_destroy(commitments[i]);
-        free(commitments);
         return -7;
     }
 
@@ -220,10 +215,8 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
     }
 
     secp256k1_frost_keypair_destroy(keypair);
-    free(shares);
     for (size_t i = 0; i < round1_count; i++)
         secp256k1_frost_vss_commitments_destroy(commitments[i]);
-    free(commitments);
 
     return ret == 1 ? 0 : -8;
 }
@@ -231,9 +224,10 @@ int frost_dkg_finalize(const frost_group_t *group, const frost_dkg_round1_t *all
 int frost_sign_partial(const frost_group_t *group, const frost_sign_request_t *request,
                        const uint8_t our_share[32], uint8_t our_index,
                        frost_sign_response_t *response) {
-    if (!group || !request || !our_share || !response) {
-        return -1;
-    }
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(request != NULL);
+    KEEP_ASSERT(our_share != NULL);
+    KEEP_ASSERT(response != NULL);
 
     memset(response, 0, sizeof(*response));
     memcpy(response->request_id, request->request_id, 32);

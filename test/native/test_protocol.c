@@ -161,7 +161,7 @@ static int test_format_error(void) {
         FAIL("missing id");
     if (strstr(buf, "\"error\"") == NULL)
         FAIL("missing error");
-    if (strstr(buf, "\"code\":-1") == NULL)
+    if (strstr(buf, "\"code\":-32603") == NULL)
         FAIL("missing code");
     if (strstr(buf, "Share not found") == NULL)
         FAIL("missing message");
@@ -183,7 +183,7 @@ static int test_format_error_with_context(void) {
         FAIL("missing id");
     if (strstr(buf, "\"error\"") == NULL)
         FAIL("missing error");
-    if (strstr(buf, "\"code\":-2") == NULL)
+    if (strstr(buf, "\"code\":-32603") == NULL)
         FAIL("missing code");
     if (strstr(buf, "Test error") == NULL)
         FAIL("missing message");
@@ -326,8 +326,8 @@ static int test_psbt_allocation(void) {
     if (protocol_parse_request(
             "{\"id\":1,\"method\":\"bitcoin_sign\",\"params\":{\"psbt\":\"cHNidP8B\"}}", &req) != 0)
         FAIL("parse failed");
-    if (req.psbt == NULL)
-        FAIL("psbt should be allocated");
+    if (req.psbt[0] == '\0')
+        FAIL("psbt should be populated");
     if (strcmp(req.psbt, "cHNidP8B") != 0)
         FAIL("wrong psbt value");
     protocol_free_request(&req);

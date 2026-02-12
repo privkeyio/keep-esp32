@@ -403,6 +403,9 @@ int storage_migrate_if_needed(void) {
 }
 
 int storage_save_share(const char *group, const char *share_hex) {
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(share_hex != NULL);
+
     if (!initialized) {
         return STORAGE_ERR_NOT_INIT;
     }
@@ -496,6 +499,10 @@ int storage_save_share(const char *group, const char *share_hex) {
 }
 
 int storage_load_share(const char *group, char *share_hex, size_t len) {
+    KEEP_ASSERT(group != NULL);
+    KEEP_ASSERT(share_hex != NULL);
+    KEEP_ASSERT(len > 0);
+
     if (!initialized) {
         return STORAGE_ERR_NOT_INIT;
     }
@@ -556,6 +563,8 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
 }
 
 int storage_delete_share(const char *group) {
+    KEEP_ASSERT(group != NULL);
+
     if (!initialized) {
         return STORAGE_ERR_NOT_INIT;
     }

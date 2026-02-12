@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "frost_signer_core.h"
+#include "frost.h"
+#include "session.h"
 #include "hex_utils.h"
 #include "crypto_asm.h"
+#include <stdint.h>
 #include <string.h>
 
 static const uint8_t SESSION_ID_ALL_ONES[SESSION_ID_LEN] = {

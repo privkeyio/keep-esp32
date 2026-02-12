@@ -25,6 +25,7 @@
 #define MAX_RELAYS             4
 #define RELAY_URL_LEN          128
 #define DKG_CONTEXT_TAG        "frost-keygen"
+#define MAX_SIGN_PAYLOAD_SIZE  4096
 
 typedef struct {
     uint8_t npub[32];

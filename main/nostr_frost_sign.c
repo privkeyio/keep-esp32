@@ -11,7 +11,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <limits.h>
 
 int frost_parse_sign_request(const char *event_json, const frost_group_t *group,
@@ -90,22 +89,27 @@ int frost_parse_sign_request(const char *event_json, const frost_group_t *group,
                 cJSON *payload_hex = cJSON_GetObjectItem(inner, "payload");
                 if (payload_hex && cJSON_IsString(payload_hex)) {
                     size_t hex_len = strlen(payload_hex->valuestring);
-                    if (hex_len > SIZE_MAX - 2) {
+                    size_t max_bytes = hex_len / 2 + 1;
+                    if (max_bytes > MAX_SIGN_PAYLOAD_SIZE) {
                         cJSON_Delete(inner);
                         free(decrypted);
                         cJSON_Delete(root);
                         return -7;
                     }
-                    request->payload = malloc(hex_len / 2 + 1);
-                    if (request->payload) {
-                        int decoded = hex_to_bytes(payload_hex->valuestring, request->payload,
-                                                   hex_len / 2 + 1);
-                        if (decoded > 0) {
-                            request->payload_len = (size_t)decoded;
-                        } else {
-                            free(request->payload);
-                            request->payload = NULL;
-                        }
+                    request->payload = malloc(max_bytes);
+                    if (!request->payload) {
+                        cJSON_Delete(inner);
+                        free(decrypted);
+                        cJSON_Delete(root);
+                        return -8;
+                    }
+                    int decoded =
+                        hex_to_bytes(payload_hex->valuestring, request->payload, max_bytes);
+                    if (decoded > 0) {
+                        request->payload_len = (size_t)decoded;
+                    } else {
+                        free(request->payload);
+                        request->payload = NULL;
                     }
                 }
                 cJSON *nonce_idx = cJSON_GetObjectItem(inner, "nonce_index");
@@ -187,11 +191,12 @@ int frost_create_sign_request(const frost_group_t *group, const frost_sign_reque
     cJSON *content_obj = cJSON_CreateObject();
     cJSON_AddStringToObject(content_obj, "message_type", msg_type_str);
     cJSON_AddStringToObject(content_obj, "request_id", rid_hex);
-    if (request->payload && request->payload_len > 0) {
-        size_t payload_hex_size = request->payload_len * 2 + 1;
-        char *payload_hex = malloc(payload_hex_size);
+    if (request->payload && request->payload_len > 0 &&
+        request->payload_len <= MAX_SIGN_PAYLOAD_SIZE) {
+        char *payload_hex = malloc(request->payload_len * 2 + 1);
         if (payload_hex) {
-            bytes_to_hex(request->payload, request->payload_len, payload_hex, payload_hex_size);
+            bytes_to_hex(request->payload, request->payload_len, payload_hex,
+                         request->payload_len * 2 + 1);
             cJSON_AddStringToObject(content_obj, "payload", payload_hex);
             free(payload_hex);
         }
@@ -428,10 +433,12 @@ int frost_parse_sign_response(const char *event_json, const frost_group_t *group
 }
 
 void frost_sign_request_free(frost_sign_request_t *request) {
-    if (request && request->payload) {
-        secure_memzero(request->payload, request->payload_len);
-        free(request->payload);
-        request->payload = NULL;
+    if (request) {
+        if (request->payload) {
+            secure_memzero(request->payload, request->payload_len);
+            free(request->payload);
+            request->payload = NULL;
+        }
         request->payload_len = 0;
     }
 }

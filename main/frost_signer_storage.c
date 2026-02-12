@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "frost_signer_storage.h"
+#include "storage.h"
+#include "frost.h"
 #include "hex_utils.h"
 #include "crypto_asm.h"
+#include <stdint.h>
 #include <string.h>
 
 static share_store_t default_store = {.load = storage_load_share,
