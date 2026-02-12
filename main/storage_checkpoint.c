@@ -133,11 +133,16 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
     if (checkpoint_init() != 0)
         return STORAGE_ERR_NOT_INIT;
 
+    checkpoint_lock();
+
     checkpoint_header_t existing;
     esp_err_t err = esp_partition_read(checkpoint_partition, 0, &existing, sizeof(existing));
-    if (err != ESP_OK)
+    if (err != ESP_OK) {
+        checkpoint_unlock();
         return STORAGE_ERR_IO;
+    }
     if (existing.magic == CHECKPOINT_MAGIC) {
+        checkpoint_unlock();
         return STORAGE_ERR_CHECKPOINT_EXISTS;
     }
 
@@ -147,8 +152,6 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
     pad_session_id(header.session_id, session_id);
     header.counter = checkpoint_get_counter();
     header.data_len = (uint16_t)len;
-
-    checkpoint_lock();
 
     uint8_t *encrypted = malloc(len);
     if (!encrypted) {
@@ -263,19 +266,27 @@ int storage_checkpoint_clear(const char *session_id) {
     if (checkpoint_init() != 0)
         return STORAGE_ERR_NOT_INIT;
 
+    checkpoint_lock();
+
     checkpoint_header_t header;
     esp_err_t err = esp_partition_read(checkpoint_partition, 0, &header, sizeof(header));
-    if (err != ESP_OK)
+    if (err != ESP_OK) {
+        checkpoint_unlock();
         return STORAGE_ERR_IO;
+    }
 
-    if (header.magic != CHECKPOINT_MAGIC)
+    if (header.magic != CHECKPOINT_MAGIC) {
+        checkpoint_unlock();
         return STORAGE_ERR_NOT_FOUND;
+    }
 
     uint8_t expected_id[CHECKPOINT_SESSION_ID_LEN];
     pad_session_id(expected_id, session_id);
 
-    if (ct_compare(header.session_id, expected_id, CHECKPOINT_SESSION_ID_LEN) != 0)
+    if (ct_compare(header.session_id, expected_id, CHECKPOINT_SESSION_ID_LEN) != 0) {
+        checkpoint_unlock();
         return STORAGE_ERR_NOT_FOUND;
+    }
 
     checkpoint_increment_counter();
 
@@ -286,6 +297,8 @@ int storage_checkpoint_clear(const char *session_id) {
         erase_size = checkpoint_partition->size;
 
     err = esp_partition_erase_range(checkpoint_partition, 0, erase_size);
+    checkpoint_unlock();
+
     if (err != ESP_OK)
         return STORAGE_ERR_IO;
 
@@ -554,6 +567,12 @@ bool storage_has_session_checkpoint(const uint8_t *session_id) {
 }
 
 void storage_checkpoint_cleanup(void) {
+#ifdef ESP_PLATFORM
+    if (checkpoint_mutex) {
+        vSemaphoreDelete(checkpoint_mutex);
+        checkpoint_mutex = NULL;
+    }
+#endif
     checkpoint_initialized = false;
     checkpoint_partition = NULL;
     checkpoint_counter = 0;

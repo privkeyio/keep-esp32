@@ -120,40 +120,45 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                                         free(req);
                                     } else if (k == FROST_KIND_SIGN_RESPONSE &&
                                                g_ctx.callbacks.on_sign_response) {
-                                        frost_sign_response_t resp;
-                                        if (frost_parse_sign_response(event_str,
-                                                                      &g_ctx.current_group,
-                                                                      g_ctx.privkey, &resp) == 0) {
+                                        frost_sign_response_t *resp = malloc(sizeof(*resp));
+                                        if (resp && frost_parse_sign_response(
+                                                        event_str, &g_ctx.current_group,
+                                                        g_ctx.privkey, resp) == 0) {
                                             g_ctx.callbacks.on_sign_response(
-                                                &resp, g_ctx.callbacks.user_ctx);
+                                                resp, g_ctx.callbacks.user_ctx);
                                         }
+                                        free(resp);
                                     } else if (k == FROST_KIND_DKG_ROUND1 &&
                                                g_ctx.callbacks.on_dkg_round1) {
-                                        frost_dkg_round1_t r1;
-                                        if (frost_parse_dkg_round1_event(event_str,
-                                                                         &g_ctx.current_group,
-                                                                         g_ctx.privkey, &r1) == 0) {
-                                            g_ctx.callbacks.on_dkg_round1(&r1,
+                                        frost_dkg_round1_t *r1 = malloc(sizeof(*r1));
+                                        if (r1 && frost_parse_dkg_round1_event(
+                                                      event_str, &g_ctx.current_group,
+                                                      g_ctx.privkey, r1) == 0) {
+                                            g_ctx.callbacks.on_dkg_round1(r1,
                                                                           g_ctx.callbacks.user_ctx);
                                         }
+                                        free(r1);
                                     } else if (k == FROST_KIND_DKG_ROUND2 &&
                                                g_ctx.callbacks.on_dkg_round2) {
-                                        frost_dkg_round2_t r2;
-                                        if (frost_parse_dkg_round2_event(event_str,
-                                                                         &g_ctx.current_group,
-                                                                         g_ctx.privkey, &r2) == 0) {
-                                            g_ctx.callbacks.on_dkg_round2(&r2,
+                                        frost_dkg_round2_t *r2 = malloc(sizeof(*r2));
+                                        if (r2 && frost_parse_dkg_round2_event(
+                                                      event_str, &g_ctx.current_group,
+                                                      g_ctx.privkey, r2) == 0) {
+                                            g_ctx.callbacks.on_dkg_round2(r2,
                                                                           g_ctx.callbacks.user_ctx);
                                         }
+                                        free(r2);
                                     } else if (k == NIP46_KIND_NOSTR_CONNECT &&
                                                g_ctx.callbacks.on_nip46_request) {
-                                        nip46_request_t nip46_req;
-                                        if (frost_parse_nip46_event(event_str, g_ctx.privkey,
-                                                                    &nip46_req) == 0) {
+                                        nip46_request_t *nip46_req = malloc(sizeof(*nip46_req));
+                                        if (nip46_req &&
+                                            frost_parse_nip46_event(event_str, g_ctx.privkey,
+                                                                    nip46_req) == 0) {
                                             g_ctx.callbacks.on_nip46_request(
-                                                &nip46_req, g_ctx.callbacks.user_ctx);
-                                            frost_nip46_request_free(&nip46_req);
+                                                nip46_req, g_ctx.callbacks.user_ctx);
+                                            frost_nip46_request_free(nip46_req);
                                         }
+                                        free(nip46_req);
                                     }
                                     free(event_str);
                                 }
