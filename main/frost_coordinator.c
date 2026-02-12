@@ -25,12 +25,14 @@
 #define WS_SEND_TIMEOUT_MS   10000
 
 static bool is_safe_subscription_id(const char *id) {
-    if (!id || *id == '\0') return false;
+    if (!id || *id == '\0')
+        return false;
     size_t len = 0;
     for (const char *p = id; *p; p++) {
         char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '-' || c == '_'))
+        bool valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                     c == '-' || c == '_';
+        if (!valid)
             return false;
         if (++len > 64)
             return false;
@@ -87,7 +89,8 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         if (data->op_code == 0x01 && data->data_len > 0 &&
             (size_t)data->data_len < MAX_WS_MESSAGE_SIZE) {
             char *msg = malloc(data->data_len + 1);
-            if (!msg) break;
+            if (!msg)
+                break;
             memcpy(msg, data->data_ptr, data->data_len);
             msg[data->data_len] = '\0';
 
@@ -107,9 +110,9 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                                     if (k == FROST_KIND_SIGN_REQUEST &&
                                         g_ctx.callbacks.on_sign_request) {
                                         frost_sign_request_t *req = malloc(sizeof(*req));
-                                        if (req && frost_parse_sign_request(event_str,
-                                                                     &g_ctx.current_group,
-                                                                     g_ctx.privkey, req) == 0) {
+                                        if (req && frost_parse_sign_request(
+                                                       event_str, &g_ctx.current_group,
+                                                       g_ctx.privkey, req) == 0) {
                                             g_ctx.callbacks.on_sign_request(
                                                 req, g_ctx.callbacks.user_ctx);
                                             frost_sign_request_free(req);
@@ -382,7 +385,8 @@ int frost_coordinator_subscribe(const char *subscription_id) {
     for (int i = 0; i < g_ctx.relay_count; i++) {
         relay_connection_t *relay = &g_ctx.relays[i];
         if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws_handle) {
-            esp_websocket_client_send_text(relay->ws_handle, filter, strlen(filter), pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
+            esp_websocket_client_send_text(relay->ws_handle, filter, strlen(filter),
+                                           pdMS_TO_TICKS(WS_SEND_TIMEOUT_MS));
             ESP_LOGI(TAG, "Subscribed on %s", relay->url);
         }
     }

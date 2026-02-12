@@ -103,8 +103,8 @@ int frost_parse_sign_request(const char *event_json, const frost_group_t *group,
                         cJSON_Delete(root);
                         return -8;
                     }
-                    int decoded = hex_to_bytes(payload_hex->valuestring, request->payload,
-                                               max_bytes);
+                    int decoded =
+                        hex_to_bytes(payload_hex->valuestring, request->payload, max_bytes);
                     if (decoded > 0) {
                         request->payload_len = (size_t)decoded;
                     } else {

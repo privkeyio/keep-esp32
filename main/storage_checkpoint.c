@@ -11,6 +11,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #endif
+#include <stdlib.h>
 #include <string.h>
 
 #define TAG "storage_checkpoint"
@@ -39,19 +40,24 @@ typedef struct {
 _Static_assert(sizeof(checkpoint_header_t) == 96, "checkpoint_header_t must be 96 bytes");
 
 #define CHECKPOINT_MAX_DATA_SIZE (STORAGE_CHECKPOINT_MAX_SIZE - sizeof(checkpoint_header_t))
-static uint8_t checkpoint_crypto_buf[CHECKPOINT_MAX_DATA_SIZE];
 
 #ifdef ESP_PLATFORM
 static SemaphoreHandle_t checkpoint_mutex = NULL;
+
 static void checkpoint_lock(void) {
-    if (checkpoint_mutex) xSemaphoreTake(checkpoint_mutex, portMAX_DELAY);
+    if (checkpoint_mutex)
+        xSemaphoreTake(checkpoint_mutex, portMAX_DELAY);
 }
+
 static void checkpoint_unlock(void) {
-    if (checkpoint_mutex) xSemaphoreGive(checkpoint_mutex);
+    if (checkpoint_mutex)
+        xSemaphoreGive(checkpoint_mutex);
 }
 #else
-static void checkpoint_lock(void) {}
-static void checkpoint_unlock(void) {}
+static void checkpoint_lock(void) {
+}
+static void checkpoint_unlock(void) {
+}
 #endif
 
 typedef struct {
@@ -144,9 +150,16 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
 
     checkpoint_lock();
 
+    uint8_t *encrypted = malloc(len);
+    if (!encrypted) {
+        checkpoint_unlock();
+        return STORAGE_ERR_IO;
+    }
+
     int ret = storage_crypto_encrypt(data, len, header.session_id, CHECKPOINT_SESSION_ID_LEN,
-                                     header.nonce, checkpoint_crypto_buf, header.tag);
+                                     header.nonce, encrypted, header.tag);
     if (ret != 0) {
+        free(encrypted);
         checkpoint_unlock();
         return STORAGE_ERR_ENCRYPT;
     }
@@ -157,20 +170,23 @@ int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t 
 
     err = esp_partition_erase_range(checkpoint_partition, 0, erase_size);
     if (err != ESP_OK) {
-        secure_memzero(checkpoint_crypto_buf, len);
+        secure_memzero(encrypted, len);
+        free(encrypted);
         checkpoint_unlock();
         return STORAGE_ERR_IO;
     }
 
     err = esp_partition_write(checkpoint_partition, 0, &header, sizeof(header));
     if (err != ESP_OK) {
-        secure_memzero(checkpoint_crypto_buf, len);
+        secure_memzero(encrypted, len);
+        free(encrypted);
         checkpoint_unlock();
         return STORAGE_ERR_IO;
     }
 
-    err = esp_partition_write(checkpoint_partition, sizeof(header), checkpoint_crypto_buf, len);
-    secure_memzero(checkpoint_crypto_buf, len);
+    err = esp_partition_write(checkpoint_partition, sizeof(header), encrypted, len);
+    secure_memzero(encrypted, len);
+    free(encrypted);
     checkpoint_unlock();
 
     if (err != ESP_OK)
@@ -213,16 +229,23 @@ int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_le
 
     checkpoint_lock();
 
-    err = esp_partition_read(checkpoint_partition, sizeof(header), checkpoint_crypto_buf,
-                             header.data_len);
-    if (err != ESP_OK) {
+    uint8_t *encrypted = malloc(header.data_len);
+    if (!encrypted) {
         checkpoint_unlock();
         return STORAGE_ERR_IO;
     }
 
-    int ret = storage_crypto_decrypt(checkpoint_crypto_buf, header.data_len, header.session_id,
+    err = esp_partition_read(checkpoint_partition, sizeof(header), encrypted, header.data_len);
+    if (err != ESP_OK) {
+        free(encrypted);
+        checkpoint_unlock();
+        return STORAGE_ERR_IO;
+    }
+
+    int ret = storage_crypto_decrypt(encrypted, header.data_len, header.session_id,
                                      CHECKPOINT_SESSION_ID_LEN, header.nonce, header.tag, data);
-    secure_memzero(checkpoint_crypto_buf, header.data_len);
+    secure_memzero(encrypted, header.data_len);
+    free(encrypted);
     checkpoint_unlock();
 
     if (ret != 0)

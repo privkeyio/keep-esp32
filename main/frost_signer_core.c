@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "frost_signer_core.h"
+#include "session.h"
 #include "hex_utils.h"
 #include "crypto_asm.h"
 #include <string.h>
