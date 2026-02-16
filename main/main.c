@@ -25,7 +25,7 @@
 #include "self_test.h"
 
 #define TAG                  "main"
-#define VERSION              "0.1.2"
+#define VERSION              "0.2.0"
 #define RATE_LIMIT_THRESHOLD 5
 #define RATE_LIMIT_DELAY_MS  1000
 
