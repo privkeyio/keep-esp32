@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: © 2026 PrivKey LLC
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 #ifndef _WALLY_CCAN_CONFIG_H_
 #define _WALLY_CCAN_CONFIG_H_ 1
