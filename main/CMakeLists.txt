@@ -5,6 +5,7 @@ set(SRCS
     "nostr_frost.c" "nostr_frost_sign.c" "nostr_frost_dkg_events.c" "nostr_frost_nip46.c"
     "frost_crypto_ops.c" "frost_coordinator.c" "frost_dkg.c" "psbt.c" "psbt_fraud.c" "policy.c"
     "error_context.c" "error_codes.c" "random_utils.c" "hw_entropy.c" "ux_manager.c" "ux_serial.c" "self_test.c" "anti_glitch.c"
+    "pin_prefix.c"
 )
 
 set(REQUIRES
