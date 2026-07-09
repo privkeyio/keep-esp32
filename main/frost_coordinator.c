@@ -933,7 +933,7 @@ int frost_coordinator_poll(int timeout_ms) {
     ws_transport_handle_t resub[COORDINATOR_MAX_RELAYS];
     relay_connection_t *resub_relay[COORDINATOR_MAX_RELAYS];
     buffered_event_t drained[WS_EVENT_BUFFER_SIZE];
-    char filter[512];
+    char sub_id[WS_SUBSCRIPTION_ID_SIZE] = "";
     int resub_count = 0;
     uint8_t drained_count = 0;
     bool session_lost = false;
@@ -960,7 +960,7 @@ int frost_coordinator_poll(int timeout_ms) {
         g_ctx.disconnect_time = 0;
         g_ctx.session_interrupted = false;
         if (g_ctx.has_subscription)
-            build_subscription_filter(filter, sizeof(filter), g_ctx.current_subscription);
+            memcpy(sub_id, g_ctx.current_subscription, sizeof(sub_id));
         else
             resub_count = 0;
         drained_count = drain_event_buffer(drained);
@@ -983,14 +983,19 @@ int frost_coordinator_poll(int timeout_ms) {
 
     // A relay whose REQ fails to send stays flagged, so the next poll retries it
     // rather than leaving it silently unsubscribed.
-    for (int i = 0; i < resub_count; i++) {
-        if (ws_transport_send_text(resub[i], filter, strlen(filter), WS_SEND_TIMEOUT_MS) == 0) {
-            ESP_LOGI(TAG, "Resubscribed after reconnect");
-        } else {
-            ESP_LOGW(TAG, "Resubscribe failed; will retry");
-            state_lock();
-            resub_relay[i]->needs_resubscribe = true;
-            state_unlock();
+    if (resub_count > 0) {
+        char filter[512];
+        build_subscription_filter(filter, sizeof(filter), sub_id);
+
+        for (int i = 0; i < resub_count; i++) {
+            if (ws_transport_send_text(resub[i], filter, strlen(filter), WS_SEND_TIMEOUT_MS) == 0) {
+                ESP_LOGI(TAG, "Resubscribed after reconnect");
+            } else {
+                ESP_LOGW(TAG, "Resubscribe failed; will retry");
+                state_lock();
+                resub_relay[i]->needs_resubscribe = true;
+                state_unlock();
+            }
         }
     }
 
