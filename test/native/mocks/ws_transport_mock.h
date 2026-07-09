@@ -12,8 +12,16 @@
 
 void ws_mock_reset(void);
 
-// Fail the next `count` ws_transport_create/start calls.
+// Fail the next `count` ws_transport_create calls.
+void ws_mock_fail_next_creates(int count);
+
+// Let create succeed but fail the next `count` ws_transport_start calls, so the
+// coordinator's start-failure cleanup path is exercised.
 void ws_mock_fail_next_starts(int count);
+
+// Deliver `type` to the coordinator from inside the next ws_transport_destroy of
+// `h`, modelling an event still in flight while the transport is torn down.
+void ws_mock_fire_on_destroy(ws_transport_handle_t h, ws_event_type_t type);
 
 // Live handle for the relay created at `index` (creation order), or NULL if it
 // has since been destroyed.

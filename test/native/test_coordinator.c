@@ -445,6 +445,7 @@ static void on_sign_request(const frost_sign_request_t *request, void *ctx) {
 static bool test_inbound_event_dispatches_callback(void) {
     setup();
     ws_transport_handle_t h = connect_one("wss://a.example");
+    CHECK(frost_coordinator_subscribe("sub1") == 0);
 
     g_sign_requests_seen = 0;
     frost_coordinator_callbacks_t cbs;
@@ -466,6 +467,12 @@ static bool test_inbound_event_dispatches_callback(void) {
     ws_mock_fire_data(h, "[\"EVENT\",\"sub1\"]");
     ws_mock_fire_data(h, "[\"EVENT\",\"sub1\",{\"no_kind\":1}]");
     ws_mock_fire_data(h, "[]");
+    CHECK(g_sign_requests_seen == 1);
+
+    // A relay is untrusted: an event tagged with a subscription we never opened
+    // must never reach a callback.
+    ws_mock_fire_data(h, "[\"EVENT\",\"other\",{\"kind\":21104,\"content\":\"x\"}]");
+    ws_mock_fire_data(h, "[\"EVENT\",42,{\"kind\":21104,\"content\":\"x\"}]");
     CHECK(g_sign_requests_seen == 1);
     CHECK(!ws_mock_saw_use_after_free());
     teardown();
@@ -491,10 +498,10 @@ static bool test_disconnect_destroys_all_handles(void) {
     return true;
 }
 
-static bool test_failed_start_schedules_retry(void) {
+static bool test_failed_create_schedules_retry(void) {
     setup();
     CHECK(frost_coordinator_add_relay("wss://a.example") == 0);
-    ws_mock_fail_next_starts(1);
+    ws_mock_fail_next_creates(1);
     CHECK(frost_coordinator_connect() == 0);
     CHECK(ws_mock_create_count() == 0);
 
@@ -502,6 +509,116 @@ static bool test_failed_start_schedules_retry(void) {
     at(1 + 1000);
     frost_coordinator_poll(0);
     CHECK(ws_mock_create_count() == 1);
+    teardown();
+    return true;
+}
+
+// A transport that is created but fails to start must be destroyed, not leaked.
+static bool test_failed_start_cleans_up_and_retries(void) {
+    setup();
+    CHECK(frost_coordinator_add_relay("wss://a.example") == 0);
+    ws_mock_fail_next_starts(1);
+    CHECK(frost_coordinator_connect() == 0);
+    CHECK(ws_mock_create_count() == 1);
+    CHECK(ws_mock_destroy_count() == 1);
+    CHECK(ws_mock_live_count() == 0);
+
+    at(1 + 1000);
+    frost_coordinator_poll(0);
+    CHECK(ws_mock_create_count() == 2);
+    CHECK(!ws_mock_saw_use_after_free());
+    teardown();
+    return true;
+}
+
+// An event still in flight when a stale transport is torn down must not mutate
+// the relay we have already detached it from.
+static bool test_detached_transport_event_ignored(void) {
+    setup();
+    ws_transport_handle_t h = connect_one("wss://a.example");
+
+    at(1000);
+    ws_mock_fire_disconnected(h);
+
+    coordinator_status_t status;
+    CHECK(frost_coordinator_get_status(&status) == 0);
+    CHECK(status.relay_scores[0].fail_count == 1);
+
+    // The doomed transport delivers one last DISCONNECTED during destroy().
+    ws_mock_fire_on_destroy(h, WS_EVT_DISCONNECTED);
+    at(2000);
+    frost_coordinator_poll(0);
+
+    CHECK(frost_coordinator_get_status(&status) == 0);
+    CHECK(status.relay_scores[0].fail_count == 1);
+    CHECK(!ws_mock_saw_use_after_free());
+    teardown();
+    return true;
+}
+
+// Every connected send failing must buffer the event, not drop it.
+static bool test_publish_buffers_when_all_sends_fail(void) {
+    setup();
+    ws_transport_handle_t h = connect_one("wss://a.example");
+
+    frost_sign_request_t req;
+    memset(&req, 0, sizeof(req));
+    ws_mock_fail_next_sends(1);
+    CHECK(frost_coordinator_publish_sign_request(&req) == 0);
+    CHECK(ws_mock_send_count(h) == 0);
+
+    at(100);
+    frost_coordinator_poll(0);
+    CHECK(ws_mock_send_count(h) == 1);
+    CHECK(strstr(ws_mock_sent(h, 0), "\"EVENT\"") != NULL);
+    teardown();
+    return true;
+}
+
+// A REQ that fails during the initial subscribe must be retried by poll().
+static bool test_failed_initial_subscribe_is_retried(void) {
+    setup();
+    ws_transport_handle_t h = connect_one("wss://a.example");
+
+    ws_mock_fail_next_sends(1);
+    CHECK(frost_coordinator_subscribe("sub1") == 0);
+    CHECK(ws_mock_send_count(h) == 0);
+
+    at(100);
+    frost_coordinator_poll(0);
+    CHECK(ws_mock_send_count(h) == 1);
+    CHECK(strstr(ws_mock_sent(h, 0), "\"REQ\"") != NULL);
+    teardown();
+    return true;
+}
+
+// Replay must not let a later event overtake one that failed to send.
+static bool test_replay_stops_at_first_failure(void) {
+    setup();
+    ws_transport_handle_t h = connect_one("wss://a.example");
+    at(1000);
+    ws_mock_fire_disconnected(h);
+
+    frost_sign_request_t req;
+    memset(&req, 0, sizeof(req));
+    CHECK(frost_coordinator_publish_sign_request(&req) == 0);
+    CHECK(frost_coordinator_publish_sign_request(&req) == 0);
+
+    at(2000);
+    frost_coordinator_poll(0);
+    ws_transport_handle_t h1 = ws_mock_handle(1);
+    CHECK(h1 != NULL);
+    ws_mock_fire_connected(h1);
+
+    // First replay fails: the second must stay queued behind it.
+    ws_mock_fail_next_sends(1);
+    at(2100);
+    frost_coordinator_poll(0);
+    CHECK(ws_mock_send_count(h1) == 0);
+
+    at(2200);
+    frost_coordinator_poll(0);
+    CHECK(ws_mock_send_count(h1) == 2);
     teardown();
     return true;
 }
@@ -521,9 +638,12 @@ int main(void) {
     printf("\nReconnection:\n");
     TEST(exponential_backoff_schedule);
     TEST(gives_up_after_max_attempts);
-    TEST(failed_start_schedules_retry);
+    TEST(failed_create_schedules_retry);
+    TEST(failed_start_cleans_up_and_retries);
     TEST(resubscribes_after_reconnect);
     TEST(failed_resubscribe_is_retried);
+    TEST(failed_initial_subscribe_is_retried);
+    TEST(detached_transport_event_ignored);
 
     printf("\nSession recovery:\n");
     TEST(session_recovery_timeout_fails_session);
@@ -533,6 +653,8 @@ int main(void) {
     TEST(buffers_and_replays_in_order);
     TEST(buffer_overwrites_oldest);
     TEST(failed_replay_is_requeued);
+    TEST(replay_stops_at_first_failure);
+    TEST(publish_buffers_when_all_sends_fail);
 
     printf("\nMemory safety:\n");
     TEST(reconnect_has_no_use_after_free);

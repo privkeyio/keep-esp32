@@ -50,7 +50,7 @@ static void *transport_thread(void *arg) {
             if (!h)
                 continue;
             ws_mock_fire_connected(h);
-            ws_mock_fire_data(h, "[\"EVENT\",\"s\",{\"kind\":21104,\"content\":\"x\"}]");
+            ws_mock_fire_data(h, "[\"EVENT\",\"race\",{\"kind\":21104,\"content\":\"x\"}]");
             ws_mock_fire_disconnected(h);
         }
     }

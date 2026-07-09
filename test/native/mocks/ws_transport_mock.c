@@ -27,6 +27,8 @@ struct ws_transport {
     char url[160];
     char *sends[WS_MOCK_MAX_SENDS];
     int send_count;
+    bool fire_on_destroy;
+    ws_event_type_t on_destroy_event;
 };
 
 // Handles are never freed so a use-after-free stays observable instead of
@@ -34,6 +36,7 @@ struct ws_transport {
 static struct ws_transport *g_handles[WS_MOCK_MAX_HANDLES];
 static int g_create_count;
 static int g_destroy_count;
+static int g_fail_creates;
 static int g_fail_starts;
 static int g_fail_sends;
 static bool g_use_after_free;
@@ -59,15 +62,31 @@ void ws_mock_reset(void) {
     }
     g_create_count = 0;
     g_destroy_count = 0;
+    g_fail_creates = 0;
     g_fail_starts = 0;
     g_fail_sends = 0;
     g_use_after_free = false;
     unlock();
 }
 
+void ws_mock_fail_next_creates(int count) {
+    lock();
+    g_fail_creates = count;
+    unlock();
+}
+
 void ws_mock_fail_next_starts(int count) {
     lock();
     g_fail_starts = count;
+    unlock();
+}
+
+void ws_mock_fire_on_destroy(ws_transport_handle_t h, ws_event_type_t type) {
+    if (!h)
+        return;
+    lock();
+    h->fire_on_destroy = true;
+    h->on_destroy_event = type;
     unlock();
 }
 
@@ -189,9 +208,9 @@ ws_transport_handle_t ws_transport_create(const ws_transport_config_t *config, w
         return NULL;
 
     lock();
-    if (g_create_count >= WS_MOCK_MAX_HANDLES || g_fail_starts > 0) {
-        if (g_fail_starts > 0)
-            g_fail_starts--;
+    if (g_create_count >= WS_MOCK_MAX_HANDLES || g_fail_creates > 0) {
+        if (g_fail_creates > 0)
+            g_fail_creates--;
         unlock();
         return NULL;
     }
@@ -220,6 +239,11 @@ int ws_transport_start(ws_transport_handle_t handle) {
         unlock();
         return -1;
     }
+    if (g_fail_starts > 0) {
+        g_fail_starts--;
+        unlock();
+        return -1;
+    }
     handle->started = true;
     unlock();
     return 0;
@@ -239,6 +263,18 @@ void ws_transport_destroy(ws_transport_handle_t handle) {
         unlock();
         return;
     }
+    bool pending = handle->fire_on_destroy;
+    ws_event_type_t pending_event = handle->on_destroy_event;
+    handle->fire_on_destroy = false;
+    unlock();
+
+    // The transport thread can still be delivering when teardown begins.
+    if (pending) {
+        ws_event_t event = {.type = pending_event, .data = NULL, .len = 0};
+        handle->cb(handle->user_ctx, &event);
+    }
+
+    lock();
     handle->destroyed = true;
     while (handle->in_callback > 0)
         pthread_cond_wait(&g_idle, &g_lock);

@@ -123,8 +123,11 @@ static void state_unlock(void) {
 #endif
 }
 
-// Bounded so a callback that re-enters the public API from the transport thread
-// fails its operation instead of deadlocking against an in-flight destroy.
+// On device this is bounded, so a callback that re-enters the public API from the
+// transport thread fails its operation instead of deadlocking against an
+// in-flight destroy. The pthread branch builds only for native tests and blocks
+// indefinitely: pthread_mutex_timedlock is absent on macOS, which those tests
+// support, and no test re-enters the API from a callback.
 static bool op_lock(void) {
 #ifdef ESP_PLATFORM
     return xSemaphoreTake(g_ctx.op_mutex, pdMS_TO_TICKS(WS_OP_LOCK_TIMEOUT_MS)) == pdTRUE;
@@ -206,13 +209,14 @@ static void buffer_event_take(char *json, size_t len) {
     g_ctx.buffer_count++;
 }
 
-static void buffer_event_copy(const char *json) {
+static bool buffer_event_copy(const char *json) {
     size_t len = strlen(json);
     char *copy = malloc(len + 1);
     if (!copy)
-        return;
+        return false;
     memcpy(copy, json, len + 1);
     buffer_event_take(copy, len);
+    return true;
 }
 
 // Moves every buffered event to out[] and empties the buffer. Caller owns the
@@ -298,7 +302,9 @@ static void dispatch_frost_event(int kind, const char *event_str) {
     }
 }
 
-static void handle_nostr_message(const char *msg) {
+// `subscription_id` is a snapshot of our active subscription. Relays are
+// untrusted, so an EVENT tagged with any other id is discarded before parsing.
+static void handle_nostr_message(const char *msg, const char *subscription_id) {
     cJSON *arr = cJSON_Parse(msg);
     if (!arr || !cJSON_IsArray(arr) || cJSON_GetArraySize(arr) < 1) {
         cJSON_Delete(arr);
@@ -308,6 +314,14 @@ static void handle_nostr_message(const char *msg) {
     cJSON *type = cJSON_GetArrayItem(arr, 0);
     if (!type || !cJSON_IsString(type) || strcmp(type->valuestring, "EVENT") != 0 ||
         cJSON_GetArraySize(arr) < 3) {
+        cJSON_Delete(arr);
+        return;
+    }
+
+    cJSON *sub = cJSON_GetArrayItem(arr, 1);
+    if (!sub || !cJSON_IsString(sub) || subscription_id[0] == '\0' ||
+        strcmp(sub->valuestring, subscription_id) != 0) {
+        ESP_LOGW(TAG, "Discarding event for unknown subscription");
         cJSON_Delete(arr);
         return;
     }
@@ -329,6 +343,12 @@ static void handle_nostr_message(const char *msg) {
 
 static void handle_ws_connected(relay_connection_t *relay) {
     state_lock();
+    // relay->ws is cleared before a stale transport is destroyed; anything it
+    // still delivers in that window belongs to a connection we abandoned.
+    if (!relay->ws) {
+        state_unlock();
+        return;
+    }
     ESP_LOGI(TAG, "Relay connected: %s", relay->url);
     relay->state = COORDINATOR_STATE_CONNECTED;
     relay->health.healthy = true;
@@ -342,6 +362,10 @@ static void handle_ws_connected(relay_connection_t *relay) {
 
 static void handle_ws_failure(relay_connection_t *relay) {
     state_lock();
+    if (!relay->ws) {
+        state_unlock();
+        return;
+    }
     ESP_LOGW(TAG, "Relay unavailable: %s", relay->url);
     enter_reconnecting(relay);
     state_unlock();
@@ -359,13 +383,22 @@ static void handle_ws_data(relay_connection_t *relay, const char *data, size_t l
     memcpy(msg, data, len);
     msg[len] = '\0';
 
+    char sub_id[WS_SUBSCRIPTION_ID_SIZE] = "";
+
     state_lock();
+    if (!relay->ws) {
+        state_unlock();
+        free(msg);
+        return;
+    }
     relay->health.last_event_ms = coordinator_now_ms();
     relay->health.healthy = true;
+    if (g_ctx.has_subscription)
+        memcpy(sub_id, g_ctx.current_subscription, sizeof(sub_id));
     state_unlock();
 
     // Parsed outside the lock: callbacks may re-enter the public API.
-    handle_nostr_message(msg);
+    handle_nostr_message(msg, sub_id);
     free(msg);
 }
 
@@ -689,7 +722,9 @@ int frost_coordinator_subscribe(const char *subscription_id) {
         return -1;
 
     ws_transport_handle_t handles[COORDINATOR_MAX_RELAYS];
+    relay_connection_t *targets[COORDINATOR_MAX_RELAYS];
     char filter[512];
+    int count = 0;
 
     state_lock();
     if (!g_ctx.has_group) {
@@ -700,16 +735,32 @@ int frost_coordinator_subscribe(const char *subscription_id) {
     memcpy(g_ctx.current_subscription, subscription_id, strlen(subscription_id) + 1);
     g_ctx.has_subscription = true;
     g_ctx.state = COORDINATOR_STATE_ACTIVE;
-    int count = snapshot_connected(handles, NULL);
-    for (int i = 0; i < g_ctx.relay_count; i++)
-        g_ctx.relays[i].needs_resubscribe = false;
+    for (int i = 0; i < g_ctx.relay_count; i++) {
+        relay_connection_t *relay = &g_ctx.relays[i];
+        relay->needs_resubscribe = false;
+        if (relay->state == COORDINATOR_STATE_CONNECTED && relay->ws) {
+            targets[count] = relay;
+            handles[count++] = relay->ws;
+        }
+    }
     build_subscription_filter(filter, sizeof(filter), subscription_id);
     state_unlock();
 
-    int sent = send_to_handles(handles, count, filter, strlen(filter));
+    int sent = 0;
+    for (int i = 0; i < count; i++) {
+        if (ws_transport_send_text(handles[i], filter, strlen(filter), WS_SEND_TIMEOUT_MS) == 0) {
+            sent++;
+        } else {
+            // Leave it flagged so poll() retries instead of leaving the relay
+            // silently unsubscribed.
+            state_lock();
+            targets[i]->needs_resubscribe = true;
+            state_unlock();
+        }
+    }
     op_unlock();
 
-    ESP_LOGI(TAG, "Subscribed on %d relays", sent);
+    ESP_LOGI(TAG, "Subscribed on %d of %d relays", sent, count);
     return 0;
 }
 
@@ -763,11 +814,20 @@ static int publish_event(const char *event_json) {
 
     int published = send_to_handles(handles, count, msg, strlen(msg));
 
-    if (published == 0 && any_reconnecting) {
+    // Nothing reached a relay. Buffer for replay rather than silently dropping,
+    // whether the sends failed or every relay is still reconnecting.
+    if (published == 0 && (count > 0 || any_reconnecting)) {
         state_lock();
-        buffer_event_copy(msg);
+        bool buffered = buffer_event_copy(msg);
         state_unlock();
-        ESP_LOGI(TAG, "Buffered event during reconnection");
+        op_unlock();
+        free(msg);
+        if (!buffered) {
+            ESP_LOGE(TAG, "Dropping event: buffer allocation failed");
+            return -1;
+        }
+        ESP_LOGI(TAG, "Buffered event for replay");
+        return 0;
     }
 
     op_unlock();
@@ -999,20 +1059,24 @@ int frost_coordinator_poll(int timeout_ms) {
         }
     }
 
-    // Replay preserves order; anything that fails to reach a relay goes back on
-    // the buffer rather than being dropped.
+    // Replay preserves order: on the first failure the remaining events are put
+    // back untouched, so a later event can never overtake an earlier one.
+    uint8_t replayed = 0;
     for (uint8_t i = 0; i < drained_count; i++) {
         int sent = send_to_handles(connected_handles, connected, drained[i].json, drained[i].len);
-        if (sent > 0) {
-            free(drained[i].json);
-        } else {
+        if (sent == 0) {
             state_lock();
-            buffer_event_take(drained[i].json, drained[i].len);
+            for (uint8_t j = i; j < drained_count; j++)
+                buffer_event_take(drained[j].json, drained[j].len);
             state_unlock();
+            ESP_LOGW(TAG, "Replay stalled; %u events requeued", (unsigned)(drained_count - i));
+            break;
         }
+        free(drained[i].json);
+        replayed++;
     }
-    if (drained_count > 0)
-        ESP_LOGI(TAG, "Replayed %u buffered events", (unsigned)drained_count);
+    if (replayed > 0)
+        ESP_LOGI(TAG, "Replayed %u buffered events", (unsigned)replayed);
 
     op_unlock();
 
