@@ -258,18 +258,73 @@ static int test_se_persistence(void) {
     return 0;
 }
 
-#ifndef MOCK_MBEDTLS
 static int test_pbkdf2_key_derivation(void) {
     TEST("PBKDF2 key derivation completes");
     reset_test_state();
     salt_initialized = false;
+    kdf_version_override = KDF_VERSION_PBKDF2;
 
     uint8_t device_id[6] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
     uint8_t key[32];
 
     int ret = derive_key(device_id, sizeof(device_id), (const uint8_t *)"testpin", 7, key);
+    kdf_version_override = KDF_VERSION_LEGACY;
     if (ret != 0)
         FAIL("PBKDF2 key derivation should succeed");
+
+    PASS();
+    return 0;
+}
+
+// Migration guard: the default (legacy) derivation must stay byte-for-byte
+// identical to the v0.2.0 scheme, or existing devices' shares stop decrypting.
+static int test_legacy_derivation_is_stable(void) {
+    TEST("legacy key derivation matches v0.2.0");
+    reset_test_state();
+    kdf_version_override = KDF_VERSION_LEGACY;
+
+    uint8_t device_id[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+    uint8_t key[32];
+    if (derive_key(device_id, sizeof(device_id), (const uint8_t *)"1234", 4, key) != 0)
+        FAIL("legacy derivation should succeed");
+
+    // Independently recomputed golden vector: HKDF-SHA256(
+    //   salt="keep-esp32-share-storage-v1", ikm=device_id||"1234",
+    //   info="share-encryption-key").
+    uint8_t expected[32];
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                 (const uint8_t *)"keep-esp32-share-storage-v1", 27,
+                 (const uint8_t *)"\x11\x22\x33\x44\x55\x66"
+                                  "1234",
+                 10, (const uint8_t *)"share-encryption-key", 20, expected, 32);
+    if (memcmp(key, expected, 32) != 0)
+        FAIL("legacy key drifted from v0.2.0 derivation");
+
+    PASS();
+    return 0;
+}
+
+// The KDF-version marker must actually switch derivations, so a device on one
+// scheme never silently produces the other's key.
+static int test_kdf_marker_switches_derivation(void) {
+    TEST("KDF marker selects derivation");
+    reset_test_state();
+
+    uint8_t device_id[6] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    uint8_t legacy_key[32], pbkdf2_key[32];
+
+    kdf_version_override = KDF_VERSION_LEGACY;
+    if (derive_key(device_id, sizeof(device_id), (const uint8_t *)"testpin", 7, legacy_key) != 0)
+        FAIL("legacy derivation should succeed");
+
+    salt_initialized = false;
+    kdf_version_override = KDF_VERSION_PBKDF2;
+    if (derive_key(device_id, sizeof(device_id), (const uint8_t *)"testpin", 7, pbkdf2_key) != 0)
+        FAIL("pbkdf2 derivation should succeed");
+    kdf_version_override = KDF_VERSION_LEGACY;
+
+    if (memcmp(legacy_key, pbkdf2_key, 32) == 0)
+        FAIL("legacy and pbkdf2 must produce different keys");
 
     PASS();
     return 0;
@@ -302,7 +357,6 @@ static int test_hmac_tamper_detection(void) {
     PASS();
     return 0;
 }
-#endif
 
 static int test_attempt_overflow_protection(void) {
     TEST("attempt counter overflow protection");
@@ -336,12 +390,10 @@ int main(void) {
     failures += test_max_attempts_getter();
     failures += test_delay_remaining();
     failures += test_se_persistence();
-#ifndef MOCK_MBEDTLS
     failures += test_pbkdf2_key_derivation();
+    failures += test_legacy_derivation_is_stable();
+    failures += test_kdf_marker_switches_derivation();
     failures += test_hmac_tamper_detection();
-#else
-    printf("  SKIPPED: PBKDF2 and HMAC tests (mocked mbedtls)\n");
-#endif
     failures += test_attempt_overflow_protection();
 
     printf("\n");

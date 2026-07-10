@@ -222,12 +222,23 @@ endif()
 
 find_library(MBEDCRYPTO_LIB mbedcrypto)
 if(MBEDCRYPTO_LIB)
-    add_executable(test_pin_attempt_limit test_pin_attempt_limit.c ${MAIN_DIR}/random_utils.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/error_codes.c)
-    target_include_directories(test_pin_attempt_limit PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-        ${MAIN_DIR}
+    # Real mbedtls (SHA-256/HMAC/GCM/HKDF/PBKDF2), NOT the mocks/ stubs, so the
+    # PBKDF2 and HMAC-tamper tests actually exercise crypto. Deliberately avoids
+    # -Imocks (its mbedtls/ stubs would shadow the system headers); crypto_asm
+    # and the pbkdf2 _ext shim are supplied by pin_test_compat.c.
+    add_executable(test_pin_attempt_limit
+        test_pin_attempt_limit.c
+        pin_test_compat.c
+        ${MAIN_DIR}/random_utils.c
+        ${MAIN_DIR}/hw_entropy.c
+        ${MAIN_DIR}/error_codes.c
     )
-    target_compile_definitions(test_pin_attempt_limit PRIVATE NATIVE_TEST=1 UNIT_TEST=1 MOCK_MBEDTLS=1)
+    target_include_directories(test_pin_attempt_limit PRIVATE
+        ${MAIN_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/../../components/crypto_asm/include
+        ${CMAKE_CURRENT_LIST_DIR}/../../components/secure_element/include
+    )
+    target_compile_definitions(test_pin_attempt_limit PRIVATE NATIVE_TEST=1 UNIT_TEST=1)
     target_link_libraries(test_pin_attempt_limit ${MBEDCRYPTO_LIB})
 else()
     message(STATUS "Skipping test_pin_attempt_limit (mbedtls not found)")

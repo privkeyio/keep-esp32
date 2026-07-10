@@ -33,7 +33,7 @@ test:
     for t in test_frost test_session test_storage test_secure_element test_secresult \
              test_integration test_self_test test_hw_entropy test_anti_glitch test_psbt_fraud \
              test_frost_signer_core test_protocol test_integration_full test_psbt_fraud_integration \
-             test_coordinator test_coordinator_race; do
+             test_coordinator test_coordinator_race test_pin_attempt_limit; do
         [ ! -f "./$t" ] || ./$t
     done
 

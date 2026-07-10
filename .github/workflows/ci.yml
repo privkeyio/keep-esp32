@@ -75,7 +75,7 @@ jobs:
 
       - name: Build libwally-core
         run: |
-          sudo apt-get update && sudo apt-get install -y autoconf automake libtool
+          sudo apt-get update && sudo apt-get install -y autoconf automake libtool libmbedtls-dev
           cd libwally-core
           ./tools/autogen.sh
           ./configure --disable-elements --disable-tests
@@ -94,6 +94,7 @@ jobs:
           ./test_secure_element
           [ ! -f ./test_protocol ] || ./test_protocol
           [ ! -f ./test_psbt_fraud_integration ] || ./test_psbt_fraud_integration
+          [ ! -f ./test_pin_attempt_limit ] || ./test_pin_attempt_limit
 
   docs:
     runs-on: ubuntu-latest
