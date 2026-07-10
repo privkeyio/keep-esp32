@@ -29,6 +29,12 @@ ESP32-S3 FROST threshold signing device security documentation.
 
 - Shares encrypted with AES-256-GCM before flash storage
 - Key derived via HKDF-SHA256 from eFuse MAC + optional PIN
+- A software PIN attempt limiter (progressive lockout, device brick after repeated
+  failures) is present but **not production-ready as a brute-force defense**: without
+  a provisioned secure element or eFUSE-backed secret, its counter and keys live in
+  flash the attacker controls, so it is bypassable and the PIN remains offline
+  brute-forceable if flash is extracted. See #141 (hardware root of trust) and
+  #142 (corruption can contribute to bricking).
 - **PIN limitation:** PIN adds entropy but does not protect against offline brute-force
   if flash is extracted (no hardware-enforced rate limiting)
 - Each slot uses unique 12-byte random nonce
@@ -206,8 +212,12 @@ idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.secureboot" b
 ## Known Limitations
 
 - MAC address readable, used in key derivation
-- PIN not rate-limited at hardware level; a weak or short PIN provides no meaningful
-  protection against offline brute-force when flash can be extracted
+- PIN attempt limiting is software-only and not hardware-enforced; its counter can be
+  reset by erasing flash and the PIN is still offline brute-forceable when flash is
+  extracted. It is not production-ready as a brute-force defense until backed by a
+  hardware root of trust.
+- The PIN brick treats any decrypt failure (including flash corruption) as a failed
+  attempt, so storage corruption can contribute to bricking a device
 - Single-threaded, no concurrent request handling
 - Secure boot requires careful key management (key loss = bricked device)
 

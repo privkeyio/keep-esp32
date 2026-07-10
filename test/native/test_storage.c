@@ -133,6 +133,37 @@ static int test_init_no_partition(void) {
     return 0;
 }
 
+static int test_successful_load_resets_pin_attempts(void) {
+    TEST("successful share load records a PIN success");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+
+    if (storage_save_share("grp", "deadbeef") != 0)
+        FAIL("save failed");
+
+    // Simulate a couple of prior mistypes accumulated on this device.
+    storage_crypto_record_attempt(false);
+    storage_crypto_record_attempt(false);
+    if (storage_crypto_get_attempts() != 2)
+        FAIL("precondition: 2 failed attempts");
+
+    char loaded[128];
+    mock_record_success_calls = 0;
+    if (storage_load_share("grp", loaded, sizeof(loaded)) != 0)
+        FAIL("load failed");
+
+    // The good decrypt must be recorded as a success, clearing the counter.
+    // Without it, failed_attempts only ever climbs toward the brick threshold.
+    if (mock_record_success_calls != 1)
+        FAIL("successful load must record a PIN success");
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("success must reset the failed-attempt counter");
+
+    PASS();
+    return 0;
+}
+
 static int test_save_load_roundtrip(void) {
     TEST("save/load roundtrip");
     reset_flash();
@@ -901,6 +932,7 @@ int main(void) {
     failures += test_init();
     failures += test_init_no_partition();
     failures += test_save_load_roundtrip();
+    failures += test_successful_load_resets_pin_attempts();
     failures += test_save_overwrite();
     failures += test_delete();
     failures += test_delete_nonexistent();

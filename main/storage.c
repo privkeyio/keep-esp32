@@ -553,6 +553,9 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
             secure_memzero(&slot, sizeof(slot));
             return STORAGE_ERR_DECRYPT;
         }
+        // A correct GCM tag proves the PIN was right; clear the failure counter
+        // so an occasional mistype never accumulates toward the brick threshold.
+        storage_crypto_record_attempt(true);
         bytes_to_hex(decrypted, actual_len, share_hex, len);
         secure_memzero(decrypted, sizeof(decrypted));
         secure_memzero(&slot, sizeof(slot));

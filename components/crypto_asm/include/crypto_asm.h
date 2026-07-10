@@ -28,6 +28,10 @@ uint32_t ct_select32(uint32_t a, uint32_t b, uint32_t condition);
 void ct_select_bytes(void *out, const void *a, const void *b, size_t len, uint32_t condition);
 void ct_cswap32(uint32_t *a, uint32_t *b, uint32_t condition);
 
+static inline int secure_memcmp(const void *a, const void *b, size_t len) {
+    return ct_compare(a, b, len);
+}
+
 #ifdef __cplusplus
 }
 #endif

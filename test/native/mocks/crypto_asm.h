@@ -23,6 +23,10 @@ static inline int ct_compare(const void *a, const void *b, size_t len) {
     return acc;
 }
 
+static inline int secure_memcmp(const void *a, const void *b, size_t len) {
+    return ct_compare(a, b, len);
+}
+
 static inline int ct_is_zero(const void *ptr, size_t len) {
     const uint8_t *p = ptr;
     uint8_t acc = 0;
