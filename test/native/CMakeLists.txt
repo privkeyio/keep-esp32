@@ -165,3 +165,57 @@ target_include_directories(test_anti_glitch PRIVATE
     ${MAIN_DIR}
 )
 target_compile_definitions(test_anti_glitch PRIVATE NATIVE_TEST=1)
+
+if(EXISTS ${CJSON_DIR}/cJSON.c)
+    add_executable(test_coordinator
+        test_coordinator.c
+        ${MAIN_DIR}/frost_coordinator.c
+        ${MAIN_DIR}/random_utils.c
+        ${MAIN_DIR}/hw_entropy.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/ws_transport_mock.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
+        ${CJSON_DIR}/cJSON.c
+    )
+    target_include_directories(test_coordinator PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${MAIN_DIR}
+        ${CJSON_DIR}
+    )
+    target_compile_definitions(test_coordinator PRIVATE NATIVE_TEST=1)
+    find_package(Threads REQUIRED)
+    target_link_libraries(test_coordinator Threads::Threads)
+else()
+    message(STATUS "Skipping test_coordinator (cJSON not found)")
+endif()
+
+if(EXISTS ${CJSON_DIR}/cJSON.c)
+    add_executable(test_coordinator_race
+        test_coordinator_race.c
+        ${MAIN_DIR}/frost_coordinator.c
+        ${MAIN_DIR}/random_utils.c
+        ${MAIN_DIR}/hw_entropy.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/ws_transport_mock.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
+        ${CJSON_DIR}/cJSON.c
+    )
+    target_include_directories(test_coordinator_race PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${MAIN_DIR}
+        ${CJSON_DIR}
+    )
+    target_compile_definitions(test_coordinator_race PRIVATE NATIVE_TEST=1)
+    set_target_properties(test_coordinator_race PROPERTIES C_STANDARD 11)
+    find_package(Threads REQUIRED)
+    target_link_libraries(test_coordinator_race Threads::Threads)
+
+    include(CheckCCompilerFlag)
+    check_c_compiler_flag(-fsanitize=thread HAVE_TSAN)
+    if(HAVE_TSAN)
+        target_compile_options(test_coordinator_race PRIVATE -fsanitize=thread -g)
+        target_link_options(test_coordinator_race PRIVATE -fsanitize=thread)
+    else()
+        message(STATUS "test_coordinator_race: ThreadSanitizer unavailable")
+    endif()
+endif()
