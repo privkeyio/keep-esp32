@@ -4,6 +4,16 @@
 #ifndef STORAGE_CRYPTO_H
 #define STORAGE_CRYPTO_H
 
+// PIN attempt limiting and key stretching for share storage.
+//
+// Threat-model note: this is a best-effort *online* brute-force limiter. Without
+// a provisioned secure element (or eFUSE-backed secret + secure boot + flash
+// encryption), the attempt counter, its HMAC key, and the storage key all live
+// in flash the attacker controls, so an attacker with flash read/write can reset
+// the counter or brute-force the PIN offline. It is NOT a defense against a
+// physical attacker with flash access. Hardening that requires a hardware root
+// of trust is tracked separately.
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

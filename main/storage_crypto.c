@@ -8,6 +8,7 @@
 #include "secure_element.h"
 #include <mbedtls/gcm.h>
 #include <mbedtls/hkdf.h>
+#include <mbedtls/md.h>
 #include <mbedtls/pkcs5.h>
 #include <mbedtls/sha256.h>
 #include <stdbool.h>
@@ -45,6 +46,12 @@ static uint64_t get_time_ms(void) {
 #define NVS_KEY_BRICKED  "bricked"
 #define NVS_KEY_SALT     "salt"
 #define NVS_KEY_HMAC     "hmac"
+#define NVS_KEY_KDF_VER  "kdfver"
+
+// Storage key derivation scheme. Persisted; absent means legacy (an existing
+// device), so its shares stay decryptable. See [[kdf-version]].
+#define KDF_VERSION_LEGACY 0
+#define KDF_VERSION_PBKDF2 1
 
 #define SE_SLOT_PIN_STATE 0
 #define SE_SLOT_HMAC_KEY  1
@@ -69,6 +76,28 @@ static bool salt_initialized = false;
 static pin_state_t pin_state;
 static bool pin_state_loaded = false;
 static bool se_available = false;
+
+#ifdef UNIT_TEST
+static uint8_t kdf_version_override = KDF_VERSION_LEGACY;
+#endif
+
+// Reads the persisted derivation-scheme marker. Absent (a device provisioned
+// before the marker existed) resolves to legacy so its shares still decrypt.
+static uint8_t get_kdf_version(void) {
+#ifdef UNIT_TEST
+    return kdf_version_override;
+#elif defined(ESP_PLATFORM)
+    uint8_t ver = KDF_VERSION_LEGACY;
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        nvs_get_u8(handle, NVS_KEY_KDF_VER, &ver);
+        nvs_close(handle);
+    }
+    return ver;
+#else
+    return KDF_VERSION_LEGACY;
+#endif
+}
 
 static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]);
 
@@ -149,39 +178,13 @@ static int compute_state_hmac(const pin_state_t *state, uint8_t hmac_out[32]) {
         return -1;
     }
 
-    uint8_t ipad[64], opad[64];
-    uint8_t key_padded[64];
-    memset(key_padded, 0, sizeof(key_padded));
-    memcpy(key_padded, secret_key, HMAC_KEY_SIZE);
+    // Library HMAC-SHA256 (identical output to the previous hand-rolled
+    // ipad/opad, verified) so a crypto failure returns an error instead of a
+    // valid-looking MAC over garbage.
+    int ret = mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), secret_key,
+                              HMAC_KEY_SIZE, (const uint8_t *)state, PIN_STATE_SIZE, hmac_out);
     secure_memzero(secret_key, sizeof(secret_key));
-
-    for (int i = 0; i < 64; i++) {
-        ipad[i] = key_padded[i] ^ 0x36;
-        opad[i] = key_padded[i] ^ 0x5c;
-    }
-
-    mbedtls_sha256_context ctx;
-    uint8_t inner_hash[32];
-
-    mbedtls_sha256_init(&ctx);
-    mbedtls_sha256_starts(&ctx, 0);
-    mbedtls_sha256_update(&ctx, ipad, 64);
-    mbedtls_sha256_update(&ctx, (const uint8_t *)state, PIN_STATE_SIZE);
-    mbedtls_sha256_finish(&ctx, inner_hash);
-    mbedtls_sha256_free(&ctx);
-
-    mbedtls_sha256_init(&ctx);
-    mbedtls_sha256_starts(&ctx, 0);
-    mbedtls_sha256_update(&ctx, opad, 64);
-    mbedtls_sha256_update(&ctx, inner_hash, 32);
-    mbedtls_sha256_finish(&ctx, hmac_out);
-    mbedtls_sha256_free(&ctx);
-
-    secure_memzero(ipad, sizeof(ipad));
-    secure_memzero(opad, sizeof(opad));
-    secure_memzero(key_padded, sizeof(key_padded));
-    secure_memzero(inner_hash, sizeof(inner_hash));
-    return 0;
+    return (ret == 0) ? 0 : -1;
 }
 
 static void load_pin_state(void) {
@@ -335,12 +338,30 @@ static int init_or_load_salt(void) {
 
 static const uint8_t HKDF_INFO[] = "share-encryption-key";
 
-static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint8_t *pin,
-                      size_t pin_len, uint8_t *key_out) {
-    if (device_id_len > DEVICE_ID_SIZE || !pin || pin_len == 0) {
-        return -1;
-    }
+// Legacy (v0.2.0) key derivation. Kept byte-for-byte so shares written before
+// PBKDF2 was introduced still decrypt. See derive_key() and [[kdf-version]].
+static const uint8_t HKDF_SALT[] = "keep-esp32-share-storage-v1";
 
+static int derive_key_legacy(const uint8_t *device_id, size_t device_id_len, const uint8_t *pin,
+                             size_t pin_len, uint8_t *key_out) {
+    uint8_t ikm[DEVICE_ID_SIZE + STORAGE_CRYPTO_MAX_PIN_LEN];
+    size_t ikm_len = device_id_len;
+    memcpy(ikm, device_id, device_id_len);
+    if (pin && pin_len > 0) {
+        size_t copy_len =
+            pin_len < STORAGE_CRYPTO_MAX_PIN_LEN ? pin_len : STORAGE_CRYPTO_MAX_PIN_LEN;
+        memcpy(ikm + device_id_len, pin, copy_len);
+        ikm_len += copy_len;
+    }
+    int ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), HKDF_SALT,
+                           sizeof(HKDF_SALT) - 1, ikm, ikm_len, HKDF_INFO, sizeof(HKDF_INFO) - 1,
+                           key_out, STORAGE_CRYPTO_KEY_SIZE);
+    secure_memzero(ikm, sizeof(ikm));
+    return (ret == 0) ? 0 : -1;
+}
+
+static int derive_key_pbkdf2(const uint8_t *device_id, size_t device_id_len, const uint8_t *pin,
+                             size_t pin_len, uint8_t *key_out) {
     if (init_or_load_salt() != 0) {
         return -1;
     }
@@ -351,8 +372,8 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
 
     uint8_t stretched[32];
     int ret = mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, pin, pin_len, pbkdf2_salt,
-                                            sizeof(pbkdf2_salt), PIN_PBKDF2_ITERATIONS,
-                                            sizeof(stretched), stretched);
+                                            PIN_PBKDF2_SALT_LEN + device_id_len,
+                                            PIN_PBKDF2_ITERATIONS, sizeof(stretched), stretched);
     secure_memzero(pbkdf2_salt, sizeof(pbkdf2_salt));
 
     if (ret != 0) {
@@ -366,6 +387,21 @@ static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint
     secure_memzero(stretched, sizeof(stretched));
 
     return (ret == 0) ? 0 : -1;
+}
+
+// [[kdf-version]] The active derivation is chosen by a persisted marker, default
+// legacy so existing devices keep decrypting. PBKDF2 is staged but not yet
+// activated at provisioning time (tracked separately); until then every device
+// derives the proven legacy key.
+static int derive_key(const uint8_t *device_id, size_t device_id_len, const uint8_t *pin,
+                      size_t pin_len, uint8_t *key_out) {
+    if (device_id_len > DEVICE_ID_SIZE || !pin || pin_len == 0) {
+        return -1;
+    }
+    if (get_kdf_version() == KDF_VERSION_PBKDF2) {
+        return derive_key_pbkdf2(device_id, device_id_len, pin, pin_len, key_out);
+    }
+    return derive_key_legacy(device_id, device_id_len, pin, pin_len, key_out);
 }
 
 static uint32_t get_delay_ms(uint8_t attempts) {

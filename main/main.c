@@ -77,6 +77,11 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     int ret = storage_crypto_init(req->pin);
+    if (ret == ERR_PIN_BRICKED) {
+        PROTOCOL_ERROR(resp, req->id, ERR_PIN_BRICKED,
+                       "Device bricked after too many PIN attempts");
+        return;
+    }
     if (ret == ERR_PIN_LOCKED) {
         PROTOCOL_ERROR(resp, req->id, ERR_PIN_LOCKED, "Device locked");
         return;
