@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: keep-esp32
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/secp256k1-frost
           # Pinned by commit, not branch: a branch ref means anyone with push
@@ -23,19 +23,19 @@ jobs:
           ref: 746dbbea5c34dde963c9bd55bc7474b2d50fa597
           path: secp256k1-frost
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/libnostr-c
           ref: 205aaf5ae849d6408dab41ca5be2abfc24801ad9 # main, post-v0.2.0 (ESP RNG fix)
           path: libnostr-c
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/noscrypt
           ref: 45fcbef32f958145d6797f384a225c0d43616886
           path: noscrypt
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ElementsProject/libwally-core
           ref: 0c41f38fb1c201786e9c3ac9eae4f5f80c051399 # release_1.5.6
@@ -83,11 +83,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: keep-esp32
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/secp256k1-frost
           # Pinned by commit, not branch: a branch ref means anyone with push
@@ -95,7 +95,7 @@ jobs:
           ref: 746dbbea5c34dde963c9bd55bc7474b2d50fa597
           path: secp256k1-frost
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ElementsProject/libwally-core
           ref: 0c41f38fb1c201786e9c3ac9eae4f5f80c051399 # release_1.5.6
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Doxygen
         run: sudo apt-get update && sudo apt-get install -y doxygen
@@ -145,7 +145,7 @@ jobs:
         run: doxygen Doxyfile
 
       - name: Upload docs artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docs
           path: docs/html
