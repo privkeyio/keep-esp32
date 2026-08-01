@@ -33,6 +33,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # This job checks out a PR branch and then EXECUTES a script from it.
+          # actions/checkout persists GITHUB_TOKEN into .git/config by default,
+          # which would leave it readable by PR-authored code. Nothing here needs
+          # git credentials.
+          persist-credentials: false
       - run: ./scripts/check-dependency-pins.sh
 
   drift:
@@ -42,4 +48,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # This job checks out a PR branch and then EXECUTES a script from it.
+          # actions/checkout persists GITHUB_TOKEN into .git/config by default,
+          # which would leave it readable by PR-authored code. Nothing here needs
+          # git credentials.
+          persist-credentials: false
       - run: ./scripts/check-dependency-pins.sh --strict

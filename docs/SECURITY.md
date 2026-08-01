@@ -26,7 +26,7 @@ $ keep-esp32-rpc get_status
 ```
 
 - `rng_entropy_source` **absent** — pre-fix firmware. The RNG ran without a continuous entropy source.
-- `rng_entropy_source: false` — fixed firmware, but the SAR ADC entropy path did not come up. Do not provision; the boot log carries `Entropy source did not come up`.
+- `rng_entropy_source: false` — fixed firmware, but the SAR ADC entropy path did not come up. Do not provision. The boot log carries both `Entropy source did not come up; RNG output is pseudo-random only` (from `hw_entropy_init`) and `Hardware entropy source not running; RNG output is pseudo-random only` (from `rng_init`); grep for `pseudo-random`, which appears in each.
 - `rng_entropy_source: true` — the entropy source is running.
 
 Note that `rng_healthy`, `self_test_ok` and `rng_failed_checks` stay green in all three cases. They are statistical checks, and a seeded PRNG passes statistical checks; that is the whole reason `rng_entropy_source` exists. This was confirmed on hardware in both directions.
