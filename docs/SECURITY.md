@@ -16,6 +16,21 @@ Key material goes through `rng_fill_checked()`, which draws from `hw_entropy_fil
 
 Nothing in this firmware may enable Wi-Fi, Bluetooth, I2S, the ADC driver, or light/deep sleep without first resolving the conflict with the entropy source: they all take back the SAR ADC or the RTC state it configures. `scripts/check-rng-hygiene.sh` rejects each of them, along with a missing, duplicated, compiled-out, or relocated `bootloader_random_enable()`, any `bootloader_random_disable()`, raw HWRNG draws outside the entropy module, and libc `rand()`. Its limits are stated in its header; most importantly it is a grep, it sees only this repo and not the sibling component checkouts, and it cannot confirm the SAR ADC is producing noise on real silicon.
 
+### Telling a fixed device from a vulnerable one
+
+Every release up to and including v0.2.0 shipped without the entropy source enabled. The firmware version alone does not distinguish them: builds from `main` between the v0.2.0 tag and the fix also report `0.2.0`. Use the RPC field, which only exists on fixed firmware:
+
+```console
+$ keep-esp32-rpc get_status
+{"version":"0.2.1","rng_healthy":true,"rng_entropy_source":true, ...}
+```
+
+- `rng_entropy_source` **absent** — pre-fix firmware. The RNG ran without a continuous entropy source.
+- `rng_entropy_source: false` — fixed firmware, but the SAR ADC entropy path did not come up. Do not provision; the boot log carries `Entropy source did not come up`.
+- `rng_entropy_source: true` — the entropy source is running.
+
+Note that `rng_healthy`, `self_test_ok` and `rng_failed_checks` stay green in all three cases. They are statistical checks, and a seeded PRNG passes statistical checks; that is the whole reason `rng_entropy_source` exists. This was confirmed on hardware in both directions.
+
 **Devices provisioned before this change.** Firmware built before the entropy source was enabled generated its storage HMAC key, PIN salt, and any on-device FROST share from an RNG that Espressif does not guarantee to be a true RNG. That material is not rotated by a firmware update. Anyone holding such a device should re-provision it rather than assume the update fixed key material already on flash.
 
 ## Threshold Signing
