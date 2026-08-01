@@ -59,7 +59,7 @@
 # Run from anywhere. Exits non-zero with the offending lines.
 
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 status=0
 fail() { printf '\n\033[31mFAIL\033[0m %s\n' "$1"; status=1; }
@@ -75,8 +75,12 @@ ENTROPY_INIT='hw_entropy_init'
 # rule someone bypasses by adding a .cpp.
 list_sources() {
   git ls-files '*.c' '*.h' '*.cpp' '*.hpp' '*.cc' \
-    | grep -vE '^(test|fuzz)/' \
-    || true
+    | grep -vE '^(test|fuzz)/'
+}
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  printf '\n\033[31mFAIL\033[0m not inside a git work tree; this guard scans tracked files only\n'
+  exit 1
 }
 
 # Emit "file:line:code" for every live code line, with comments stripped,
@@ -86,10 +90,10 @@ list_sources() {
 # Written as one POSIX awk pass per file so it runs the same under gawk on CI
 # and BSD awk on a developer's macOS. No gawk extensions, no `xargs -r`.
 preprocess() {
-  local f
-  list_sources | while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    awk -v fname="$f" -v optout="$OPT_OUT" '
+  local f rc out
+  rc=0
+  for f in $(list_sources); do
+    out=$(awk -v fname="$f" -v optout="$OPT_OUT" '
       function strip(s,   out, i, c, d, n) {
         # Walk the line tracking block-comment and string state. Comment text is
         # collected in cmt so the opt-out marker can still be seen; code text is
@@ -135,11 +139,17 @@ preprocess() {
         blockopt = 0; cmt = ""
         printf "%s:%d:%s\n", fname, FNR, code
       }
-    ' "$f"
+    ' "$f") || rc=2
+    [ -n "$out" ] && printf '%s\n' "$out"
   done
+  return "$rc"
 }
 
-CODE=$(preprocess)
+# Fails CLOSED: a broken awk or an empty file list is a failure, never a pass.
+CODE=$(preprocess) || {
+  printf '\n\033[31mFAIL\033[0m the scanner itself failed; refusing to report a clean tree\n'
+  exit 1
+}
 if [ -z "$CODE" ]; then
   fail "no source lines to scan; the preprocessor or the file list is broken"
   echo "  → a guard that finds nothing must not report success"
@@ -163,7 +173,13 @@ scan() { # $1 = ERE, matched against code text only
 enable_sites=$(scan 'bootloader_random_enable')
 enable_in_init=$(
   awk -v mod="$ENTROPY_MODULE" -v fn="$ENTROPY_INIT" '
-    function count(s, ch,   n, t) { t = s; n = gsub(ch, ch, t); return n }
+    function count(s, ch,   i, n) {
+      # Literal character count: gsub()/split() would treat ch as a regex,
+      # and "(" alone is not a valid one -- BSD awk aborts on it.
+      n = 0
+      for (i = length(s); i > 0; i--) if (substr(s, i, 1) == ch) n++
+      return n
+    }
     BEGIN { FS = ":" ; depth = 0; inside = 0; found = 0 }
     {
       file = $1; lineno = $2
@@ -204,7 +220,7 @@ fi
 # address (`fn = esp_random;`) reach the same generator. getrandom()/getentropy()
 # are included because ESP-IDF implements both on top of esp_fill_random.
 raw_bad=$(
-  scan 'esp_random|esp_fill_random|(^|[^a-zA-Z0-9_])(getrandom|getentropy)[ \t]*\(' \
+  scan 'esp_random|esp_fill_random|(^|[^a-zA-Z0-9_])(getrandom|getentropy)[ \t]*[(]' \
     | grep -vF "$ENTROPY_MODULE:" \
     || true
 )
@@ -216,7 +232,7 @@ if [ -n "$raw_bad" ]; then
 fi
 
 # ------------------------------------------------- 4. no libc seeded PRNG ----
-libc_bad=$(scan '(^|[^a-zA-Z0-9_])(rand|random|srand|srandom|rand_r|random_r|lrand48|drand48)[ \t]*\(')
+libc_bad=$(scan '(^|[^a-zA-Z0-9_])(rand|random|srand|srandom|rand_r|random_r|lrand48|drand48)[ \t]*[(]')
 if [ -n "$libc_bad" ]; then
   fail "libc seeded PRNG in firmware code:"
   printf '%s\n' "$libc_bad" | sed 's/^/  /'
