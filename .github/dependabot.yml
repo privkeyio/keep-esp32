@@ -1,0 +1,27 @@
+# Matches the weekly/grouped shape used by keep and keep-android.
+#
+# Note what this can and cannot see. Dependabot understands `uses:` in workflows
+# and `FROM` in Dockerfiles. It has NO ecosystem for the four upstream C
+# dependencies this firmware actually builds against: those are `git clone` in a
+# RUN step in Dockerfile.reproducible plus `ref:` values passed to
+# actions/checkout. They were invisible to dependabot while libwally-core sat
+# five security releases behind. scripts/check-dependency-pins.sh covers that
+# gap; this file covers the rest.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+
+  # The ESP-IDF base image in Dockerfile.reproducible. It is digest-pinned, which
+  # is correct for reproducibility and also means it will never float on its own.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
