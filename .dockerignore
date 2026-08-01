@@ -1,0 +1,13 @@
+# The reproducible build must not depend on the host working tree. Without this,
+# `docker build .` copies whatever is lying around into the context: a local
+# build/ directory makes the image build fail outright with
+#   Directory '/build/keep-esp32/build' doesn't seem to be a CMake build directory
+# and anything else stray would silently become a build input.
+build/
+output/
+managed_components/
+sdkconfig.old
+test/native/build/
+fuzz/build/
+.git/
+.beads/
