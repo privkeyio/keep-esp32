@@ -1,6 +1,11 @@
 build/
 managed_components/
-dependencies.lock
+# dependencies.lock is TRACKED on purpose. main/idf_component.yml constrains the
+# ESP-IDF managed components by caret range (^1.7.18, ^3.0.2, ...), so without the
+# lockfile a clean build re-resolves them from the registry and two builds on
+# different days can differ. Dockerfile.reproducible pins the four git
+# dependencies by commit; this pins the rest. Regenerate with `idf.py reconfigure`
+# and commit the result when a component is intentionally bumped.
 sdkconfig
 sdkconfig.old
 *.pyc
