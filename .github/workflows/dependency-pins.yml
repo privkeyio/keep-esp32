@@ -1,0 +1,45 @@
+name: Dependency Pins
+
+# Two jobs with different strictness, on purpose.
+#
+# On a PR the check is advisory about freshness: an upstream release landing
+# mid-review should not turn an unrelated change red. It still HARD-FAILS if the
+# pins disagree between Dockerfile.reproducible and the workflows, or if any of
+# them is a branch or tag rather than a commit, because those are defects in the
+# diff under review.
+#
+# The scheduled run uses --strict, so upstream drift surfaces as its own failure
+# on a known day rather than never. See scripts/check-dependency-pins.sh for why
+# dependabot does not cover these dependencies.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays, a few hours after the dependabot window so the two do not collide.
+    - cron: "0 9 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  agreement:
+    name: Pins agree and are commits
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-dependency-pins.sh
+
+  drift:
+    name: Pins are current with upstream
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-dependency-pins.sh --strict
