@@ -41,11 +41,40 @@ jobs:
           ref: 0c41f38fb1c201786e9c3ac9eae4f5f80c051399 # release_1.5.6
           path: libwally-core
 
+      - name: Record the component lock hash before building
+        id: lockhash
+        working-directory: keep-esp32
+        run: echo "sha=$(sha256sum dependencies.lock | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.4.1
           target: esp32s3
           path: keep-esp32
+
+      # dependencies.lock is tracked so the managed-component set is pinned, but
+      # main/idf_component.yml uses caret ranges. The component manager happily
+      # re-resolves within those ranges and rewrites the lock mid-build, which
+      # would otherwise ship a different transitive set than the one committed
+      # and leave no signal that it happened.
+      #
+      # Compared by hash rather than `git diff`: the IDF action builds in a
+      # container as root, so the checkout can end up owned by another uid and
+      # git would abort with "dubious ownership" instead of comparing.
+      - name: Fail if the build re-resolved the component lock
+        working-directory: keep-esp32
+        env:
+          BEFORE: ${{ steps.lockhash.outputs.sha }}
+        run: |
+          after=$(sha256sum dependencies.lock | cut -d' ' -f1)
+          if [ "$after" != "$BEFORE" ]; then
+            echo "::error::dependencies.lock was rewritten by the build; the committed component set is not what was built." >&2
+            echo "  before: $BEFORE" >&2
+            echo "  after:  $after" >&2
+            echo "Commit the updated lock deliberately, or tighten the ranges in main/idf_component.yml." >&2
+            exit 1
+          fi
+          echo "dependencies.lock unchanged ($after): built the committed component set."
 
   native-tests:
     runs-on: ubuntu-latest
