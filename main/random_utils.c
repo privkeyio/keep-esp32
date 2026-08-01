@@ -96,14 +96,18 @@ int rng_init(void) {
     }
 
     /*
-     * The statistical self-test below cannot tell a seeded PRNG from a true
-     * RNG -- a PRNG passes it every time, which is exactly why a degraded
-     * entropy source stays invisible. Check the source is actually running
-     * before trusting any amount of test output.
+     * The statistical self-test below cannot tell a seeded PRNG from a true RNG
+     * -- a PRNG passes it every time, which is exactly why a degraded entropy
+     * source stays invisible. So check the peripheral state, which is the only
+     * thing that actually distinguishes them.
+     *
+     * Logged, not fatal. rng_init() failing restarts the device (main.c), and a
+     * readback that is wrong about live silicon would turn that into a boot
+     * loop; this readback has not been confirmed on hardware. The verdict is
+     * reported over get_status so a host can refuse to provision instead.
      */
-    if (!hw_entropy_source_enabled()) {
-        RNG_LOG_ERROR("Hardware entropy source not enabled; RNG would be pseudo-random only");
-        return -1;
+    if (!hw_entropy_source_verified()) {
+        RNG_LOG_ERROR("Hardware entropy source not running; RNG output is pseudo-random only");
     }
 
     uint8_t test_buf[RNG_SELF_TEST_SIZE];
@@ -132,7 +136,7 @@ void rng_get_health(rng_health_stats_t *stats) {
     if (stats) {
         *stats = g_rng_stats;
         stats->debiasing_failures = hw_entropy_get_debiasing_failures();
-        stats->entropy_source_enabled = hw_entropy_source_enabled();
+        stats->entropy_source_verified = hw_entropy_source_verified();
     }
 }
 

@@ -73,7 +73,7 @@ void rng_get_health(rng_health_stats_t *stats) {
         stats->failed_checks = 0;
         stats->retries = 0;
         stats->healthy = !mock_rng_fails;
-        stats->entropy_source_enabled = !mock_rng_fails;
+        stats->entropy_source_verified = !mock_rng_fails;
     }
 }
 

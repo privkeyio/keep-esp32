@@ -56,9 +56,12 @@ target_include_directories(test_secure_element PRIVATE
 target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1 SE_MOCK_SKIP_IMPL=1)
 
 add_executable(test_frost_signer_core test_frost_signer_core.c ${MAIN_DIR}/frost_signer_core.c ${MAIN_DIR}/frost.c ${MAIN_DIR}/random_utils.c ${MAIN_DIR}/hw_entropy.c)
+# main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
+# TUs that include it from test/native/, and its static inline rng_* bind ahead of
+# the random_utils.c compiled into the same target.
 target_include_directories(test_frost_signer_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     ${MAIN_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     ${SECP_DIR}/include
 )
 target_link_directories(test_frost_signer_core PRIVATE ${SECP_DIR}/build/src)
@@ -181,10 +184,13 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
         ${CJSON_DIR}/cJSON.c
     )
-    target_include_directories(test_coordinator PRIVATE
+        # main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
+    # TUs that include it from test/native/, and its static inline rng_* bind ahead of
+    # the random_utils.c compiled into the same target.
+target_include_directories(test_coordinator PRIVATE
+        ${MAIN_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${MAIN_DIR}
         ${CJSON_DIR}
     )
     target_compile_definitions(test_coordinator PRIVATE NATIVE_TEST=1)
@@ -204,10 +210,13 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
         ${CJSON_DIR}/cJSON.c
     )
-    target_include_directories(test_coordinator_race PRIVATE
+        # main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
+    # TUs that include it from test/native/, and its static inline rng_* bind ahead of
+    # the random_utils.c compiled into the same target.
+target_include_directories(test_coordinator_race PRIVATE
+        ${MAIN_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${MAIN_DIR}
         ${CJSON_DIR}
     )
     target_compile_definitions(test_coordinator_race PRIVATE NATIVE_TEST=1)

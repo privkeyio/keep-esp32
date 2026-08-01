@@ -22,12 +22,16 @@
 
 static int test_hw_entropy_init(void) {
     TEST("hw_entropy_init");
-    if (hw_entropy_source_enabled())
-        FAIL("entropy source reported enabled before init");
+    if (hw_entropy_initialized())
+        FAIL("reported initialized before init");
+    if (hw_entropy_source_verified())
+        FAIL("entropy source reported verified before init");
     if (hw_entropy_init() != 0)
         FAIL("init failed");
-    if (!hw_entropy_source_enabled())
-        FAIL("entropy source not reported enabled after init");
+    if (!hw_entropy_initialized())
+        FAIL("not reported initialized after init");
+    if (!hw_entropy_source_verified())
+        FAIL("entropy source not reported verified after init");
     PASS();
     return 0;
 }
@@ -106,7 +110,7 @@ static int test_health_stats_counters(void) {
     rng_health_stats_t stats;
     rng_get_health(&stats);
     (void)stats.debiasing_failures;
-    if (!stats.entropy_source_enabled)
+    if (!stats.entropy_source_verified)
         FAIL("health stats report no entropy source after rng_init");
     PASS();
     return 0;

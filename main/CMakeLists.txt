@@ -8,11 +8,11 @@ set(SRCS
 )
 
 set(REQUIRES
-    esp_partition driver esp_driver_usb_serial_jtag esp_driver_uart esp_driver_gpio bootloader_support mbedtls crypto_asm libnostr-c noscrypt secure_element
+    esp_partition driver esp_driver_usb_serial_jtag esp_driver_uart esp_driver_gpio mbedtls crypto_asm libnostr-c noscrypt secure_element
 )
 
 set(PRIV_REQUIRES
-    secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core nvs_flash
+    bootloader_support secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core nvs_flash
 )
 
 if(CONFIG_KEEP_DISPLAY_ENABLED)

@@ -20,11 +20,21 @@ int hw_entropy_init(void);
 int hw_entropy_fill(uint8_t *buf, size_t len);
 
 /*
- * Whether the hardware entropy source backing esp_random() is running.
- * False means every RNG draw on this device is pseudo-random only; callers
- * must refuse to produce key material rather than continue quietly.
+ * Whether hw_entropy_init() has run. Gates hw_entropy_fill(): drawing before
+ * init means drawing with the entropy source still off.
  */
-bool hw_entropy_source_enabled(void);
+bool hw_entropy_initialized(void);
+
+/*
+ * Whether the peripheral state that carries entropy into the hardware RNG is
+ * actually switched on, read back from the SAR ADC and RNG clock registers
+ * rather than inferred from having called the enable function. False means
+ * every draw on this device is pseudo-random only.
+ *
+ * A state check, not a noise measurement: it says the path is open, not that
+ * the ADC is producing entropy.
+ */
+bool hw_entropy_source_verified(void);
 
 void hw_entropy_add_debiasing_failure(void);
 uint32_t hw_entropy_get_debiasing_failures(void);

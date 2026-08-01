@@ -17,28 +17,44 @@
 #      bootloader_random_enable(). The second-stage bootloader turns the SAR ADC
 #      source on and back off before the app starts, so an app that never
 #      re-enables it draws pseudo-random bytes for its entire life, with nothing
-#      failing or logging. Rules 1 and 2 pin the enable and ban the disable.
-#   2. esp_random()/esp_fill_random() return void or a value; there is no error
-#      to discard, so the only defence is that key material goes through
-#      rng_fill_checked(). Rule 3 keeps raw draws confined to the entropy module.
-#   3. libc rand()/random() is a seeded PRNG. Rule 4 bans it on the device.
+#      failing or logging. Rule 1 pins the enable to the body of
+#      hw_entropy_init(), and rule 2 bans the disable.
+#   2. Anything that takes the SAR ADC away again: the ADC driver, RF, I2S, or
+#      sleep. Rule 5 bans them, because the enable surviving is worth as much as
+#      the enable existing.
+#   3. esp_random()/esp_fill_random()/getrandom() return void or a value; there
+#      is no error to discard, so the only defence is that key material goes
+#      through rng_fill_checked(). Rule 3 keeps raw draws in the entropy module.
+#   4. libc rand()/random() is a seeded PRNG. Rule 4 bans it on the device.
 #
 # Deliberate non-crypto randomness (glitch-defence delays, host-only test
-# fallbacks) is allowed with an inline opt-out on the same line or the line
-# above:
+# fallbacks) is allowed with an inline opt-out on the same line, or anywhere in
+# the comment block directly above:
 #
 #     r = esp_random();   // rng-hygiene: ok - delay length, not key material
 #
-# Scope: TRACKED files only (git ls-files), so build output under build/ and
+# Lines are preprocessed before any rule sees them: // and /* */ comments are
+# stripped with real state tracking, string literals are blanked, and #if 0 /
+# #ifdef of an unset symbol regions are dropped. Without that, `*out =
+# esp_random();` reads as a comment (leading `*`), a rule-name mentioned in
+# prose reads as a violation, and a call parked inside `#if 0` reads as live.
+# All three were live bypasses in an earlier version of this script.
+#
+# Scope: TRACKED files only (git ls-files), so build output and
 # managed_components/ can never trip a rule or hide one. Sources under test/ and
 # fuzz/ are excluded -- fixtures are deterministic on purpose.
 #
 # What this does NOT cover, stated so nobody reads a green run as more than it
-# is: it is a grep. It catches the shape, not the intent. It cannot tell whether
-# a checked draw is used correctly once generated, it does not see into
-# managed_components/ or the sibling component repos (libnostr-c, noscrypt,
-# secp256k1-frost, libwally-core), and it cannot prove the SAR ADC is physically
-# producing noise on real silicon. Those stay review and bench questions.
+# is:
+#   - It is a grep. It catches shapes, not intent, and cannot tell whether a
+#     checked draw is used correctly once generated.
+#   - It sees only this repo. The sibling component checkouts (libnostr-c,
+#     noscrypt, secp256k1-frost, libwally-core) and managed_components/ are
+#     invisible to it, and libnostr-c does draw from esp_fill_random directly.
+#   - Rule 1 proves the call is present and live in the source. It cannot prove
+#     the SAR ADC is producing noise on real silicon. The device reports its own
+#     register readback as `rng_entropy_source` over get_status; that is the
+#     runtime half of this check, and it is also only a state check.
 #
 # Run from anywhere. Exits non-zero with the offending lines.
 
@@ -49,9 +65,10 @@ status=0
 fail() { printf '\n\033[31mFAIL\033[0m %s\n' "$1"; status=1; }
 
 OPT_OUT='rng-hygiene: ok'
-# The one module allowed to draw from esp_random()/esp_fill_random() directly:
-# it owns the entropy source and whitens its output.
+# The one module allowed to draw from the HWRNG directly and the one function
+# allowed to switch the entropy source on.
 ENTROPY_MODULE='main/hw_entropy.c'
+ENTROPY_INIT='hw_entropy_init'
 
 # Tracked C sources, minus test and fuzz trees. Extensions the repo does not use
 # today are listed anyway: a rule that only covers the files that exist now is a
@@ -62,51 +79,119 @@ list_sources() {
     || true
 }
 
-# Emit "file:line:text" for lines matching $1, dropping comment lines (prose
-# about a rule must not trip the rule) and lines carrying the opt-out marker.
-# The marker also covers the first code line after the comment block it appears
-# in, so a multi-line justification above a call works -- a one-line-lookback
-# would silently stop honouring the marker as soon as someone added a second
-# sentence, which is the wrong failure direction for an opt-out.
-scan() { # $1 = ERE
-  local files
-  files=$(list_sources)
-  [ -z "$files" ] && return 0
-  printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 -r awk -v pat="$1" -v optout="$OPT_OUT" '
-    FNR==1 { blockopt = 0 }
-    {
-      line = $0
-      sub(/^[[:space:]]*/, "", line)
-      if (line ~ /^(\/\/|\*|\/\*)/) {
-        if (index($0, optout)) blockopt = 1
-        next
+# Emit "file:line:code" for every live code line, with comments stripped,
+# string literals blanked, #if 0 regions dropped, and opt-out lines removed.
+# Rules then match plain text against real code only.
+#
+# Written as one POSIX awk pass per file so it runs the same under gawk on CI
+# and BSD awk on a developer's macOS. No gawk extensions, no `xargs -r`.
+preprocess() {
+  local f
+  list_sources | while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    awk -v fname="$f" -v optout="$OPT_OUT" '
+      function strip(s,   out, i, c, d, n) {
+        # Walk the line tracking block-comment and string state. Comment text is
+        # collected in cmt so the opt-out marker can still be seen; code text is
+        # returned with strings blanked.
+        out = ""; cmt = ""; n = length(s)
+        for (i = 1; i <= n; i++) {
+          c = substr(s, i, 1); d = substr(s, i, 2)
+          if (inblock) { if (d == "*/") { inblock = 0; i++ } else cmt = cmt c; continue }
+          if (instr)   { if (c == "\\") { i++; continue }
+                         if (c == quote) { instr = 0; out = out "\"\"" }
+                         continue }
+          if (d == "/*") { inblock = 1; i++; continue }
+          if (d == "//") { cmt = cmt substr(s, i + 2); break }
+          if (c == "\"" || c == "'"'"'") { instr = 1; quote = c; continue }
+          out = out c
+        }
+        return out
       }
-      if (line ~ /^#[[:space:]]*include/) next
-      if (index($0, optout) || blockopt) { blockopt = 0; next }
-      # Match against code with string literals blanked, so a log message that
-      # says "pseudo-random" is not itself a finding. Report the original line.
-      code = $0
-      gsub(/"[^"]*"/, "\"\"", code)
-      if (code ~ pat) printf "%s:%d:%s\n", FILENAME, FNR, $0
-      blockopt = 0
-    }
-  ' 2>/dev/null || true
+      function trim(s) { sub(/^[ \t]*/, "", s); sub(/[ \t]*$/, "", s); return s }
+
+      BEGIN { inblock = 0; instr = 0; skip = 0; blockopt = 0 }
+      {
+        code = trim(strip($0))
+
+        # A comment block carrying the marker covers the next code line, however
+        # many comment or blank lines sit between.
+        if (code == "") { if (index(cmt, optout)) blockopt = 1; next }
+
+        # #if 0 / #if 0-equivalent regions are not live code. Nesting is tracked
+        # so an inner #if inside a dead region does not end it early.
+        if (code ~ /^#[ \t]*if/) {
+          if (skip > 0) { skip++; next }
+          if (code ~ /^#[ \t]*if[ \t]+0([^0-9]|$)/) { skip = 1; next }
+          next
+        }
+        if (skip > 0) {
+          if (code ~ /^#[ \t]*endif/) skip--
+          next
+        }
+        if (code ~ /^#[ \t]*(endif|else|elif)/) next
+
+        if (index(cmt, optout) || blockopt) { blockopt = 0; cmt = ""; next }
+        blockopt = 0; cmt = ""
+        printf "%s:%d:%s\n", fname, FNR, code
+      }
+    ' "$f"
+  done
+}
+
+CODE=$(preprocess)
+if [ -z "$CODE" ]; then
+  fail "no source lines to scan; the preprocessor or the file list is broken"
+  echo "  → a guard that finds nothing must not report success"
+  exit 1
+fi
+
+scan() { # $1 = ERE, matched against code text only
+  printf '%s\n' "$CODE" | awk -F: -v pat="$1" '{
+    line = $0; sub(/^[^:]*:[0-9]+:/, "", line)
+    if (line ~ pat) print $0
+  }'
 }
 
 # ------------------------------------------ 1. entropy source is enabled ----
 # The single most important line in this repo. Without it every esp_random()
 # draw on an air-gapped S3 is pseudo-random only, and nothing says so.
-enable_sites=$(list_sources | tr '\n' '\0' | xargs -0 -r grep -nHE 'bootloader_random_enable[[:space:]]*\(' 2>/dev/null | grep -vE ':[[:space:]]*(\*|//)' || true)
-enable_count=$(printf '%s' "$enable_sites" | grep -c . || true)
-if [ "$enable_count" -ne 1 ]; then
-  fail "expected exactly one bootloader_random_enable() call, found $enable_count:"
+#
+# Pinned to the body of hw_entropy_init() in the entropy module, not merely
+# "present somewhere". A call sitting in a function nobody invokes satisfies a
+# bare count while changing nothing, which is the COLDCARD defect one level up.
+enable_sites=$(scan 'bootloader_random_enable')
+enable_in_init=$(
+  awk -v mod="$ENTROPY_MODULE" -v fn="$ENTROPY_INIT" '
+    function count(s, ch,   n, t) { t = s; n = gsub(ch, ch, t); return n }
+    BEGIN { FS = ":" ; depth = 0; inside = 0; found = 0 }
+    {
+      file = $1; lineno = $2
+      code = $0; sub(/^[^:]*:[0-9]+:/, "", code)
+      if (file != mod) next
+      if (!inside && code ~ ("(^|[^a-zA-Z0-9_])" fn "[ \t]*\\(")) { inside = 1; depth = 0 }
+      if (inside) {
+        depth += count(code, "{") - count(code, "}")
+        if (code ~ /bootloader_random_enable/) found++
+        if (depth <= 0 && code ~ /\}/) inside = 0
+      }
+    }
+    END { print found }
+  ' <<EOF
+$CODE
+EOF
+)
+enable_total=$(printf '%s' "$enable_sites" | grep -c . || true)
+if [ "$enable_total" -ne 1 ] || [ "$enable_in_init" -ne 1 ]; then
+  fail "expected exactly one live bootloader_random_enable(), inside ${ENTROPY_MODULE}'s ${ENTROPY_INIT}() (found $enable_total live, $enable_in_init of them in that function):"
   [ -n "$enable_sites" ] && printf '%s\n' "$enable_sites" | sed 's/^/  /'
   echo "  → the ESP32-S3 HWRNG is pseudo-random without an entropy source, and this"
-  echo "    firmware never brings up RF. The call belongs in $ENTROPY_MODULE."
+  echo "    firmware never brings up RF. A call that is compiled out, duplicated, or"
+  echo "    parked in an uncalled helper is the same as no call at all."
 fi
 
 # ----------------------------------------- 2. and is never turned back off --
-disable_sites=$(list_sources | tr '\n' '\0' | xargs -0 -r grep -nHE 'bootloader_random_disable[[:space:]]*\(' 2>/dev/null | grep -vE ':[[:space:]]*(\*|//)' || true)
+disable_sites=$(scan 'bootloader_random_disable')
 if [ -n "$disable_sites" ]; then
   fail "bootloader_random_disable() drops the RNG back to pseudo-random for every later draw:"
   printf '%s\n' "$disable_sites" | sed 's/^/  /'
@@ -116,11 +201,10 @@ fi
 
 # ------------------------------------- 3. raw HWRNG draws stay in one place --
 # Match the token, not the call shape: `esp_random(x)` and taking the function's
-# address (`fn = esp_random;`) reach the same generator, and a rule that only
-# knows the first is one refactor from useless. #include lines are skipped in
-# scan(), so "esp_random.h" does not trip this.
+# address (`fn = esp_random;`) reach the same generator. getrandom()/getentropy()
+# are included because ESP-IDF implements both on top of esp_fill_random.
 raw_bad=$(
-  scan 'esp_random|esp_fill_random' \
+  scan 'esp_random|esp_fill_random|(^|[^a-zA-Z0-9_])(getrandom|getentropy)[ \t]*\(' \
     | grep -vF "$ENTROPY_MODULE:" \
     || true
 )
@@ -132,14 +216,30 @@ if [ -n "$raw_bad" ]; then
 fi
 
 # ------------------------------------------------- 4. no libc seeded PRNG ----
-libc_bad=$(scan '(^|[^_[:alnum:]])(rand|random|srand|srandom)[[:space:]]*[(;,)]')
+libc_bad=$(scan '(^|[^a-zA-Z0-9_])(rand|random|srand|srandom|rand_r|random_r|lrand48|drand48)[ \t]*\(')
 if [ -n "$libc_bad" ]; then
   fail "libc seeded PRNG in firmware code:"
   printf '%s\n' "$libc_bad" | sed 's/^/  /'
   echo "  → use rng_fill_checked(); rand()/random() is a seeded, predictable generator"
 fi
 
+# ------------------------------- 5. nothing takes the SAR ADC away again ----
+# bootloader_random_enable() is documented as unsafe alongside the ADC driver,
+# RF, or I2S, and sleep can drop the SAR/RTC state it configures. Each of these
+# turns the entropy source off without touching rule 1 or 2, so the device would
+# keep reporting a healthy RNG while producing pseudo-random bytes.
+contend_bad=$(scan '(adc_oneshot_|adc_continuous_|adc_cali_|esp_wifi_|esp_bt_controller_|i2s_new_channel|i2s_driver_install|esp_light_sleep_start|esp_deep_sleep)')
+contend_bad="$contend_bad$(printf '\n')$(grep -nHE '(^|[^a-zA-Z0-9_])esp_adc([^a-zA-Z0-9_]|$)' main/CMakeLists.txt 2>/dev/null || true)"
+contend_bad=$(printf '%s\n' "$contend_bad" | grep -v '^$' || true)
+if [ -n "$contend_bad" ]; then
+  fail "this contends with the SAR ADC entropy source and would silently disable it:"
+  printf '%s\n' "$contend_bad" | sed 's/^/  /'
+  echo "  → the ADC driver, RF, I2S, and sleep all take back the peripheral"
+  echo "    bootloader_random_enable() configured. Resolve the conflict deliberately"
+  echo "    (see docs/SECURITY.md) rather than by adding a call site."
+fi
+
 if [ "$status" -eq 0 ]; then
-  echo "RNG hygiene: OK (entropy source enabled once and never disabled, raw draws confined to $ENTROPY_MODULE, no libc PRNG)"
+  echo "RNG hygiene: OK (entropy source enabled once in ${ENTROPY_INIT}() and never disabled or contended, raw draws confined to $ENTROPY_MODULE, no libc PRNG)"
 fi
 exit "$status"

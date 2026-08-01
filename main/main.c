@@ -53,7 +53,7 @@ static void handle_get_status(const rpc_request_t *req, rpc_response_t *resp) {
              "%lu,\"rng_failed_checks\":%lu,\"rng_retries\":%lu,\"self_test_passed\":%lu,"
              "\"self_test_failed\":%lu,\"self_test_ok\":%s}",
              VERSION, rng_stats.healthy ? "true" : "false",
-             rng_stats.entropy_source_enabled ? "true" : "false",
+             rng_stats.entropy_source_verified ? "true" : "false",
              (unsigned long)rng_stats.total_calls, (unsigned long)rng_stats.failed_checks,
              (unsigned long)rng_stats.retries, (unsigned long)st_stats.passed,
              (unsigned long)st_stats.failed, st_stats.all_required_passed ? "true" : "false");

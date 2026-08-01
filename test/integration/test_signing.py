@@ -16,6 +16,10 @@ class TestPing:
         assert "result" in resp
         assert "version" in resp["result"]
         assert "rng_healthy" in resp["result"]
+        # On a real board this is the one assertion that proves the SAR ADC
+        # entropy source actually came up. "we called bootloader_random_enable()"
+        # is not the same claim, so the device reports a register readback.
+        assert resp["result"]["rng_entropy_source"] is True
 
 
 class TestShareManagement:
