@@ -14,10 +14,10 @@ WORKDIR /build
 COPY . keep-esp32/
 
 RUN for repo in \
-        "privkeyio/secp256k1-frost 832bac2dbfaf4c35058cd5dadb0f8fe093cb6c65" \
-        "privkeyio/libnostr-c 4e8d01b8d20680204429aaf3680d069ec222fdaa" \
+        "privkeyio/secp256k1-frost 746dbbea5c34dde963c9bd55bc7474b2d50fa597" \
+        "privkeyio/libnostr-c 724868d508d5fa02f11d6e9549a225c60a4132e1" \
         "privkeyio/noscrypt 45fcbef32f958145d6797f384a225c0d43616886" \
-        "ElementsProject/libwally-core 242f841af6819b5d5174da5a9593907f56f1bc89"; do \
+        "ElementsProject/libwally-core 0c41f38fb1c201786e9c3ac9eae4f5f80c051399"; do \
         set -- $repo; \
         git clone "https://github.com/$1.git" && \
         git -C "$(basename $1)" checkout "$2"; \
