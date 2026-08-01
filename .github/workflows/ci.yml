@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: keep-esp32
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/secp256k1-frost
           # Pinned by commit, not branch: a branch ref means anyone with push
@@ -23,19 +23,19 @@ jobs:
           ref: 746dbbea5c34dde963c9bd55bc7474b2d50fa597
           path: secp256k1-frost
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/libnostr-c
           ref: 205aaf5ae849d6408dab41ca5be2abfc24801ad9 # main, post-v0.2.0 (ESP RNG fix)
           path: libnostr-c
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/noscrypt
           ref: 45fcbef32f958145d6797f384a225c0d43616886
           path: noscrypt
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ElementsProject/libwally-core
           ref: 0c41f38fb1c201786e9c3ac9eae4f5f80c051399 # release_1.5.6
@@ -48,7 +48,7 @@ jobs:
           cp dependencies.lock "$RUNNER_TEMP/dependencies.lock.before"
           echo "sha=$(sha256sum dependencies.lock | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - uses: espressif/esp-idf-ci-action@v1
+      - uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1.2.0
         with:
           esp_idf_version: v5.4.1
           target: esp32s3
@@ -83,11 +83,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: keep-esp32
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/secp256k1-frost
           # Pinned by commit, not branch: a branch ref means anyone with push
@@ -95,7 +95,7 @@ jobs:
           ref: 746dbbea5c34dde963c9bd55bc7474b2d50fa597
           path: secp256k1-frost
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ElementsProject/libwally-core
           ref: 0c41f38fb1c201786e9c3ac9eae4f5f80c051399 # release_1.5.6
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Doxygen
         run: sudo apt-get update && sudo apt-get install -y doxygen
@@ -145,7 +145,7 @@ jobs:
         run: doxygen Doxyfile
 
       - name: Upload docs artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: docs
           path: docs/html

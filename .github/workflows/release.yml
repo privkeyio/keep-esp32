@@ -15,11 +15,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: keep-esp32
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/secp256k1-frost
           # Pinned by commit, not branch: a branch ref means anyone with push
@@ -27,26 +27,26 @@ jobs:
           ref: 746dbbea5c34dde963c9bd55bc7474b2d50fa597
           path: secp256k1-frost
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/libnostr-c
           ref: 205aaf5ae849d6408dab41ca5be2abfc24801ad9 # main, post-v0.2.0 (ESP RNG fix)
           path: libnostr-c
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: privkeyio/noscrypt
           ref: 45fcbef32f958145d6797f384a225c0d43616886
           path: noscrypt
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ElementsProject/libwally-core
           ref: 0c41f38fb1c201786e9c3ac9eae4f5f80c051399 # release_1.5.6
           path: libwally-core
 
       - name: Build ESP32-S3 firmware
-        uses: espressif/esp-idf-ci-action@v1
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1.2.0
         with:
           esp_idf_version: v5.4.1
           target: esp32s3
@@ -78,7 +78,7 @@ jobs:
           tar -czvf ../keep-esp32-firmware-${{ github.ref_name }}.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: keep-esp32-firmware
           path: keep-esp32-firmware-*.tar.gz
@@ -91,7 +91,7 @@ jobs:
           cp release/keep-merged.bin pages/
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: pages
 
@@ -104,22 +104,22 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
 
   release:
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: artifacts/**/*
           generate_release_notes: true
