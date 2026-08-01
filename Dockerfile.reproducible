@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 PrivKey LLC
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-FROM espressif/idf:v5.4.1@sha256:6b4adab7b282e9261a154d7130fb4945a3c28bd35c2e914357c2f522643cb92a AS builder
+FROM espressif/idf:v6.0.2@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67 AS builder
 
 ARG SOURCE_DATE_EPOCH=0
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
