@@ -1,0 +1,30 @@
+name: RNG Hygiene
+
+# See scripts/check-rng-hygiene.sh for the rules this enforces and the COLDCARD
+# firmware disclosure that motivated them.
+#
+# Deliberately separate from the CI workflow: this is pure shell and finishes in
+# a second, while the build job needs the ESP-IDF toolchain plus four sibling
+# component checkouts. Keeping it standalone means a signing-key defect is
+# reported in seconds and stays reportable even when the toolchain job is broken
+# for unrelated reasons.
+#
+# No `paths:` filter on purpose. The script scans the whole tracked tree, and a
+# path-filtered job can never be a required status check -- PRs touching none of
+# the filtered globs report nothing and block forever.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: No predictable-RNG fallbacks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for silent RNG fallbacks
+        run: ./scripts/check-rng-hygiene.sh

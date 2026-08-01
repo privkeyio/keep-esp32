@@ -18,6 +18,8 @@ static uint32_t get_random_range(uint32_t min, uint32_t max) {
     uint32_t limit = UINT32_MAX - (UINT32_MAX % range);
     uint32_t r;
     do {
+        // rng-hygiene: ok - delay lengths, never key material. These run before
+        // rng_init(), so routing them through rng_fill_checked() is not possible.
         r = esp_random();
     } while (r >= limit);
     return min + (r % range);
@@ -54,6 +56,8 @@ static uint32_t native_random(void) {
         if (n == sizeof(r))
             return r;
     }
+    // rng-hygiene: ok - host test builds only, and the value is a delay length,
+    // never key material. The device path above uses esp_random().
     return (uint32_t)rand();
 }
 

@@ -205,6 +205,7 @@ class MockDeviceConnection(DeviceRPCMixin):
         return self._ok(rid, {
             "version": "0.1.2",
             "rng_healthy": True,
+            "rng_entropy_source": True,
             "rng_total_calls": 100,
             "rng_failed_checks": 0,
             "rng_retries": 0,

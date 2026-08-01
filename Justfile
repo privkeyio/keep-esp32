@@ -126,4 +126,7 @@ verify-device:
     [ "$DEVICE_HASH" = "$BUILT_HASH" ] || { echo "Mismatch"; exit 1; }
     echo "Match"
 
-ci: test docs
+rng-hygiene:
+    ./scripts/check-rng-hygiene.sh
+
+ci: test rng-hygiene docs

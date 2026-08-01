@@ -49,13 +49,14 @@ static void handle_get_status(const rpc_request_t *req, rpc_response_t *resp) {
     self_test_get_stats(&st_stats);
     char result[384];
     snprintf(result, sizeof(result),
-             "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_total_calls\":%lu,\"rng_failed_checks\":"
-             "%lu,\"rng_retries\":%lu,\"self_test_passed\":%lu,\"self_test_failed\":%lu,"
-             "\"self_test_ok\":%s}",
-             VERSION, rng_stats.healthy ? "true" : "false", (unsigned long)rng_stats.total_calls,
-             (unsigned long)rng_stats.failed_checks, (unsigned long)rng_stats.retries,
-             (unsigned long)st_stats.passed, (unsigned long)st_stats.failed,
-             st_stats.all_required_passed ? "true" : "false");
+             "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_entropy_source\":%s,\"rng_total_calls\":"
+             "%lu,\"rng_failed_checks\":%lu,\"rng_retries\":%lu,\"self_test_passed\":%lu,"
+             "\"self_test_failed\":%lu,\"self_test_ok\":%s}",
+             VERSION, rng_stats.healthy ? "true" : "false",
+             rng_stats.entropy_source_verified ? "true" : "false",
+             (unsigned long)rng_stats.total_calls, (unsigned long)rng_stats.failed_checks,
+             (unsigned long)rng_stats.retries, (unsigned long)st_stats.passed,
+             (unsigned long)st_stats.failed, st_stats.all_required_passed ? "true" : "false");
     protocol_success(resp, req->id, result);
 }
 
