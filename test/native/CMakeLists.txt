@@ -117,9 +117,14 @@ else()
 endif()
 
 add_executable(test_hw_entropy test_hw_entropy.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/random_utils.c)
+# main/ first: mocks/random_utils.h otherwise shadows the real header, and its
+# static inline rng_init/rng_get_health/secure_random_fill silently bind ahead of
+# the random_utils.c compiled into this very target -- so the RNG tests would be
+# asserting against the mock, not the code. mocks/ still supplies crypto_asm.h
+# and secresult.h, which main/ does not have.
 target_include_directories(test_hw_entropy PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     ${MAIN_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
 )
 target_compile_definitions(test_hw_entropy PRIVATE NATIVE_TEST=1)
 
@@ -127,8 +132,8 @@ find_package(OpenSSL QUIET)
 if(OpenSSL_FOUND)
     add_executable(test_hw_entropy_sha256 test_hw_entropy.c ${MAIN_DIR}/hw_entropy.c ${MAIN_DIR}/random_utils.c)
     target_include_directories(test_hw_entropy_sha256 PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${MAIN_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
     )
     target_compile_definitions(test_hw_entropy_sha256 PRIVATE NATIVE_TEST=1 HAS_OPENSSL=1)
     target_link_libraries(test_hw_entropy_sha256 OpenSSL::Crypto)
