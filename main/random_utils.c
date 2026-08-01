@@ -95,6 +95,17 @@ int rng_init(void) {
         return -1;
     }
 
+    /*
+     * The statistical self-test below cannot tell a seeded PRNG from a true
+     * RNG -- a PRNG passes it every time, which is exactly why a degraded
+     * entropy source stays invisible. Check the source is actually running
+     * before trusting any amount of test output.
+     */
+    if (!hw_entropy_source_enabled()) {
+        RNG_LOG_ERROR("Hardware entropy source not enabled; RNG would be pseudo-random only");
+        return -1;
+    }
+
     uint8_t test_buf[RNG_SELF_TEST_SIZE];
     int pass_count = 0;
 
@@ -121,7 +132,7 @@ void rng_get_health(rng_health_stats_t *stats) {
     if (stats) {
         *stats = g_rng_stats;
         stats->debiasing_failures = hw_entropy_get_debiasing_failures();
-        stats->adc_quality_warnings = hw_entropy_get_adc_warnings();
+        stats->entropy_source_enabled = hw_entropy_source_enabled();
     }
 }
 

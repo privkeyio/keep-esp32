@@ -12,8 +12,8 @@ typedef struct {
     uint32_t failed_checks;
     uint32_t retries;
     uint32_t debiasing_failures;
-    uint32_t adc_quality_warnings;
     bool healthy;
+    bool entropy_source_enabled;
 } rng_health_stats_t;
 
 #ifndef RANDOM_UTILS_CUSTOM_IMPL
@@ -51,8 +51,8 @@ static inline void rng_get_health(rng_health_stats_t *stats) {
         stats->failed_checks = 0;
         stats->retries = 0;
         stats->debiasing_failures = 0;
-        stats->adc_quality_warnings = 0;
         stats->healthy = true;
+        stats->entropy_source_enabled = true;
     }
 }
 #endif

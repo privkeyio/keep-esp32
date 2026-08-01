@@ -14,8 +14,9 @@ typedef struct {
     uint32_t failed_checks;
     uint32_t retries;
     uint32_t debiasing_failures;
-    uint32_t adc_quality_warnings;
     bool healthy;
+    /* False means the HWRNG has no entropy source and is pseudo-random only. */
+    bool entropy_source_enabled;
 } rng_health_stats_t;
 
 static inline int secure_random_fill(uint8_t *buf, size_t len) {

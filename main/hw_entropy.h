@@ -4,6 +4,7 @@
 #ifndef HW_ENTROPY_H
 #define HW_ENTROPY_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -17,9 +18,15 @@
 
 int hw_entropy_init(void);
 int hw_entropy_fill(uint8_t *buf, size_t len);
+
+/*
+ * Whether the hardware entropy source backing esp_random() is running.
+ * False means every RNG draw on this device is pseudo-random only; callers
+ * must refuse to produce key material rather than continue quietly.
+ */
+bool hw_entropy_source_enabled(void);
+
 void hw_entropy_add_debiasing_failure(void);
-void hw_entropy_add_adc_warning(void);
 uint32_t hw_entropy_get_debiasing_failures(void);
-uint32_t hw_entropy_get_adc_warnings(void);
 
 #endif

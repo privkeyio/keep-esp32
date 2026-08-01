@@ -8,7 +8,7 @@ set(SRCS
 )
 
 set(REQUIRES
-    esp_partition driver esp_driver_usb_serial_jtag esp_driver_uart esp_driver_gpio esp_adc mbedtls crypto_asm libnostr-c noscrypt secure_element
+    esp_partition driver esp_driver_usb_serial_jtag esp_driver_uart esp_driver_gpio bootloader_support mbedtls crypto_asm libnostr-c noscrypt secure_element
 )
 
 set(PRIV_REQUIRES
