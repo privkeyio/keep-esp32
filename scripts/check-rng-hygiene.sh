@@ -116,6 +116,20 @@ preprocess() {
 
       BEGIN { inblock = 0; instr = 0; skip = 0; blockopt = 0 }
       {
+        # Splice C line continuations before anything looks at the text. A
+        # backslash-newline inside an identifier is legal: translation phase 2
+        # removes it before tokenization, so the compiler sees
+        # adc_oneshot_new_unit() while a per-physical-line scanner sees
+        # "adc_oneshot\\" and "_new_unit();" and matches neither. That defeated
+        # rule 5, the one holding the SAR ADC invariant behind the v0.2.1
+        # entropy fix. startline keeps the finding pointing at the first
+        # physical line, which is where a reader has to go to fix it.
+        startline = FNR
+        while (sub(/\\[ \t]*$/, "", $0) > 0) {
+          if ((getline nextpart) <= 0) break
+          $0 = $0 nextpart
+        }
+
         code = trim(strip($0))
 
         # A comment block carrying the marker covers the next code line, however
@@ -137,7 +151,7 @@ preprocess() {
 
         if (index(cmt, optout) || blockopt) { blockopt = 0; cmt = ""; next }
         blockopt = 0; cmt = ""
-        printf "%s:%d:%s\n", fname, FNR, code
+        printf "%s:%d:%s\n", fname, startline, code
       }
     ' "$f") || rc=2
     [ -n "$out" ] && printf '%s\n' "$out"

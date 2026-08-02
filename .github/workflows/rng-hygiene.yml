@@ -35,5 +35,11 @@ jobs:
           # git credentials.
           persist-credentials: false
 
+      # Assert the guard's rules before trusting them. A line continuation split
+      # an identifier past the scanner, which defeated the SAR ADC rule holding
+      # the v0.2.1 entropy invariant, and nothing would have noticed.
+      - name: Self-test the RNG hygiene guard
+        run: ./scripts/test-rng-hygiene.sh
+
       - name: Check for silent RNG fallbacks
         run: ./scripts/check-rng-hygiene.sh
