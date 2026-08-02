@@ -49,6 +49,23 @@ run_probe() {
         fails=$((fails + 1)); rm -f "$name"; PROBE=""; return
     fi
 
+    # Both that the tree is populated AND that this probe is in it. The git
+
+    # errors above are discarded, so a failed `git add` would otherwise leave
+
+    # the guard scanning a probe-free tree and the case judged on a file it
+
+    # never saw.
+
+    if ! GIT_INDEX_FILE="$TMPD/index" git ls-files --error-unmatch "$name" >/dev/null 2>&1; then
+
+        echo "  HARNESS BROKEN: $name was not staged; the guard would never see it"
+
+        fails=$((fails + 1)); rm -f "$name"; PROBE=""; return
+
+    fi
+
+
     local rc=0 out
     out=$(GIT_INDEX_FILE="$TMPD/index" "$GUARD" 2>&1) || rc=$?
     rm -f "$name"; PROBE=""
