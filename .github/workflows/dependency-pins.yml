@@ -54,4 +54,10 @@ jobs:
           # which would leave it readable by PR-authored code. Nothing here needs
           # git credentials.
           persist-credentials: false
+      # gh needs a token inside Actions; without one the compare call that
+      # decides whether a pin is ahead of or behind a release fails, and the
+      # rule falls back to reporting any difference as staleness. The
+      # workflow-level `contents: read` is all it needs for a public repo.
       - run: ./scripts/check-dependency-pins.sh --strict
+        env:
+          GH_TOKEN: ${{ github.token }}

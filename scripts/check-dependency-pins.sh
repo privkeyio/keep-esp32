@@ -115,10 +115,23 @@ else
         # this job. Ask GitHub which direction the difference runs.
         # $repo is already owner/name; deriving it back out of $url was how the
         # first attempt at this failed, by swallowing the .git suffix.
-        direction=""
+        direction=""; cmp_err=""
         if command -v gh >/dev/null 2>&1; then
-          direction=$(gh api "repos/$repo/compare/${tag_commit}...${pin}" --jq .status 2>/dev/null | head -1)
-          case "$direction" in ahead|behind|identical|diverged) ;; *) direction="" ;; esac
+          # stderr is kept. Discarding it once already turned "gh has no token"
+          # into an indistinguishable "pin looks stale", which cost a debugging
+          # cycle against CI.
+          cmp_out=$(gh api "repos/$repo/compare/${tag_commit}...${pin}" --jq .status 2>&1)
+          direction=$(printf '%s' "$cmp_out" | head -1)
+          case "$direction" in
+            ahead|behind|identical|diverged) ;;
+            *) cmp_err="$direction"; direction="" ;;
+          esac
+        else
+          cmp_err="gh not installed"
+        fi
+        if [ -z "$direction" ] && [ -n "$cmp_err" ]; then
+          echo "  note: could not determine direction vs $latest_tag: $cmp_err"
+          echo "        (falling back to reporting any difference as drift)"
         fi
         case "$direction" in
           ahead)
