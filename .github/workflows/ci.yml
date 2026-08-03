@@ -1,5 +1,11 @@
 name: CI
 
+# No job here uses GITHUB_TOKEN: the checkouts are public and nothing calls the
+# API, so a read-only token is all any of them needs. Set at workflow level so a
+# new job cannot inherit the repository default by omission.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -117,20 +123,37 @@ jobs:
           ./configure --disable-elements --disable-tests
           make -j$(nproc)
 
+      - name: Install cJSON for the native tests
+        # cJSON normally comes from managed_components/, which the IDF component
+        # manager generates and .gitignore excludes. This job never runs an IDF
+        # build, so that directory does not exist here and every cJSON-gated test
+        # configured itself away silently.
+        run: sudo apt-get update && sudo apt-get install -y libcjson-dev
+
       - name: Run native tests
         run: |
           cd keep-esp32/test/native
           mkdir -p build && cd build
-          cmake ..
+          # REQUIRE_ALL_TESTS turns a missing optional dependency into a configure
+          # error. Without it a dependency that quietly disappears takes its tests
+          # with it and the job still reports success.
+          cmake .. -DREQUIRE_ALL_TESTS=ON
           make
-          ./test_frost
-          ./test_frost_signer_core
-          ./test_session
-          ./test_storage
-          ./test_secure_element
-          [ ! -f ./test_protocol ] || ./test_protocol
-          [ ! -f ./test_psbt_fraud_integration ] || ./test_psbt_fraud_integration
-          [ ! -f ./test_pin_attempt_limit ] || ./test_pin_attempt_limit
+          # Run everything that was built, rather than a hand-maintained list.
+          # The list had drifted: 14 binaries were compiled and 5 were executed,
+          # and three of the names in it did not exist, guarded by `[ ! -f ]` so
+          # their absence read as success.
+          failed=""
+          for t in ./test_*; do
+            [ -f "$t" ] && [ -x "$t" ] || continue
+            echo "== $t"
+            "$t" || failed="$failed $t"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failing native tests:$failed"
+            exit 1
+          fi
+          echo "All native tests passed."
 
   docs:
     runs-on: ubuntu-latest
