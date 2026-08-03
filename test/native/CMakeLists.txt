@@ -8,7 +8,50 @@ endif()
 set(CMAKE_C_STANDARD 99)
 
 set(SECP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../secp256k1-frost)
+# cJSON comes from managed_components/, which the IDF component manager generates
+# and .gitignore excludes. A fresh checkout therefore does not have it, so every
+# test gated on it configured itself away with a STATUS message and CI reported
+# success having built neither test_protocol, test_coordinator, nor
+# test_coordinator_race. Nothing was red; three suites simply did not exist.
+#
+# Prefer the vendored copy when a build has produced it, so tests compile the
+# same cJSON the firmware does. Otherwise fall back to a system cJSON, which is
+# what a bare checkout has. REQUIRE_ALL_TESTS turns "not found" into a hard
+# configure error, and CI sets it: local developers may still skip, CI may not.
+option(REQUIRE_ALL_TESTS "Fail configuration when an optional test cannot be built" OFF)
+
 set(CJSON_DIR ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__cjson/cJSON)
+if(EXISTS ${CJSON_DIR}/cJSON.c)
+    set(CJSON_AVAILABLE TRUE)
+    set(CJSON_SOURCES ${CJSON_DIR}/cJSON.c)
+    set(CJSON_INCLUDE ${CJSON_DIR})
+    set(CJSON_LIBS "")
+    message(STATUS "cJSON: vendored (managed_components)")
+else()
+    find_path(SYS_CJSON_INCLUDE_DIR cjson/cJSON.h)
+    find_library(SYS_CJSON_LIBRARY cjson)
+    if(SYS_CJSON_INCLUDE_DIR AND SYS_CJSON_LIBRARY)
+        set(CJSON_AVAILABLE TRUE)
+        set(CJSON_SOURCES "")
+        # The sources include "cJSON.h", not <cjson/cJSON.h>.
+        set(CJSON_INCLUDE ${SYS_CJSON_INCLUDE_DIR}/cjson)
+        set(CJSON_LIBS ${SYS_CJSON_LIBRARY})
+        message(STATUS "cJSON: system (${SYS_CJSON_LIBRARY})")
+    else()
+        set(CJSON_AVAILABLE FALSE)
+        set(CJSON_SOURCES "")
+        set(CJSON_INCLUDE "")
+        set(CJSON_LIBS "")
+    endif()
+endif()
+
+if(NOT CJSON_AVAILABLE AND REQUIRE_ALL_TESTS)
+    message(FATAL_ERROR
+        "cJSON not found, and REQUIRE_ALL_TESTS is ON. test_protocol, "
+        "test_integration_full, test_coordinator and test_coordinator_race "
+        "would be skipped. Install libcjson-dev, or run an IDF build first to "
+        "populate managed_components/.")
+endif()
 set(MAIN_DIR ${CMAKE_CURRENT_LIST_DIR}/../../main)
 
 add_executable(test_frost test_frost.c)
@@ -20,11 +63,12 @@ set_target_properties(test_frost PROPERTIES
     INSTALL_RPATH ${SECP_DIR}/build/src
 )
 
-if(EXISTS ${CJSON_DIR}/cJSON.c)
-    add_executable(test_protocol test_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c ${MAIN_DIR}/error_context.c ${MAIN_DIR}/error_codes.c)
+if(CJSON_AVAILABLE)
+    add_executable(test_protocol test_protocol.c ${CJSON_SOURCES} ${MAIN_DIR}/protocol.c ${MAIN_DIR}/error_context.c ${MAIN_DIR}/error_codes.c)
+    target_link_libraries(test_protocol ${CJSON_LIBS})
     target_include_directories(test_protocol PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-        ${CJSON_DIR}
+        ${CJSON_INCLUDE}
         ${MAIN_DIR}
     )
     target_compile_definitions(test_protocol PRIVATE
@@ -85,12 +129,13 @@ target_include_directories(test_integration PRIVATE
 )
 target_compile_definitions(test_integration PRIVATE NATIVE_TEST=1)
 
-if(EXISTS ${CJSON_DIR}/cJSON.c)
-    add_executable(test_integration_full test_integration.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/error_codes.c)
+if(CJSON_AVAILABLE)
+    add_executable(test_integration_full test_integration.c ${CJSON_SOURCES} ${MAIN_DIR}/error_codes.c)
+    target_link_libraries(test_integration_full ${CJSON_LIBS})
     target_include_directories(test_integration_full PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${MAIN_DIR}
-        ${CJSON_DIR}
+        ${CJSON_INCLUDE}
     )
     target_compile_definitions(test_integration_full PRIVATE NATIVE_TEST=1 HAS_CJSON=1)
 endif()
@@ -174,7 +219,7 @@ target_include_directories(test_anti_glitch PRIVATE
 )
 target_compile_definitions(test_anti_glitch PRIVATE NATIVE_TEST=1)
 
-if(EXISTS ${CJSON_DIR}/cJSON.c)
+if(CJSON_AVAILABLE)
     add_executable(test_coordinator
         test_coordinator.c
         ${MAIN_DIR}/frost_coordinator.c
@@ -182,7 +227,7 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
         ${MAIN_DIR}/hw_entropy.c
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks/ws_transport_mock.c
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
-        ${CJSON_DIR}/cJSON.c
+        ${CJSON_SOURCES}
     )
         # main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
     # TUs that include it from test/native/, and its static inline rng_* bind ahead of
@@ -191,16 +236,16 @@ target_include_directories(test_coordinator PRIVATE
         ${MAIN_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CJSON_DIR}
+        ${CJSON_INCLUDE}
     )
     target_compile_definitions(test_coordinator PRIVATE NATIVE_TEST=1)
     find_package(Threads REQUIRED)
-    target_link_libraries(test_coordinator Threads::Threads)
+    target_link_libraries(test_coordinator Threads::Threads ${CJSON_LIBS})
 else()
     message(STATUS "Skipping test_coordinator (cJSON not found)")
 endif()
 
-if(EXISTS ${CJSON_DIR}/cJSON.c)
+if(CJSON_AVAILABLE)
     add_executable(test_coordinator_race
         test_coordinator_race.c
         ${MAIN_DIR}/frost_coordinator.c
@@ -208,7 +253,7 @@ if(EXISTS ${CJSON_DIR}/cJSON.c)
         ${MAIN_DIR}/hw_entropy.c
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks/ws_transport_mock.c
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
-        ${CJSON_DIR}/cJSON.c
+        ${CJSON_SOURCES}
     )
         # main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
     # TUs that include it from test/native/, and its static inline rng_* bind ahead of
@@ -217,12 +262,12 @@ target_include_directories(test_coordinator_race PRIVATE
         ${MAIN_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CJSON_DIR}
+        ${CJSON_INCLUDE}
     )
     target_compile_definitions(test_coordinator_race PRIVATE NATIVE_TEST=1)
     set_target_properties(test_coordinator_race PROPERTIES C_STANDARD 11)
     find_package(Threads REQUIRED)
-    target_link_libraries(test_coordinator_race Threads::Threads)
+    target_link_libraries(test_coordinator_race Threads::Threads ${CJSON_LIBS})
 
     include(CheckCCompilerFlag)
     check_c_compiler_flag(-fsanitize=thread HAVE_TSAN)
