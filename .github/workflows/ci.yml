@@ -1,5 +1,11 @@
 name: CI
 
+# No job here uses GITHUB_TOKEN: the checkouts are public and nothing calls the
+# API, so a read-only token is all any of them needs. Set at workflow level so a
+# new job cannot inherit the repository default by omission.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
