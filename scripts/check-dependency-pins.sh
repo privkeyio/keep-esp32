@@ -121,10 +121,16 @@ else
           case "$direction" in ahead|behind|identical|diverged) ;; *) direction="" ;; esac
         fi
         case "$direction" in
-          ahead|identical)
+          ahead)
             # Ahead of the newest release, which is the intended state. Say so
             # rather than staying silent, so the pin's position stays visible.
             echo "  ok  $repo is pinned ahead of $latest_tag (${pin:0:8}), not behind it"
+            ;;
+          identical)
+            # Only reachable if the tag and the pin name the same commit through
+            # different refs, since the enclosing test already excluded an exact
+            # string match. Reported accurately rather than as "ahead".
+            echo "  ok  $repo is pinned at $latest_tag (${pin:0:8})"
             ;;
           *)
             msg="$repo is pinned to ${pin:0:8} but upstream's newest release is $latest_tag (${tag_commit:0:8})"
