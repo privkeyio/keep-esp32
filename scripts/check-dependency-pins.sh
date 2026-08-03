@@ -108,10 +108,32 @@ else
       tag_commit=$(git ls-remote "$url" "refs/tags/$latest_tag^{}" 2>/dev/null | cut -f1)
       [ -z "$tag_commit" ] && tag_commit=$(git ls-remote "$url" "refs/tags/$latest_tag" 2>/dev/null | cut -f1)
       if [ -n "$tag_commit" ] && [ "$tag_commit" != "$pin" ]; then
-        msg="$repo is pinned to ${pin:0:8} but upstream's newest release is $latest_tag (${tag_commit:0:8})"
-        if [ "$STRICT" -eq 1 ]; then fail "$msg"; else warn "$msg"; fi
-        echo "  → review the changelog before bumping; these are consumed by a signer's"
-        echo "    untrusted-input paths, so a 'patch' release can still be security-relevant."
+        # Differing from the newest release is not the same as being behind it.
+        # A pin deliberately ahead of a tag is the normal case here: libnostr-c
+        # v0.2.0 predates the ESP RNG fix, so keep-esp32 pins past it on purpose.
+        # Reporting that as stale is a false alarm that trains people to ignore
+        # this job. Ask GitHub which direction the difference runs.
+        # $repo is already owner/name; deriving it back out of $url was how the
+        # first attempt at this failed, by swallowing the .git suffix.
+        direction=""
+        if command -v gh >/dev/null 2>&1; then
+          direction=$(gh api "repos/$repo/compare/${tag_commit}...${pin}" --jq .status 2>/dev/null | head -1)
+          case "$direction" in ahead|behind|identical|diverged) ;; *) direction="" ;; esac
+        fi
+        case "$direction" in
+          ahead|identical)
+            # Ahead of the newest release, which is the intended state. Say so
+            # rather than staying silent, so the pin's position stays visible.
+            echo "  ok  $repo is pinned ahead of $latest_tag (${pin:0:8}), not behind it"
+            ;;
+          *)
+            msg="$repo is pinned to ${pin:0:8} but upstream's newest release is $latest_tag (${tag_commit:0:8})"
+            [ -n "$direction" ] && msg="$msg [$direction]"
+            if [ "$STRICT" -eq 1 ]; then fail "$msg"; else warn "$msg"; fi
+            echo "  → review the changelog before bumping; these are consumed by a signer's"
+            echo "    untrusted-input paths, so a 'patch' release can still be security-relevant."
+            ;;
+        esac
       fi
     else
       # Fork with no releases: the useful signal is the tip of the branch it was cut from.
