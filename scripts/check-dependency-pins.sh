@@ -92,6 +92,42 @@ done <<EOF
 $docker_pins
 EOF
 
+# ------------------------------------------- 1b. ESP-IDF agreement ---------
+# The base image in the Dockerfile and esp_idf_version in the workflows must
+# name the same toolchain, for the same reason the dependency pins must: the
+# reproducible build is only meaningful if it builds what the release built.
+#
+# This rule exists because dependabot cannot get it right. It sees the FROM line
+# and nothing else; esp_idf_version is not an ecosystem it can parse. So every
+# IDF bump it opens moves the Dockerfile alone and leaves the workflows behind,
+# and until this check existed the whole suite went green on exactly that diff.
+idf_from=$(grep -oE '^FROM[[:space:]]+espressif/idf:v[0-9]+\.[0-9]+(\.[0-9]+)?@sha256:[a-f0-9]{64}' "$DOCKERFILE" | head -1)
+if [ -z "$idf_from" ]; then
+  fail "$DOCKERFILE has no digest-pinned espressif/idf base image."
+  echo "  → a bare tag is not a pin: image tags can be repushed, so the reproducible"
+  echo "    build could silently change toolchain. Use image:vX.Y.Z@sha256:<digest>."
+else
+  idf_docker_ver=${idf_from##*espressif/idf:}
+  idf_docker_ver=${idf_docker_ver%%@*}
+  for wf in $WORKFLOWS; do
+    wf_idf_all=$(grep -oE 'esp_idf_version:[[:space:]]*v?[0-9]+\.[0-9]+(\.[0-9]+)?' "$wf" \
+      | sed -E 's/.*esp_idf_version:[[:space:]]*//' | sort -u)
+    if [ -z "$wf_idf_all" ]; then
+      fail "$wf does not set esp_idf_version, but $DOCKERFILE pins the toolchain to $idf_docker_ver."
+      continue
+    fi
+    for wf_idf in $wf_idf_all; do
+      if [ "$wf_idf" != "$idf_docker_ver" ]; then
+        fail "ESP-IDF version disagrees between $DOCKERFILE and $wf:"
+        echo "    $DOCKERFILE: $idf_docker_ver"
+        echo "    $wf:        $wf_idf"
+        echo "  → the reproducible build and the released artifact would be built with"
+        echo "    different toolchains, so verifying a release against source would fail."
+      fi
+    done
+  done
+fi
+
 # ------------------------------------------------------- 2. freshness ------
 if ! git ls-remote --exit-code https://github.com/privkeyio/keep-esp32.git HEAD >/dev/null 2>&1; then
   echo

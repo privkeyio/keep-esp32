@@ -40,6 +40,10 @@ jobs:
           # git credentials.
           persist-credentials: false
       - run: ./scripts/check-dependency-pins.sh
+      # A guard nobody tests is a guard that quietly stops guarding. This asserts
+      # it still rejects a partial ESP-IDF bump, which is the one diff shape
+      # dependabot can produce and every other check calls clean.
+      - run: ./scripts/test-dependency-pins.sh
 
   drift:
     name: Pins are current with upstream

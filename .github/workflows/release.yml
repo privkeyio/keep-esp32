@@ -48,7 +48,7 @@ jobs:
       - name: Build ESP32-S3 firmware
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1.2.0
         with:
-          esp_idf_version: v5.4.1
+          esp_idf_version: v5.4.4
           target: esp32s3
           path: keep-esp32
 
