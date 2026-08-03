@@ -11,7 +11,7 @@ Reproducible builds allow anyone to verify that a binary was built from a specif
 
 | Component | Version |
 |-----------|---------|
-| Base Image | espressif/idf:v5.4.1 (pinned by SHA256 digest) |
+| Base Image | espressif/idf:v5.4.4 (pinned by SHA256 digest) |
 | Build Flags | `SOURCE_DATE_EPOCH=0`, ccache disabled |
 
 Dependencies are pinned to exact commit hashes in the Dockerfile.
