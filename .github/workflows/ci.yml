@@ -147,7 +147,7 @@ jobs:
             echo "::error::failing native tests:$failed"
             exit 1
           fi
-          echo "All native tests passed.
+          echo "All native tests passed."
 
   docs:
     runs-on: ubuntu-latest
