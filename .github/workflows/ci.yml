@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/libnostr-c
-          ref: 205aaf5ae849d6408dab41ca5be2abfc24801ad9 # main, post-v0.2.0 (ESP RNG fix)
+          ref: 361a4917d8179370bbd2ffcf6dcfa573de4fb97d # v0.2.1
           path: libnostr-c
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

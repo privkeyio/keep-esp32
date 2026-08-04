@@ -15,7 +15,7 @@ COPY . keep-esp32/
 
 RUN for repo in \
         "privkeyio/secp256k1-frost 746dbbea5c34dde963c9bd55bc7474b2d50fa597" \
-        "privkeyio/libnostr-c 205aaf5ae849d6408dab41ca5be2abfc24801ad9" \
+        "privkeyio/libnostr-c 361a4917d8179370bbd2ffcf6dcfa573de4fb97d" \
         "privkeyio/noscrypt 45fcbef32f958145d6797f384a225c0d43616886" \
         "ElementsProject/libwally-core 0c41f38fb1c201786e9c3ac9eae4f5f80c051399"; do \
         set -- $repo; \

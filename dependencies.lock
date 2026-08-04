@@ -165,6 +165,6 @@ direct_dependencies:
 - espressif/esp_websocket_client
 - espressif/m5stack_core_s3
 - idf
-manifest_hash: f91c307533d08a2c00806e576fc7f20d242dab14b972db21047300e6cb04e49d
+manifest_hash: 4d5693bbcdcbdd24ebac5de684d4886c66a9abf320a9c5b3a45c6de8c9336424
 target: esp32s3
 version: 2.0.0
