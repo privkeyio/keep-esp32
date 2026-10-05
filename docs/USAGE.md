@@ -151,8 +151,16 @@ CLI parses PSBT → Device extracts sighash → FROST signing → CLI adds signa
 
 # Get sighash for FROST signing
 {"id":2,"method":"bitcoin_sign","params":{"psbt":"cHNidP8BAF4...","input_idx":0}}
-# Response: {"id":2,"result":{"input_idx":0,"sighash":"abc123..."}}
+# Response: {"id":2,"result":{"input_idx":0,"sighash":"abc123...","sighash_type":0}}
 ```
+
+`sighash_type` is the input's `PSBT_IN_SIGHASH_TYPE`. Only these are signed; any other value is refused with `Unsupported sighash type`, since `NONE`, `SINGLE` and `ANYONECANPAY` would leave outputs or inputs uncommitted:
+
+| Value | Meaning | Final signature |
+|-------|---------|-----------------|
+| unset (`0`) | BIP341 `SIGHASH_DEFAULT` | 64 bytes |
+| `0x01` | BIP341 `SIGHASH_ALL` | 64 bytes + `0x01` |
+| `0x21` | `ALL\|UNIFIED`, the unified opt-in sighash (Taproot key path only) | 64 bytes + `0x21` |
 
 ### Signing Flow
 
@@ -160,7 +168,7 @@ CLI parses PSBT → Device extracts sighash → FROST signing → CLI adds signa
 2. **Device** extracts Taproot sighash via `bitcoin_sign`
 3. **CLI** coordinates FROST signing with `frost_commit` / `frost_sign`
 4. **CLI** aggregates signature shares from all participants
-5. **CLI** adds final Schnorr signature to PSBT
+5. **CLI** adds final Schnorr signature to PSBT, appending `sighash_type` as the hash type byte when it is not `0`
 
 The device never sees the full private key - only its threshold share participates in signing.
 

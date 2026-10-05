@@ -303,7 +303,13 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
     }
 
     uint8_t sighash[32];
-    if (psbt_get_sighash(req->psbt, req->input_idx, sighash) != 0) {
+    uint8_t sighash_type;
+    int ret = psbt_get_sighash(req->psbt, req->input_idx, sighash, &sighash_type);
+    if (ret == PSBT_ERR_SIGHASH_TYPE) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Unsupported sighash type");
+        return;
+    }
+    if (ret != 0) {
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");
         return;
     }
@@ -311,8 +317,9 @@ static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) 
     char hex[65];
     bytes_to_hex(sighash, 32, hex, sizeof(hex));
 
-    char result[128];
-    snprintf(result, sizeof(result), "{\"input_idx\":%zu,\"sighash\":\"%s\"}", req->input_idx, hex);
+    char result[160];
+    snprintf(result, sizeof(result), "{\"input_idx\":%zu,\"sighash\":\"%s\",\"sighash_type\":%u}",
+             req->input_idx, hex, (unsigned)sighash_type);
     protocol_success(resp, req->id, result);
 }
 
