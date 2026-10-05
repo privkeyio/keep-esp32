@@ -50,6 +50,7 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp);
 void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp);
 
 secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats);
+secresult_t policy_allows_raw_secure(void);
 
 secresult_t policy_evaluate_psbt_secure(const char *psbt_base64, uint64_t total_in_sats,
                                         const uint8_t *wallet_fingerprint, bool allow_high_fee,

@@ -331,10 +331,14 @@ static bool checkpoint_slot_is_empty(const session_checkpoint_slot_t *slot) {
     return slot->magic != SESSION_CHECKPOINT_MAGIC;
 }
 
+#define CHECKPOINT_FIND_IO_ERROR (-2)
+
+/* -1 only after every slot was read and none matched; a read fault is reported as
+ * CHECKPOINT_FIND_IO_ERROR, so a checkpoint is never taken to be gone when it may not be. */
 static int find_checkpoint_slot(const uint8_t *session_id) {
     const esp_partition_t *partition = storage_get_partition();
     if (!partition)
-        return -1;
+        return CHECKPOINT_FIND_IO_ERROR;
 
     for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
         session_checkpoint_slot_t slot;
@@ -342,7 +346,7 @@ static int find_checkpoint_slot(const uint8_t *session_id) {
             STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
         if (err != ESP_OK) {
-            continue;
+            return CHECKPOINT_FIND_IO_ERROR;
         }
         if (!checkpoint_slot_is_empty(&slot) &&
             ct_compare(slot.session_id, session_id, STORAGE_SESSION_ID_LEN) == 0) {
@@ -386,6 +390,9 @@ int storage_save_session_checkpoint(const uint8_t *session_id, const void *data,
     }
 
     int target_slot = find_checkpoint_slot(session_id);
+    if (target_slot == CHECKPOINT_FIND_IO_ERROR) {
+        return STORAGE_ERR_IO;
+    }
     if (target_slot < 0) {
         target_slot = find_free_checkpoint_slot();
     }
@@ -449,6 +456,9 @@ int storage_load_session_checkpoint(const uint8_t *session_id, void *data, size_
     }
 
     int slot_idx = find_checkpoint_slot(session_id);
+    if (slot_idx == CHECKPOINT_FIND_IO_ERROR) {
+        return STORAGE_ERR_IO;
+    }
     if (slot_idx < 0) {
         return STORAGE_ERR_NOT_FOUND;
     }
@@ -489,6 +499,9 @@ int storage_delete_session_checkpoint(const uint8_t *session_id) {
     }
 
     int slot_idx = find_checkpoint_slot(session_id);
+    if (slot_idx == CHECKPOINT_FIND_IO_ERROR) {
+        return STORAGE_ERR_IO;
+    }
     if (slot_idx < 0) {
         return STORAGE_ERR_NOT_FOUND;
     }
@@ -531,7 +544,10 @@ int storage_list_session_checkpoints(uint8_t session_ids[][STORAGE_SESSION_ID_LE
         size_t offset =
             STORAGE_SESSION_CHECKPOINT_OFFSET + (size_t)i * SESSION_CHECKPOINT_SLOT_SIZE;
         esp_err_t err = esp_partition_read(partition, offset, &slot, sizeof(slot));
-        if (err != ESP_OK || checkpoint_slot_is_empty(&slot)) {
+        if (err != ESP_OK) {
+            return -1;
+        }
+        if (checkpoint_slot_is_empty(&slot)) {
             continue;
         }
         memcpy(session_ids[count], slot.session_id, STORAGE_SESSION_ID_LEN);

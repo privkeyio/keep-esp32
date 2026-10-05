@@ -11,6 +11,8 @@
 #include "anti_glitch.h"
 #include "cJSON.h"
 #include "ux_interface.h"
+#include "sign_approval.h"
+#include "frost_signer.h"
 #include <secp256k1.h>
 #include <secp256k1_schnorrsig.h>
 #include <secp256k1_extrakeys.h>
@@ -175,7 +177,11 @@ int policy_save_bundle(const policy_bundle_t *bundle) {
         return POLICY_ERR_UNCONFIRMED;
     }
 
-    ret = store_bundle(bundle, &pin, pinned);
+    /* Before the new bundle can be in force, so nothing approved or started under the
+     * old policy can continue under it, even if power is lost during the update. */
+    sign_approval_clear();
+    ret = frost_signer_discard_sessions() == 0 ? store_bundle(bundle, &pin, pinned)
+                                               : POLICY_ERR_STORAGE;
     if (needs_confirm) {
         ux_report_warden_pin(ret == 0);
     }
@@ -424,11 +430,10 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     protocol_success(resp, req->id, result);
 }
 
-secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
-    if (!policy_has_bundle()) {
-        return SECRESULT_TRUE;
-    }
-
+/* Loads, verifies and parses the installed bundle's rules. TRUE with *rules NULL
+ * means a verified bundle that carries no rules. */
+static secresult_t load_rules_secure(cJSON **rules) {
+    *rules = NULL;
     ag_random_delay_us(100, 1000);
 
     policy_bundle_t bundle;
@@ -457,19 +462,66 @@ secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
     rules_str[bundle.rules_len] = '\0';
     secure_memzero(&bundle, sizeof(bundle));
 
-    cJSON *rules = cJSON_Parse(rules_str);
+    *rules = cJSON_ParseWithOpts(rules_str, NULL, 1);
     secure_memzero(rules_str, sizeof(rules_str));
+    return *rules ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED;
+}
+
+secresult_t policy_allows_raw_secure(void) {
+    if (!policy_has_bundle()) {
+        return SECRESULT_TRUE;
+    }
+
+    cJSON *rules = NULL;
+    secresult_t loaded = load_rules_secure(&rules);
+    if (!SECRESULT_IS_TRUE(loaded)) {
+        return loaded;
+    }
+    bool allowed = rules && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(rules, "allow_raw"));
+    cJSON_Delete(rules);
+    return ag_verify_condition_secure(allowed ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED);
+}
+
+/* Reads a sats limit. False when the key is present but not a whole number in range, so
+ * a malformed limit denies instead of silently not applying. Matched case-insensitively,
+ * unlike allow_raw, so a mis-cased limit still restricts rather than being ignored. */
+static bool rule_limit(const cJSON *rules, const char *key, bool *present, uint64_t *limit) {
+    const cJSON *item = cJSON_GetObjectItem(rules, key);
+    *present = item != NULL;
+    if (!item) {
+        return true;
+    }
+    if (!cJSON_IsNumber(item) || item->valuedouble < 0 ||
+        item->valuedouble >= 18446744073709551616.0) {
+        return false;
+    }
+    *limit = (uint64_t)item->valuedouble;
+    return (double)*limit == item->valuedouble;
+}
+
+secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
+    if (!policy_has_bundle()) {
+        return SECRESULT_TRUE;
+    }
+
+    cJSON *rules = NULL;
+    secresult_t loaded = load_rules_secure(&rules);
+    if (!SECRESULT_IS_TRUE(loaded)) {
+        return loaded;
+    }
     if (!rules) {
-        return SECRESULT_ERR_POLICY_DENIED;
+        return SECRESULT_TRUE;
     }
 
     ag_random_delay_us(100, 1000);
 
     secresult_t result = SECRESULT_TRUE;
 
-    cJSON *max_amount = cJSON_GetObjectItem(rules, "max_amount");
-    if (max_amount && cJSON_IsNumber(max_amount)) {
-        uint64_t limit = (uint64_t)max_amount->valuedouble;
+    uint64_t limit = 0;
+    bool present = false;
+    if (!rule_limit(rules, "max_amount", &present, &limit)) {
+        result = SECRESULT_ERR_POLICY_DENIED;
+    } else if (present) {
         ag_random_delay_us(50, 500);
         if (total_out_sats > limit) {
             ESP_LOGW(TAG, "Policy denied: amount %llu exceeds max %llu",
@@ -479,9 +531,9 @@ secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
     }
 
     if (SECRESULT_IS_TRUE(result)) {
-        cJSON *max_fee = cJSON_GetObjectItem(rules, "max_fee");
-        if (max_fee && cJSON_IsNumber(max_fee)) {
-            uint64_t limit = (uint64_t)max_fee->valuedouble;
+        if (!rule_limit(rules, "max_fee", &present, &limit)) {
+            result = SECRESULT_ERR_POLICY_DENIED;
+        } else if (present) {
             ag_random_delay_us(50, 500);
             if (fee_sats > limit) {
                 ESP_LOGW(TAG, "Policy denied: fee %llu exceeds max %llu",

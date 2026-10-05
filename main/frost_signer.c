@@ -8,6 +8,7 @@
 #include "frost.h"
 #include "session.h"
 #include "policy.h"
+#include "sign_approval.h"
 #include "hex_utils.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
@@ -289,6 +290,8 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
         return -1;
     }
 
+    secresult_t raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
+
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
         secure_memzero(policy_hash, sizeof(policy_hash));
@@ -316,6 +319,19 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to init session");
         return -1;
+    }
+
+    /* Consumed only now, so a failure setting up the session does not use up a valid
+     * approval. */
+    if (!SECRESULT_IS_TRUE(raw_ok)) {
+        secresult_t approved = ag_verify_condition_secure(
+            sign_approval_consume_secure(message, sign_approval_now_ms()));
+        if (!SECRESULT_IS_TRUE(approved)) {
+            free_session(s);
+            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN,
+                           "Message not approved by bitcoin_sign under the installed policy");
+            return -1;
+        }
     }
 
     frost_commitment_result_t commit_result;
@@ -435,6 +451,16 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
     memcpy(policy_hash_snapshot, s->policy_hash, 32);
 
     frost_sign_result_t sign_result;
+    /* The nonce is wiped once a share is released; never sign with it again. */
+    uint8_t nonce_bits = 0;
+    for (size_t i = 0; i < sizeof(s->session.our_nonce); i++) {
+        nonce_bits |= s->session.our_nonce[i];
+    }
+    if (nonce_bits == 0) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session nonce already used");
+        return;
+    }
+
     if (frost_sign_share_pure(&s->frost_state, &s->session, s->session.message,
                               s->session.message_len, &sign_result) != 0) {
         secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
@@ -461,14 +487,23 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
         return;
     }
 
+    /* The checkpoint still holds this nonce. If it cannot be removed, release nothing: a
+     * resume after a reboot could otherwise sign a second message with the same nonce. */
+    int clear_ret = session_checkpoint_clear(session_id);
+    if (clear_ret != 0 && clear_ret != STORAGE_ERR_NOT_FOUND) {
+        secure_memzero(&sign_result, sizeof(sign_result));
+        free_session(s);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to clear session checkpoint");
+        return;
+    }
+
     record_consumed_session(session_id);
 
     memcpy(s->session.sig_shares[share_idx], sign_result.sig_share, sign_result.sig_share_len);
     s->session.sig_share_lens[share_idx] = sign_result.sig_share_len;
     s->session.sig_share_indices[share_idx] = sign_result.index;
     s->session.sig_share_count++;
-
-    session_checkpoint_clear(session_id);
+    secure_memzero(s->session.our_nonce, sizeof(s->session.our_nonce));
 
     char sig_share_hex[73];
     bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len, sig_share_hex,
@@ -527,6 +562,27 @@ void frost_signer_cleanup_stale(void) {
             free_session(&sessions[i]);
         }
     }
+}
+
+int frost_signer_discard_sessions(void) {
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        if (sessions[i].active) {
+            free_session(&sessions[i]);
+        }
+    }
+    uint8_t ids[STORAGE_MAX_SESSION_CHECKPOINTS][SESSION_ID_LEN];
+    int count = session_checkpoint_list(ids, STORAGE_MAX_SESSION_CHECKPOINTS);
+    if (count < 0) {
+        return -1;
+    }
+    int ret = 0;
+    for (int i = 0; i < count; i++) {
+        int clear_ret = session_checkpoint_clear(ids[i]);
+        if (clear_ret != 0 && clear_ret != STORAGE_ERR_NOT_FOUND) {
+            ret = -1;
+        }
+    }
+    return ret;
 }
 
 void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index,

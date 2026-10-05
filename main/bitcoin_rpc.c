@@ -6,6 +6,7 @@
 #include "policy.h"
 #include "secresult.h"
 #include "hex_utils.h"
+#include "sign_approval.h"
 #include <stdbool.h>
 #include <stdio.h>
 
@@ -82,6 +83,8 @@ void bitcoin_rpc_sign(const rpc_request_t *req, rpc_response_t *resp) {
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");
         return;
     }
+
+    sign_approval_add(sighash, sign_approval_now_ms());
 
     char hex[65];
     bytes_to_hex(sighash, 32, hex, sizeof(hex));

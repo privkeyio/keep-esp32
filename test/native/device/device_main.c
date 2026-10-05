@@ -21,6 +21,7 @@
 #include "policy.h"
 #include "protocol.h"
 #include "random_utils.h"
+#include "sign_approval.h"
 #include "storage.h"
 #include "ux_interface.h"
 
@@ -80,29 +81,81 @@ int storage_load_metadata(const char *group, group_metadata_t *metadata) {
     return -1;
 }
 
+/* Session checkpoints live in a flash partition on the device; here they are in memory
+ * so frost_session_resume runs exactly as it does there. */
+static struct {
+    uint8_t id[STORAGE_SESSION_ID_LEN];
+    uint8_t data[STORAGE_CHECKPOINT_MAX_SIZE];
+    size_t len;
+    bool used;
+} checkpoints[STORAGE_MAX_SESSION_CHECKPOINTS];
+
+static int find_checkpoint(const uint8_t *id) {
+    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
+        if (checkpoints[i].used && memcmp(checkpoints[i].id, id, STORAGE_SESSION_ID_LEN) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 int storage_save_session_checkpoint(const uint8_t *id, const void *d, size_t l) {
-    (void)id;
-    (void)d;
-    (void)l;
-    return -1;
+    int i = find_checkpoint(id);
+    for (int j = 0; i < 0 && j < STORAGE_MAX_SESSION_CHECKPOINTS; j++) {
+        if (!checkpoints[j].used) {
+            i = j;
+        }
+    }
+    if (i < 0 || l > STORAGE_CHECKPOINT_MAX_SIZE) {
+        return -1;
+    }
+    memcpy(checkpoints[i].id, id, STORAGE_SESSION_ID_LEN);
+    memcpy(checkpoints[i].data, d, l);
+    checkpoints[i].len = l;
+    checkpoints[i].used = true;
+    return 0;
 }
+
 int storage_load_session_checkpoint(const uint8_t *id, void *d, size_t l) {
-    (void)id;
-    (void)d;
-    (void)l;
-    return -1;
+    int i = find_checkpoint(id);
+    if (i < 0 || checkpoints[i].len != l) {
+        return -1;
+    }
+    memcpy(d, checkpoints[i].data, l);
+    return 0;
 }
+
+static bool fail_next_checkpoint_delete = false;
+
 int storage_delete_session_checkpoint(const uint8_t *id) {
-    (void)id;
+    if (fail_next_checkpoint_delete) {
+        fail_next_checkpoint_delete = false;
+        return -1;
+    }
+    int i = find_checkpoint(id);
+    if (i < 0) {
+        return STORAGE_ERR_NOT_FOUND;
+    }
+    memset(&checkpoints[i], 0, sizeof(checkpoints[i]));
     return 0;
 }
+
 int storage_list_session_checkpoints(uint8_t ids[][STORAGE_SESSION_ID_LEN], int m) {
-    (void)ids;
-    (void)m;
-    return 0;
+    int n = 0;
+    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS && n < m; i++) {
+        if (checkpoints[i].used) {
+            memcpy(ids[n++], checkpoints[i].id, STORAGE_SESSION_ID_LEN);
+        }
+    }
+    return n;
 }
+
 int storage_count_session_checkpoints(void) {
-    return 0;
+    int n = 0;
+    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
+        n += checkpoints[i].used;
+    }
+    return n;
 }
 
 #define PARTITION_SIZE 65536
@@ -311,6 +364,13 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
         /* Power lost after the sector erase and before the write completes. */
         fail_next_flash_write = true;
         protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_reboot_signer") == 0) {
+        /* RAM sessions are lost on a reboot; checkpoints in flash are not. */
+        frost_signer_cleanup();
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_fail_next_checkpoint_delete") == 0) {
+        fail_next_checkpoint_delete = true;
+        protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_cut_before_pin_raise") == 0) {
         /* Power lost after the bundle is written and before the pin is raised. */
         fail_next_pin_write = true;
@@ -336,6 +396,10 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
         } else {
             protocol_error(resp, id, PROTOCOL_ERR_PARAMS, "bad bundle");
         }
+    } else if (strcmp(m, "test_advance_clock") == 0 && params) {
+        cJSON *ms = cJSON_GetObjectItem(params, "ms");
+        sign_approval_test_advance_ms(cJSON_IsNumber(ms) ? (uint32_t)ms->valuedouble : 0);
+        protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_corrupt_policy") == 0) {
         policy_flash[sizeof(policy_bundle_t) - 1] ^= 0x01;
         protocol_success(resp, id, "{\"ok\":true}");
@@ -409,6 +473,9 @@ int main(void) {
                 break;
             case RPC_METHOD_FROST_SIGN:
                 frost_sign(req.group, req.session_id, req.commitments, &resp);
+                break;
+            case RPC_METHOD_SESSION_RESUME:
+                frost_session_resume(req.session_id, &resp);
                 break;
             case RPC_METHOD_BITCOIN_PARSE:
                 bitcoin_rpc_parse(&req, &resp);

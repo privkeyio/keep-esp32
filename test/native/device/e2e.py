@@ -104,7 +104,7 @@ class Warden:
         self.pubkey = point_mul(G, int.from_bytes(self.seckey, "big"))[0].to_bytes(32, "big")
 
     def bundle(self, rules, created_at, rules_len=None, tamper=False):
-        body = json.dumps(rules).encode()
+        body = rules if isinstance(rules, bytes) else json.dumps(rules).encode()
         head = struct.pack("<B32s32sI", 1, self.pubkey, hashlib.sha256(body).digest(),
                            len(body) if rules_len is None else rules_len)
         unsigned = head + body.ljust(self.RULES_MAX, b"\0") + struct.pack("<Q", created_at)
@@ -151,7 +151,14 @@ class Device:
         self.proc.wait(timeout=10)
 
 
-def frost_sign(build, devices, group, message):
+def frost_sign(build, devices, group, message, psbt=None):
+    """Signs as the host does. With a PSBT, every signer approves it with bitcoin_sign
+    first, since each device enforces its own policy."""
+    if psbt is not None:
+        for d in devices:
+            r = d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
+            if bytes.fromhex(r["sighash"]) != message:
+                raise RuntimeError("device computed a different sighash")
     session = secrets.token_hex(32)
     commits = {}
     for d in devices:
@@ -379,6 +386,170 @@ def policy_pinning(build):
     d.close()
 
 
+def signing_gate(build):
+    devices, group33 = setup(build)
+    xonly = group33[1:]
+    a, b = devices
+    warden = Warden()
+    for d in devices:
+        d.rpc("test_set_confirm", {"approve": True})
+        d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 100)})
+
+    def psbt_for(amount):
+        p = a.rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": amount})["psbt"]
+        return p, bytes.fromhex(a.rpc("bitcoin_sign", {"psbt": p, "input_idx": 0})["sighash"])
+
+    def commit(d, message):
+        return d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
+                                      "message": message.hex()})
+
+    expect_error("with a policy, a raw message is refused",
+                 lambda: commit(a, secrets.token_bytes(32)), "not approved")
+
+    psbt, sighash = psbt_for(40000)
+    sig = frost_sign(build, devices, "g", sighash, psbt)
+    check("a PSBT within policy is signed by both devices and verifies",
+          bip340_verify(xonly, sighash, sig))
+    expect_error("the same sighash cannot be signed twice from one approval",
+                 lambda: commit(a, sighash), "not approved")
+
+    unpolicied = Device(os.path.join(build, "keep_device"), "plain")
+    over = unpolicied.rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": 100000})["psbt"]
+    over_sighash = bytes.fromhex(unpolicied.rpc("bitcoin_sign", {"psbt": over, "input_idx": 0})["sighash"])
+    unpolicied.close()
+    expect_error("bitcoin_sign refuses a PSBT over the policy limit",
+                 lambda: a.rpc("bitcoin_sign", {"psbt": over, "input_idx": 0}), "Policy denied")
+    expect_error("its sighash sent straight to frost_commit is refused",
+                 lambda: commit(a, over_sighash), "not approved")
+
+    psbt, sighash = psbt_for(40500)
+    expect_error("a commit that fails before the commitment",
+                 lambda: a.rpc("frost_commit", {"group": "missing", "session_id": secrets.token_hex(32),
+                                                "message": sighash.hex()}), "Share not found")
+    check("does not use up the approval", "commitment" in commit(a, sighash))
+
+    psbt, sighash = psbt_for(41000)
+    a.rpc("test_advance_clock", {"ms": 120001})
+    expect_error("an approval expires after two minutes", lambda: commit(a, sighash), "not approved")
+
+    psbt, sighash = psbt_for(42000)
+    a.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 200)})
+    expect_error("installing a policy drops earlier approvals", lambda: commit(a, sighash), "not approved")
+
+    session = secrets.token_hex(32)
+    raw = secrets.token_bytes(32)
+    plain = Device(os.path.join(build, "keep_device"), "resume")
+    plain.rpc("import_share", {"group": "g", "share": a.share})
+    plain.rpc("frost_commit", {"group": "g", "session_id": session, "message": raw.hex()})
+    plain.rpc("test_set_confirm", {"approve": True})
+    plain.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 100)})
+    expect_error("the open session cannot be signed once a policy is installed",
+                 lambda: plain.rpc("frost_sign", {"group": "g", "session_id": session,
+                                                  "commitments": ""}), "")
+    expect_error("and cannot be resumed from its checkpoint under the new policy",
+                 lambda: plain.rpc("frost_session_resume", {"session_id": session}), "")
+    plain.close()
+
+    a.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "ALLOW_RAW": True}, 210)})
+    expect_error("allow_raw is matched case-sensitively",
+                 lambda: commit(a, secrets.token_bytes(32)), "not approved")
+    a.rpc("policy_update", {"bundle": warden.bundle(b'{"max_amount": 50000, "allow_raw": true} x', 220)})
+    expect_error("rules with trailing data are refused rather than partly read",
+                 lambda: commit(a, secrets.token_bytes(32)), "not approved")
+    expect_error("and deny bitcoin_sign", lambda: psbt_for(30000), "Policy denied")
+
+    b_psbt = b.rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": 30000})["psbt"]
+    b_sign = lambda: b.rpc("bitcoin_sign", {"psbt": b_psbt, "input_idx": 0})
+    b.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 999999}, 225)})
+    check("the PSBT used below passes a sane limit", "sighash" in b_sign())
+    for i, (label, rules) in enumerate([("a non-number limit", {"max_amount": "999999"}),
+                                        ("a negative limit", {"max_amount": -1}),
+                                        ("a fractional limit", {"max_amount": 999999.5})]):
+        b.rpc("policy_update", {"bundle": warden.bundle(rules, 230 + i)})
+        expect_error(f"{label} denies instead of being ignored", b_sign, "Policy denied")
+    b.rpc("policy_update", {"bundle": warden.bundle({"MAX_AMOUNT": 1}, 280)})
+    expect_error("a mis-cased limit key still restricts", b_sign, "Policy denied")
+    b.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 290)})
+
+    for d in devices:
+        d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "allow_raw": True}, 300)})
+    msg = secrets.token_bytes(32)
+    check("a policy with allow_raw lets a raw message through",
+          bip340_verify(xonly, msg, frost_sign(build, devices, "g", msg)))
+    for d in devices:
+        d.close()
+
+
+def session_safety(build):
+    keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), "even"]))
+    share = keys["shares"][0]["share"]
+    warden = Warden()
+
+    d = Device(os.path.join(build, "keep_device"), "discard")
+    d.rpc("import_share", {"group": "g", "share": share})
+    d.rpc("test_set_confirm", {"approve": True})
+    session = secrets.token_hex(32)
+    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": secrets.token_bytes(32).hex()})
+    d.rpc("test_fail_next_checkpoint_delete")
+    expect_error("a policy update that cannot discard old sessions is refused",
+                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 100)}), "Storage error")
+    check("and installs nothing", d.rpc("policy_get")["has_policy"] is False)
+    d.close()
+
+    d = Device(os.path.join(build, "keep_device"), "cut")
+    d.rpc("import_share", {"group": "g", "share": share})
+    d.rpc("test_set_confirm", {"approve": True})
+    d.rpc("policy_update", {"bundle": warden.bundle({"allow_raw": True}, 100)})
+    session = secrets.token_hex(32)
+    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": secrets.token_bytes(32).hex()})
+    d.rpc("test_cut_before_pin_raise")
+    expect_error("power lost before the pin is raised", lambda: d.rpc(
+        "policy_update", {"bundle": warden.bundle({"max_amount": 1}, 200)}), "Storage error")
+    check("the stricter policy is already in force", d.rpc("policy_get")["created_at"] == 200)
+    expect_error("a session from the looser policy cannot be resumed after the cut",
+                 lambda: d.rpc("frost_session_resume", {"session_id": session}), "")
+    d.close()
+
+    a = Device(os.path.join(build, "keep_device"), "resume-a")
+    a.rpc("import_share", {"group": "g", "share": share})
+    a.index, a.share = keys["shares"][0]["index"], share
+    b = Device(os.path.join(build, "keep_device"), "resume-b")
+    b.rpc("import_share", {"group": "g", "share": keys["shares"][2]["share"]})
+    b.index, b.share = keys["shares"][2]["index"], keys["shares"][2]["share"]
+    session = secrets.token_hex(32)
+    msg = secrets.token_bytes(32)
+    ca = a.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()})["commitment"]
+    cb = b.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()})["commitment"]
+    a.rpc("test_reboot_signer")
+    check("a session survives a reboot through its checkpoint",
+          a.rpc("frost_session_resume", {"session_id": session}).get("resumed") is True)
+    sa = a.rpc("frost_sign", {"group": "g", "session_id": session, "commitments": cb})["signature_share"]
+    sb = b.rpc("frost_sign", {"group": "g", "session_id": session, "commitments": ca})["signature_share"]
+    args = [os.path.join(build, "keep_device_aggregate"), msg.hex(), a.share, ca, sa, b.share, cb, sb]
+    sig = bytes.fromhex(subprocess.check_output(args, text=True).strip())
+    check("and the resumed session signs a valid BIP340 signature",
+          bip340_verify(bytes.fromhex(keys["group33"])[1:], msg, sig))
+    a.close()
+    b.close()
+
+    d = Device(os.path.join(build, "keep_device"), "nonce")
+    d.rpc("import_share", {"group": "g", "share": share})
+    other = Device(os.path.join(build, "keep_device"), "peer")
+    other.rpc("import_share", {"group": "g", "share": keys["shares"][2]["share"]})
+    session = secrets.token_hex(32)
+    msg = secrets.token_bytes(32).hex()
+    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg})
+    peer = other.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg})
+    d.rpc("test_fail_next_checkpoint_delete")
+    expect_error("a share is not released if its checkpoint cannot be cleared",
+                 lambda: d.rpc("frost_sign", {"group": "g", "session_id": session,
+                                              "commitments": peer["commitment"]}), "checkpoint")
+    expect_error("nor returned on a retry", lambda: d.rpc(
+        "frost_sign", {"group": "g", "session_id": session, "commitments": peer["commitment"]}), "")
+    d.close()
+    other.close()
+
+
 def regtest(build, knots_bin):
     datadir = tempfile.mkdtemp(prefix="keep-e2e-")
     rpcport, p2pport = free_port(), free_port()
@@ -421,6 +592,10 @@ def regtest(build, knots_bin):
         mine(155, waddr)
         devices, group33 = setup(build)
         xonly = group33[1:].hex()
+        warden = Warden()
+        for d in devices:
+            d.rpc("test_set_confirm", {"approve": True})
+            d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 200000000}, 100)})
         addr = cli("deriveaddresses", cli("getdescriptorinfo", f"rawtr({xonly})")["descriptor"])[0]
         for sighash_type in (None, 0x21):
             txid = cli("sendtoaddress", addr, "1.0")
@@ -434,14 +609,14 @@ def regtest(build, knots_bin):
             if sighash_type is not None:
                 psbt = devices[0].rpc("test_set_sighash", {"psbt": psbt, "sighash": sighash_type})["psbt"]
             r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
-            sig = frost_sign(build, devices, "g", bytes.fromhex(r["sighash"]))
+            sig = frost_sign(build, devices, "g", bytes.fromhex(r["sighash"]), psbt)
             if r["sighash_type"]:
                 sig += bytes([r["sighash_type"]])
             final = devices[0].rpc("test_finalize", {"psbt": psbt, "witness_sig": sig.hex()})["hex"]
             spend = cli("sendrawtransaction", final)
             mine(1, waddr)
             conf = cli("getrawtransaction", spend, "true")["confirmations"]
-            check(f"regtest: FROST spend with sighash type {r['sighash_type']:#x} mined", conf == 1)
+            check(f"regtest: FROST spend under a policy, sighash type {r['sighash_type']:#x}, mined", conf == 1)
     finally:
         for d in devices:
             d.close()
@@ -457,6 +632,8 @@ def main():
     build = sys.argv[1]
     offline(build)
     policy_pinning(build)
+    signing_gate(build)
+    session_safety(build)
     if os.environ.get("KNOTS_BIN"):
         regtest(build, os.environ["KNOTS_BIN"])
     print("e2e: all checks passed")
