@@ -26,6 +26,7 @@ int ui_screenshot(const char *path);
 typedef struct ui_call ui_call_t;
 ui_call_t *ui_call_start(void *(*fn)(void *), void *arg);
 bool ui_call_done(void *call);
+bool ui_sem_waiting(void *unused);
 void *ui_call_join(ui_call_t *call);
 
 #endif

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Warden key prompt, end to end on a real device, with no one touching it.
 
-Needs firmware built with CONFIG_KEEP_UI_TEST (sdkconfig.ui-test) on an erased
-test device: the device taps its own screen when asked over serial.
+Needs firmware built with CONFIG_KEEP_UI_TEST on an erased test device, which
+taps its own screen when asked over serial. Never flash it on a device with keys:
+
+  idf.py -B build-uitest -D SDKCONFIG=build-uitest/sdkconfig \
+      -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.ui-test" build
 
   python3 test/hardware/ui_e2e.py [--port /dev/ttyACM0] [--with-timeout]
 """

@@ -17,12 +17,36 @@ static const char *shot_dir = NULL;
         if (!(cond)) {                     \
             printf("    FAIL: %s\n", msg); \
             failures++;                    \
+            abandon_call();                \
             return;                        \
         }                                  \
     } while (0)
 #define PASS() printf("    PASS\n")
 
 #define PIN_TIMEOUT_MS 120000
+
+static ui_call_t *active_call = NULL;
+
+/* Lets a prompt that was never answered time out, so a failed check cannot leave a
+ * thread waiting on the shared decision semaphore, and a missed tap fails instead of
+ * hanging the run. */
+static bool drain_call(ui_call_t *call) {
+    for (int i = 0; i < 3 && !ui_settle(ui_call_done, call); i++) {
+        ui_run(PIN_TIMEOUT_MS + 1000);
+    }
+    if (!ui_call_done(call)) {
+        printf("    FAIL: a prompt never returned\n");
+        exit(1);
+    }
+    return (intptr_t)ui_call_join(call) != 0;
+}
+
+static void abandon_call(void) {
+    if (active_call) {
+        drain_call(active_call);
+        active_call = NULL;
+    }
+}
 
 static void shot(const char *name) {
     if (!shot_dir) {
@@ -51,8 +75,12 @@ static bool settle_state(ui_state_t state) {
 }
 
 static bool finish(ui_call_t *call) {
-    ui_settle(ui_call_done, call);
-    bool approved = (intptr_t)ui_call_join(call) != 0;
+    if (!ui_settle(ui_call_done, call)) {
+        printf("    FAIL: the prompt did not answer\n");
+        failures++;
+    }
+    bool approved = drain_call(call);
+    active_call = NULL;
     ui_run(50);
     return approved;
 }
@@ -60,8 +88,12 @@ static bool finish(ui_call_t *call) {
 static ui_call_t *start_prompt(void) {
     ux_get_backend()->show_idle("keep", false, 1);
     ui_run(1000);
-    ui_call_t *call = ui_call_start(confirm_pin, NULL);
-    return settle_state(UI_STATE_CONFIRM_PIN) ? call : NULL;
+    active_call = ui_call_start(confirm_pin, NULL);
+    if (!settle_state(UI_STATE_CONFIRM_PIN) || !ui_settle(ui_sem_waiting, NULL)) {
+        abandon_call();
+        return NULL;
+    }
+    return active_call;
 }
 
 static void test_reject_shows_result_until_ok(void) {

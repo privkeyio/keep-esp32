@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "ui_test.h"
+#include "ui_find.h"
 #include "ux_display.h"
 #include "bsp/esp-bsp.h"
 #include "cJSON.h"
@@ -49,39 +50,6 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     data->state = touch_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
-static lv_obj_t *find_label(lv_obj_t *obj, const char *text) {
-    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
-        return NULL;
-    }
-    if (lv_obj_check_type(obj, &lv_label_class) && strcmp(lv_label_get_text(obj), text) == 0) {
-        return obj;
-    }
-    for (uint32_t i = 0; i < lv_obj_get_child_count(obj); i++) {
-        lv_obj_t *found = find_label(lv_obj_get_child(obj, (int32_t)i), text);
-        if (found) {
-            return found;
-        }
-    }
-    return NULL;
-}
-
-/* The center of the clickable object a label belongs to, as a finger would aim. */
-static bool locate(const char *text, int32_t *x, int32_t *y) {
-    lv_obj_update_layout(lv_screen_active());
-    lv_obj_t *obj = find_label(lv_screen_active(), text);
-    while (obj && !lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE)) {
-        obj = lv_obj_get_parent(obj);
-    }
-    if (!obj) {
-        return false;
-    }
-    lv_area_t area;
-    lv_obj_get_coords(obj, &area);
-    *x = (area.x1 + area.x2) / 2;
-    *y = (area.y1 + area.y2) / 2;
-    return true;
-}
-
 static void enter(tap_phase_t next) {
     phase = next;
     phase_since = lv_tick_get();
@@ -106,7 +74,7 @@ static void tap_tick(lv_timer_t *timer) {
         }
         break;
     case TAP_FIND:
-        if (locate(current.text, &touch_x, &touch_y)) {
+        if (ui_find_clickable(current.text, &touch_x, &touch_y)) {
             enter(TAP_WAIT);
         } else if (elapsed >= current.timeout_ms) {
             missed("never appeared");
@@ -116,7 +84,7 @@ static void tap_tick(lv_timer_t *timer) {
         if (elapsed < current.after_ms) {
             break;
         }
-        if (!locate(current.text, &touch_x, &touch_y)) {
+        if (!ui_find_clickable(current.text, &touch_x, &touch_y)) {
             missed("was gone before the tap");
             break;
         }

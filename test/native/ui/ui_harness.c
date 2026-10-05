@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "touch_input.h"
+#include "ui_find.h"
 #include "lvgl.h"
 #include "src/libs/lodepng/lodepng.h"
 #include <pthread.h>
@@ -21,6 +22,7 @@
 static pthread_mutex_t clock_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t clock_cv = PTHREAD_COND_INITIALIZER;
 static uint32_t now_ms = 0;
+static int sem_waiters = 0;
 
 static pthread_mutex_t display_mu;
 static uint16_t framebuffer[HEIGHT][WIDTH];
@@ -55,12 +57,14 @@ SemaphoreHandle_t xSemaphoreCreateBinary(void) {
 BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, TickType_t ticks) {
     pthread_mutex_lock(&clock_mu);
     uint64_t deadline = (uint64_t)now_ms + ticks;
+    sem_waiters++;
     while (!sem->given && (ticks == portMAX_DELAY || now_ms < deadline)) {
         if (ticks == 0) {
             break;
         }
         pthread_cond_wait(&clock_cv, &clock_mu);
     }
+    sem_waiters--;
     BaseType_t got = sem->given ? pdTRUE : pdFALSE;
     sem->given = false;
     pthread_mutex_unlock(&clock_mu);
@@ -191,42 +195,22 @@ void ui_tap(int x, int y) {
     ui_run(60);
 }
 
-static lv_obj_t *find_label(lv_obj_t *obj, const char *text) {
-    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
-        return NULL;
-    }
-    if (lv_obj_check_type(obj, &lv_label_class) && strcmp(lv_label_get_text(obj), text) == 0) {
-        return obj;
-    }
-    for (uint32_t i = 0; i < lv_obj_get_child_count(obj); i++) {
-        lv_obj_t *found = find_label(lv_obj_get_child(obj, (int32_t)i), text);
-        if (found) {
-            return found;
-        }
-    }
-    return NULL;
-}
-
 bool ui_find_text(const char *text, int *x, int *y) {
+    int32_t cx = 0;
+    int32_t cy = 0;
     bsp_display_lock(0);
-    lv_obj_update_layout(lv_screen_active());
-    lv_obj_t *obj = find_label(lv_screen_active(), text);
-    while (obj && !lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE)) {
-        obj = lv_obj_get_parent(obj);
-    }
-    if (obj && x && y) {
-        lv_area_t area;
-        lv_obj_get_coords(obj, &area);
-        *x = (area.x1 + area.x2) / 2;
-        *y = (area.y1 + area.y2) / 2;
-    }
+    bool found = ui_find_clickable(text, &cx, &cy);
     bsp_display_unlock();
-    return obj != NULL;
+    if (found && x && y) {
+        *x = (int)cx;
+        *y = (int)cy;
+    }
+    return found;
 }
 
 bool ui_has_text(const char *text) {
     bsp_display_lock(0);
-    bool found = find_label(lv_screen_active(), text) != NULL;
+    bool found = ui_find_label(lv_screen_active(), text) != NULL;
     bsp_display_unlock();
     return found;
 }
@@ -290,6 +274,14 @@ ui_call_t *ui_call_start(void *(*fn)(void *), void *arg) {
     call->arg = arg;
     pthread_create(&call->thread, NULL, call_main, call);
     return call;
+}
+
+bool ui_sem_waiting(void *unused) {
+    (void)unused;
+    pthread_mutex_lock(&clock_mu);
+    bool waiting = sem_waiters > 0;
+    pthread_mutex_unlock(&clock_mu);
+    return waiting;
 }
 
 bool ui_call_done(void *call) {

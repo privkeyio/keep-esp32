@@ -27,7 +27,8 @@ RUN . $IDF_PATH/export.sh && \
     cd keep-esp32 && \
     idf.py set-target esp32s3 && \
     idf.py build && \
-    ! grep -q '^CONFIG_KEEP_UI_TEST=y' sdkconfig && \
+    test -f build/config/sdkconfig.h && \
+    ! grep -q '^#define CONFIG_KEEP_UI_TEST 1' build/config/sdkconfig.h && \
     mkdir -p /out && \
     cp build/keep.bin /out/ && \
     cp build/bootloader/bootloader.bin /out/ && \

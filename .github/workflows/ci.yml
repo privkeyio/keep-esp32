@@ -139,6 +139,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libcjson-dev
 
       - name: Run native tests
+        timeout-minutes: 15
         env:
           UI_SHOT_DIR: ${{ github.workspace }}/ui-screens
         run: |
