@@ -28,6 +28,7 @@ bool storage_crypto_is_initialized(void);
 void storage_crypto_clear(void);
 
 int storage_crypto_check_rate_limit(void);
+int storage_crypto_begin_attempt(void);
 void storage_crypto_record_attempt(bool success);
 
 uint8_t storage_crypto_get_attempts(void);

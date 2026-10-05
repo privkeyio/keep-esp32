@@ -164,6 +164,36 @@ static int test_successful_load_resets_pin_attempts(void) {
     return 0;
 }
 
+static int test_load_marks_attempt_before_decrypt(void) {
+    TEST("share load marks the PIN attempt before decrypting, and refuses if it cannot");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+    if (storage_save_share("grp", "deadbeef") != 0)
+        FAIL("save failed");
+
+    char loaded[128];
+    mock_begin_attempt_calls = 0;
+    mock_decrypt_saw_begin = false;
+    if (storage_load_share("grp", loaded, sizeof(loaded)) != 0)
+        FAIL("load failed");
+    if (mock_begin_attempt_calls != 1 || !mock_decrypt_saw_begin)
+        FAIL("decrypt ran without the attempt marked first");
+
+    mock_begin_attempt_calls = 0;
+    mock_decrypt_saw_begin = false;
+    mock_begin_attempt_result = -1;
+    int ret = storage_load_share("grp", loaded, sizeof(loaded));
+    mock_begin_attempt_result = 0;
+    if (ret != STORAGE_ERR_IO)
+        FAIL("an attempt that cannot be recorded must not decrypt");
+    if (mock_decrypt_saw_begin)
+        FAIL("decrypt ran although the attempt was not recorded");
+
+    PASS();
+    return 0;
+}
+
 static int test_save_load_roundtrip(void) {
     TEST("save/load roundtrip");
     reset_flash();
@@ -933,6 +963,7 @@ int main(void) {
     failures += test_init_no_partition();
     failures += test_save_load_roundtrip();
     failures += test_successful_load_resets_pin_attempts();
+    failures += test_load_marks_attempt_before_decrypt();
     failures += test_save_overwrite();
     failures += test_delete();
     failures += test_delete_nonexistent();

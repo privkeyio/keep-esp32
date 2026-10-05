@@ -339,6 +339,7 @@ static int test_hmac_tamper_detection(void) {
     state1.failed_attempts = 5;
     state1.lockout_deadline = 12345;
     state1.bricked = 0;
+    state1.pending = 0;
     memset(state1.reserved, 0, sizeof(state1.reserved));
 
     memcpy(&state2, &state1, sizeof(state1));
@@ -411,6 +412,98 @@ static int test_unlock_refused_without_persistent_state(void) {
     return 0;
 }
 
+static void simulate_reboot(void) {
+    pin_state_loaded = false;
+    se_available = false;
+}
+
+static int test_pending_attempt_survives_reset(void) {
+    TEST("a reset between begin_attempt and the result counts as a failed attempt");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    if (storage_crypto_begin_attempt() != 0)
+        FAIL("begin_attempt failed");
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("the interrupted attempt was not counted");
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("the pending mark was not cleared once counted");
+    PASS();
+    return 0;
+}
+
+static int test_pending_cleared_by_result(void) {
+    TEST("a completed attempt clears the pending mark");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_begin_attempt();
+    storage_crypto_record_attempt(true);
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("success left a failure behind");
+    storage_crypto_begin_attempt();
+    storage_crypto_record_attempt(false);
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("a failure was counted twice or not at all");
+    PASS();
+    return 0;
+}
+
+static int test_correct_pin_on_last_attempt(void) {
+    TEST("the right PIN on the last allowed attempt does not brick");
+    reset_test_state();
+    storage_crypto_set_attempts_for_test(PIN_MAX_ATTEMPTS - 1);
+    pin_state.lockout_deadline = 0;
+    storage_crypto_begin_attempt();
+    storage_crypto_record_attempt(true);
+    if (storage_crypto_is_bricked() || storage_crypto_get_attempts() != 0)
+        FAIL("bricked or not reset by a correct PIN");
+    PASS();
+    return 0;
+}
+
+static int test_lockout_clamped_after_reboot(void) {
+    TEST("a lockout deadline from before a reboot is capped at one delay");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_set_attempts_for_test(10);
+    pin_state.lockout_deadline = get_time_ms() + 30ULL * 24 * 3600 * 1000;
+    save_pin_state();
+    simulate_reboot();
+    uint32_t remaining = storage_crypto_get_delay_remaining();
+    if (remaining == 0 || remaining > get_delay_ms(10))
+        FAIL("deadline not clamped to a single delay");
+    PASS();
+    return 0;
+}
+
+static int test_state_blob_hmac(void) {
+    TEST("a stored state blob is accepted only with its magic and a matching HMAC");
+    pin_state_blob_t blob;
+    memset(&blob, 0, sizeof(blob));
+    memcpy(blob.state.magic, PIN_STATE_MAGIC, 4);
+    blob.state.failed_attempts = 7;
+    if (compute_state_hmac(&blob.state, blob.hmac) != 0)
+        FAIL("hmac failed");
+    pin_state_t out;
+    if (pin_state_from_blob(&blob, &out) != 0 || out.failed_attempts != 7)
+        FAIL("valid blob rejected");
+    blob.state.failed_attempts = 0;
+    if (pin_state_from_blob(&blob, &out) == 0)
+        FAIL("a reset counter with the old HMAC was accepted");
+    blob.state.failed_attempts = 7;
+    blob.state.magic[0] ^= 1;
+    if (pin_state_from_blob(&blob, &out) == 0)
+        FAIL("wrong magic accepted");
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== PIN Attempt Limiting Tests ===\n\n");
 
@@ -430,6 +523,11 @@ int main(void) {
     failures += test_hmac_tamper_detection();
     failures += test_attempt_overflow_protection();
     failures += test_unlock_refused_without_persistent_state();
+    failures += test_pending_attempt_survives_reset();
+    failures += test_pending_cleared_by_result();
+    failures += test_correct_pin_on_last_attempt();
+    failures += test_lockout_clamped_after_reboot();
+    failures += test_state_blob_hmac();
 
     printf("\n");
     if (failures == 0) {

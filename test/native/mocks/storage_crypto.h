@@ -37,6 +37,14 @@ static inline int storage_crypto_check_rate_limit(void) {
 
 static int mock_record_success_calls = 0;
 static int mock_record_failure_calls = 0;
+static int mock_begin_attempt_calls = 0;
+static int mock_begin_attempt_result = 0;
+static bool mock_decrypt_saw_begin = false;
+
+static inline int storage_crypto_begin_attempt(void) {
+    mock_begin_attempt_calls++;
+    return mock_begin_attempt_result;
+}
 
 static inline void storage_crypto_record_attempt(bool success) {
     if (success) {
@@ -71,6 +79,9 @@ static inline void storage_crypto_reset_rate_limit(void) {
     mock_is_bricked = false;
     mock_record_success_calls = 0;
     mock_record_failure_calls = 0;
+    mock_begin_attempt_calls = 0;
+    mock_begin_attempt_result = 0;
+    mock_decrypt_saw_begin = false;
 }
 #endif
 
@@ -116,6 +127,7 @@ static inline int storage_crypto_decrypt(const uint8_t *ciphertext, size_t len, 
                                          const uint8_t nonce[STORAGE_CRYPTO_NONCE_SIZE],
                                          const uint8_t tag[STORAGE_CRYPTO_TAG_SIZE],
                                          uint8_t *plaintext) {
+    mock_decrypt_saw_begin = mock_begin_attempt_calls > 0;
     if (aad && aad_len > 0 && aad_len <= sizeof(mock_last_decrypt_aad)) {
         memcpy(mock_last_decrypt_aad, aad, aad_len);
         mock_last_decrypt_aad_len = aad_len;
