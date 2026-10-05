@@ -165,7 +165,7 @@ CLI parses PSBT → Device extracts sighash → FROST signing → CLI adds signa
 ### Signing Flow
 
 1. **CLI** parses PSBT and sends to device for verification
-2. **Device** extracts Taproot sighash via `bitcoin_sign`
+2. **Device** extracts Taproot sighash via `bitcoin_sign`; with a policy installed, every signing device must approve the PSBT this way before it will commit
 3. **CLI** coordinates FROST signing with `frost_commit` / `frost_sign`
 4. **CLI** aggregates signature shares from all participants
 5. **CLI** adds final Schnorr signature to PSBT, appending `sighash_type` as the hash type byte when it is not `0`
@@ -184,6 +184,10 @@ The device supports [Warden](https://github.com/privkeyio/warden) policy bundles
 2. **Policy bundle** is synced to device via `policy_update` RPC over USB
 3. **Device** verifies signature and stores bundle in flash
 4. **Before signing**, device evaluates transaction against policy rules
+
+### Signing Under a Policy
+
+With a policy installed, `frost_commit` signs only a message that `bitcoin_sign` returned on the same device after the PSBT passed the policy. Each approval is single use and expires after 120 seconds, and installing a policy discards outstanding approvals. Any other message, such as a sighash the host computed itself, is refused with `Message not approved by bitcoin_sign under the installed policy`, unless the rules set `"allow_raw": true`. Without a policy, `frost_commit` signs any 32-byte message, as before.
 
 ### Warden Key Pinning
 
@@ -218,6 +222,7 @@ A pinned device always enforces its policy. If the bundle is missing or fails it
 |------|------|-------------|
 | `max_amount` | integer | Maximum total output amount in sats |
 | `max_fee` | integer | Maximum transaction fee in sats |
+| `allow_raw` | boolean | Let `frost_commit` sign messages that did not come from `bitcoin_sign`, such as Nostr event ids |
 
 Example policy rules JSON:
 ```json

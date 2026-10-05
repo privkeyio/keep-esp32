@@ -21,6 +21,7 @@
 #include "policy.h"
 #include "protocol.h"
 #include "random_utils.h"
+#include "sign_approval.h"
 #include "storage.h"
 #include "ux_interface.h"
 
@@ -336,6 +337,10 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
         } else {
             protocol_error(resp, id, PROTOCOL_ERR_PARAMS, "bad bundle");
         }
+    } else if (strcmp(m, "test_advance_clock") == 0 && params) {
+        cJSON *ms = cJSON_GetObjectItem(params, "ms");
+        sign_approval_test_advance_ms(cJSON_IsNumber(ms) ? (uint32_t)ms->valuedouble : 0);
+        protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_corrupt_policy") == 0) {
         policy_flash[sizeof(policy_bundle_t) - 1] ^= 0x01;
         protocol_success(resp, id, "{\"ok\":true}");

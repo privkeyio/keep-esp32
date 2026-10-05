@@ -8,6 +8,7 @@
 #include "frost.h"
 #include "session.h"
 #include "policy.h"
+#include "sign_approval.h"
 #include "hex_utils.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
@@ -287,6 +288,16 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
         secure_memzero(policy_hash, sizeof(policy_hash));
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
         return -1;
+    }
+
+    if (has_policy) {
+        secresult_t raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
+        if (!SECRESULT_IS_TRUE(raw_ok) && !sign_approval_consume(message, sign_approval_now_ms())) {
+            secure_memzero(policy_hash, sizeof(policy_hash));
+            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN,
+                           "Message not approved by bitcoin_sign under the installed policy");
+            return -1;
+        }
     }
 
     signing_session_t *s = alloc_session(session_id);

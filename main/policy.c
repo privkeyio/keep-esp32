@@ -11,6 +11,7 @@
 #include "anti_glitch.h"
 #include "cJSON.h"
 #include "ux_interface.h"
+#include "sign_approval.h"
 #include <secp256k1.h>
 #include <secp256k1_schnorrsig.h>
 #include <secp256k1_extrakeys.h>
@@ -369,6 +370,7 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
         return;
     }
 
+    sign_approval_clear();
     protocol_success(resp, req->id, "{\"ok\":true}");
 }
 
@@ -424,11 +426,10 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
     protocol_success(resp, req->id, result);
 }
 
-secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
-    if (!policy_has_bundle()) {
-        return SECRESULT_TRUE;
-    }
-
+/* Loads, verifies and parses the installed bundle's rules. TRUE with *rules NULL
+ * means a verified bundle that carries no rules. */
+static secresult_t load_rules_secure(cJSON **rules) {
+    *rules = NULL;
     ag_random_delay_us(100, 1000);
 
     policy_bundle_t bundle;
@@ -457,10 +458,38 @@ secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
     rules_str[bundle.rules_len] = '\0';
     secure_memzero(&bundle, sizeof(bundle));
 
-    cJSON *rules = cJSON_Parse(rules_str);
+    *rules = cJSON_Parse(rules_str);
     secure_memzero(rules_str, sizeof(rules_str));
+    return *rules ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED;
+}
+
+secresult_t policy_allows_raw_secure(void) {
+    if (!policy_has_bundle()) {
+        return SECRESULT_TRUE;
+    }
+
+    cJSON *rules = NULL;
+    secresult_t loaded = load_rules_secure(&rules);
+    if (!SECRESULT_IS_TRUE(loaded)) {
+        return loaded;
+    }
+    bool allowed = rules && cJSON_IsTrue(cJSON_GetObjectItem(rules, "allow_raw"));
+    cJSON_Delete(rules);
+    return ag_verify_condition_secure(allowed ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED);
+}
+
+secresult_t policy_evaluate_secure(uint64_t total_out_sats, uint64_t fee_sats) {
+    if (!policy_has_bundle()) {
+        return SECRESULT_TRUE;
+    }
+
+    cJSON *rules = NULL;
+    secresult_t loaded = load_rules_secure(&rules);
+    if (!SECRESULT_IS_TRUE(loaded)) {
+        return loaded;
+    }
     if (!rules) {
-        return SECRESULT_ERR_POLICY_DENIED;
+        return SECRESULT_TRUE;
     }
 
     ag_random_delay_us(100, 1000);

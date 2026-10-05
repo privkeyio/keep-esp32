@@ -151,7 +151,14 @@ class Device:
         self.proc.wait(timeout=10)
 
 
-def frost_sign(build, devices, group, message):
+def frost_sign(build, devices, group, message, psbt=None):
+    """Signs as the host does. With a PSBT, every signer approves it with bitcoin_sign
+    first, since each device enforces its own policy."""
+    if psbt is not None:
+        for d in devices:
+            r = d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
+            if bytes.fromhex(r["sighash"]) != message:
+                raise RuntimeError("device computed a different sighash")
     session = secrets.token_hex(32)
     commits = {}
     for d in devices:
@@ -379,6 +386,59 @@ def policy_pinning(build):
     d.close()
 
 
+def signing_gate(build):
+    devices, group33 = setup(build)
+    xonly = group33[1:]
+    a, b = devices
+    warden = Warden()
+    for d in devices:
+        d.rpc("test_set_confirm", {"approve": True})
+        d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 100)})
+
+    def psbt_for(amount):
+        p = a.rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": amount})["psbt"]
+        return p, bytes.fromhex(a.rpc("bitcoin_sign", {"psbt": p, "input_idx": 0})["sighash"])
+
+    def commit(d, message):
+        return d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
+                                      "message": message.hex()})
+
+    expect_error("with a policy, a raw message is refused",
+                 lambda: commit(a, secrets.token_bytes(32)), "not approved")
+
+    psbt, sighash = psbt_for(40000)
+    sig = frost_sign(build, devices, "g", sighash, psbt)
+    check("a PSBT within policy is signed by both devices and verifies",
+          bip340_verify(xonly, sighash, sig))
+    expect_error("the same sighash cannot be signed twice from one approval",
+                 lambda: commit(a, sighash), "not approved")
+
+    unpolicied = Device(os.path.join(build, "keep_device"), "plain")
+    over = unpolicied.rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": 100000})["psbt"]
+    over_sighash = bytes.fromhex(unpolicied.rpc("bitcoin_sign", {"psbt": over, "input_idx": 0})["sighash"])
+    unpolicied.close()
+    expect_error("bitcoin_sign refuses a PSBT over the policy limit",
+                 lambda: a.rpc("bitcoin_sign", {"psbt": over, "input_idx": 0}), "Policy denied")
+    expect_error("its sighash sent straight to frost_commit is refused",
+                 lambda: commit(a, over_sighash), "not approved")
+
+    psbt, sighash = psbt_for(41000)
+    a.rpc("test_advance_clock", {"ms": 120001})
+    expect_error("an approval expires after two minutes", lambda: commit(a, sighash), "not approved")
+
+    psbt, sighash = psbt_for(42000)
+    a.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 200)})
+    expect_error("installing a policy drops earlier approvals", lambda: commit(a, sighash), "not approved")
+
+    for d in devices:
+        d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "allow_raw": True}, 300)})
+    msg = secrets.token_bytes(32)
+    check("a policy with allow_raw lets a raw message through",
+          bip340_verify(xonly, msg, frost_sign(build, devices, "g", msg)))
+    for d in devices:
+        d.close()
+
+
 def regtest(build, knots_bin):
     datadir = tempfile.mkdtemp(prefix="keep-e2e-")
     rpcport, p2pport = free_port(), free_port()
@@ -421,6 +481,10 @@ def regtest(build, knots_bin):
         mine(155, waddr)
         devices, group33 = setup(build)
         xonly = group33[1:].hex()
+        warden = Warden()
+        for d in devices:
+            d.rpc("test_set_confirm", {"approve": True})
+            d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 200000000}, 100)})
         addr = cli("deriveaddresses", cli("getdescriptorinfo", f"rawtr({xonly})")["descriptor"])[0]
         for sighash_type in (None, 0x21):
             txid = cli("sendtoaddress", addr, "1.0")
@@ -434,14 +498,14 @@ def regtest(build, knots_bin):
             if sighash_type is not None:
                 psbt = devices[0].rpc("test_set_sighash", {"psbt": psbt, "sighash": sighash_type})["psbt"]
             r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
-            sig = frost_sign(build, devices, "g", bytes.fromhex(r["sighash"]))
+            sig = frost_sign(build, devices, "g", bytes.fromhex(r["sighash"]), psbt)
             if r["sighash_type"]:
                 sig += bytes([r["sighash_type"]])
             final = devices[0].rpc("test_finalize", {"psbt": psbt, "witness_sig": sig.hex()})["hex"]
             spend = cli("sendrawtransaction", final)
             mine(1, waddr)
             conf = cli("getrawtransaction", spend, "true")["confirmations"]
-            check(f"regtest: FROST spend with sighash type {r['sighash_type']:#x} mined", conf == 1)
+            check(f"regtest: FROST spend under a policy, sighash type {r['sighash_type']:#x}, mined", conf == 1)
     finally:
         for d in devices:
             d.close()
@@ -457,6 +521,7 @@ def main():
     build = sys.argv[1]
     offline(build)
     policy_pinning(build)
+    signing_gate(build)
     if os.environ.get("KNOTS_BIN"):
         regtest(build, os.environ["KNOTS_BIN"])
     print("e2e: all checks passed")

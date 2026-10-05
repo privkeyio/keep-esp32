@@ -227,6 +227,7 @@ if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE)
         device/device_main.c
         ${CJSON_SOURCES}
         ${MAIN_DIR}/bitcoin_rpc.c
+        ${MAIN_DIR}/sign_approval.c
         ${MAIN_DIR}/psbt.c
         ${MAIN_DIR}/psbt_fraud.c
         ${MAIN_DIR}/policy.c
@@ -268,6 +269,9 @@ if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE)
     target_link_libraries(keep_device_aggregate secp256k1)
     set_target_properties(keep_device_aggregate PROPERTIES BUILD_RPATH ${SECP_DIR}/build/src)
 endif()
+
+add_executable(test_sign_approval test_sign_approval.c ${MAIN_DIR}/sign_approval.c)
+target_include_directories(test_sign_approval PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/mocks ${MAIN_DIR})
 
 add_executable(test_anti_glitch test_anti_glitch.c ${MAIN_DIR}/anti_glitch.c)
 target_include_directories(test_anti_glitch PRIVATE
