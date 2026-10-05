@@ -315,6 +315,8 @@ def policy_pinning(build):
     d.rpc("test_boot_policy")
     d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 999999}, 420)})
     fails_closed("after a reboot raised the lagging pin, an older bundle put back in flash")
+    check("the reboot raised the pin to the installed bundle's created_at",
+          d.rpc("policy_get")["created_at"] == 450)
 
     d.rpc("test_erase_policy_sector")
     fails_closed("after an erase with no write")
