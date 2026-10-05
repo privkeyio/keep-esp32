@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "psbt.h"
 #include <wally_core.h>
@@ -160,6 +161,39 @@ static const unified_vector_t VECTORS[] = {
 
 #define NUM_VECTORS (sizeof(VECTORS) / sizeof(VECTORS[0]))
 
+/* Generated with UnifiedSignatureHash in Bitcoin Knots v29.4.2.knots20260508
+ * test/functional/test_framework/script.py, an implementation written separately
+ * from the C++. All three inputs spend distinct outputs; NULL means it refuses. */
+static const char *IDX_TX =
+    "020000000310101010101010101010101010101010101010101010101010101010101010100500000000f0ffffff11"
+    "111111111111111111111111111111111111111111111111111111111111110600000000f1ffffff12121212121212"
+    "121212121212121212121212121212121212121212121212120700000000f2ffffff02f04902000000000022512070"
+    "7070707070707070707070707070707070707070707070707070707070707090d00300000000001600147171717171"
+    "71717171717171717171717171717104030201";
+static const spent_hex_t IDX_SPENT[3] = {
+    {100000ULL, "51204040404040404040404040404040404040404040404040404040404040404040"},
+    {200001ULL, "51204141414141414141414141414141414141414141414141414141414141414141"},
+    {300002ULL, "51204242424242424242424242424242424242424242424242424242424242424242"},
+};
+static const struct {
+    size_t input_idx;
+    uint8_t hash_type;
+    const char *sighash;
+} IDX_CASES[] = {
+    {1, 0x21, "8f2b4b8c7d067ef7b0d96341a28f5b75a4c0f1ebd41c99556248f5b61dd4ff20"},
+    {1, 0x22, "0d356ee74bd36136b87d4c8f2b187c26a5f60b05361ad683d506885d594974c9"},
+    {1, 0x23, "d5c00f8558d31a597cb00849303ecf7915efd45ac384b7c3ccc1214c8552679a"},
+    {1, 0xa1, "a0b0550516419f26d3486e9e0d8d5e5054c4cb3e74f11ae57091e1a6a025c097"},
+    {1, 0xa2, "bbd721c20a47b45b1a50ae4a3b8767edfb1bb1b770661f63496715d7aaffe427"},
+    {1, 0xa3, "52c41e5b45ea6a96bed53c21b4a86ed09c73af5393c835fdf9c68eaee4681479"},
+    {2, 0x21, "3ae151d955b290b797754f2b766203224fac6171c0543bfff11a79276bb194f5"},
+    {2, 0x22, "065f65cd1c15e694fcfc95ca3117aa11af7f72164c1b7e76a8be288209666910"},
+    {2, 0x23, NULL},
+    {2, 0xa1, "6818f5b47eddea92f67606c7dc709dcea033a4e7fabbdf604c52e638fc1f5b02"},
+    {2, 0xa2, "f76d361919deb010e359c5a560c188af734c96b695944f6637abc9d708bbf7eb"},
+    {2, 0xa3, NULL},
+};
+
 typedef struct {
     struct wally_tx *tx;
     struct wally_tx_output spent[MAX_SPENT];
@@ -207,6 +241,46 @@ static int test_vectors(void) {
             FAIL("sighash mismatch");
         }
     }
+    PASS();
+    return 0;
+}
+
+static int test_nonzero_input_index(void) {
+    TEST("input index, ANYONECANPAY and SINGLE at inputs 1 and 2 match the reference");
+    struct wally_tx *tx = NULL;
+    struct wally_tx_output spent[3];
+    unsigned char scripts[3][34];
+    memset(spent, 0, sizeof(spent));
+    if (wally_tx_from_hex(IDX_TX, 0, &tx) != WALLY_OK || tx->num_inputs != 3) {
+        wally_tx_free(tx);
+        FAIL("could not load transaction");
+    }
+    for (size_t i = 0; i < 3; i++) {
+        size_t written = 0;
+        wally_hex_to_bytes(IDX_SPENT[i].script, scripts[i], sizeof(scripts[i]), &written);
+        spent[i].satoshi = IDX_SPENT[i].amount;
+        spent[i].script = scripts[i];
+        spent[i].script_len = written;
+    }
+    for (size_t i = 0; i < sizeof(IDX_CASES) / sizeof(IDX_CASES[0]); i++) {
+        uint8_t got[32], expected[32];
+        size_t written = 0;
+        int ret = psbt_unified_sighash_taproot(tx, IDX_CASES[i].input_idx, spent,
+                                               IDX_CASES[i].hash_type, got);
+        bool ok = IDX_CASES[i].sighash == NULL
+                      ? ret != 0
+                      : ret == 0 &&
+                            wally_hex_to_bytes(IDX_CASES[i].sighash, expected, 32, &written) ==
+                                WALLY_OK &&
+                            memcmp(got, expected, 32) == 0;
+        if (!ok) {
+            wally_tx_free(tx);
+            printf("    input %zu, hash type 0x%02x\n", IDX_CASES[i].input_idx,
+                   IDX_CASES[i].hash_type);
+            FAIL("does not match the reference");
+        }
+    }
+    wally_tx_free(tx);
     PASS();
     return 0;
 }
@@ -460,6 +534,7 @@ int main(void) {
     }
     int failures = 0;
     failures += test_vectors();
+    failures += test_nonzero_input_index();
     failures += test_rejects_invalid_hash_types();
     failures += test_single_without_output();
     failures += test_psbt_unified_vectors();
