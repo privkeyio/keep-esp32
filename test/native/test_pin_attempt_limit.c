@@ -24,6 +24,7 @@ typedef enum {
 
 static uint8_t mock_se_slots[SE_SLOT_COUNT][SE_SLOT_SIZE];
 static bool mock_se_available = false;
+static bool mock_se_write_fails = false;
 
 se_status_t se_init(void) {
     if (mock_se_available) {
@@ -53,6 +54,9 @@ se_status_t se_write_slot(uint8_t slot, const uint8_t *data, size_t len) {
     }
     if (slot >= SE_SLOT_COUNT || !data || len > SE_SLOT_SIZE) {
         return SE_ERR_INVALID_PARAM;
+    }
+    if (mock_se_write_fails) {
+        return SE_ERR_COMM_FAIL;
     }
     memcpy(mock_se_slots[slot], data, len);
     return SE_OK;
@@ -99,6 +103,7 @@ static void reset_test_state(void) {
     storage_crypto_reset_rate_limit();
     memset(mock_se_slots, 0, sizeof(mock_se_slots));
     mock_se_available = false;
+    host_pin_blob_status = PIN_BLOB_NOT_FOUND;
 }
 
 static int test_initial_state(void) {
@@ -339,6 +344,7 @@ static int test_hmac_tamper_detection(void) {
     state1.failed_attempts = 5;
     state1.lockout_deadline = 12345;
     state1.bricked = 0;
+    state1.pending = 0;
     memset(state1.reserved, 0, sizeof(state1.reserved));
 
     memcpy(&state2, &state1, sizeof(state1));
@@ -377,6 +383,180 @@ static int test_attempt_overflow_protection(void) {
     return 0;
 }
 
+static int test_unlock_refused_without_persistent_state(void) {
+    TEST("unlock is refused when neither NVS nor a secure element can hold PIN state");
+    reset_test_state();
+    pin_state_loaded = false;
+    storage_crypto_set_pin_state_persistent(false);
+    int ret = storage_crypto_init("1234");
+    uint8_t attempts = pin_state.failed_attempts;
+    storage_crypto_set_pin_state_persistent(true);
+    storage_crypto_clear();
+    if (ret != ERR_PIN_NO_STATE)
+        FAIL("expected ERR_PIN_NO_STATE");
+    if (attempts != 0)
+        FAIL("refusal must not count as an attempt");
+
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_set_pin_state_persistent(false);
+    ret = storage_crypto_init("1234");
+    storage_crypto_set_pin_state_persistent(true);
+    storage_crypto_clear();
+    if (ret == ERR_PIN_NO_STATE)
+        FAIL("a secure element holds the state, so unlock must not be refused");
+
+    reset_test_state();
+    pin_state_loaded = false;
+    ret = storage_crypto_init("1234");
+    storage_crypto_clear();
+    if (ret != 0)
+        FAIL("with persistent state unlock should proceed");
+    PASS();
+    return 0;
+}
+
+static void simulate_reboot(void) {
+    pin_state_loaded = false;
+    se_available = false;
+}
+
+static int test_pending_attempt_survives_reset(void) {
+    TEST("a reset between begin_attempt and the result counts as a failed attempt");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    if (storage_crypto_begin_attempt() != 0)
+        FAIL("begin_attempt failed");
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("the interrupted attempt was not counted");
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("the pending mark was not cleared once counted");
+    PASS();
+    return 0;
+}
+
+static int test_unsaved_success_reported(void) {
+    TEST("a success that cannot be saved is reported and still counts after a reset");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    if (storage_crypto_begin_attempt() != 0)
+        FAIL("begin_attempt failed");
+    mock_se_write_fails = true;
+    int ret = storage_crypto_record_attempt(true);
+    mock_se_write_fails = false;
+    if (ret == 0)
+        FAIL("a failed save was reported as success");
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("the pending attempt must count once the state is reread");
+    PASS();
+    return 0;
+}
+
+static int test_pending_cleared_by_result(void) {
+    TEST("a completed attempt clears the pending mark");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_begin_attempt();
+    storage_crypto_record_attempt(true);
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("success left a failure behind");
+    storage_crypto_begin_attempt();
+    storage_crypto_record_attempt(false);
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("a failure was counted twice or not at all");
+    PASS();
+    return 0;
+}
+
+static int test_correct_pin_on_last_attempt(void) {
+    TEST("the right PIN on the last allowed attempt does not brick");
+    reset_test_state();
+    storage_crypto_set_attempts_for_test(PIN_MAX_ATTEMPTS - 1);
+    pin_state.lockout_deadline = 0;
+    storage_crypto_begin_attempt();
+    storage_crypto_record_attempt(true);
+    if (storage_crypto_is_bricked() || storage_crypto_get_attempts() != 0)
+        FAIL("bricked or not reset by a correct PIN");
+    PASS();
+    return 0;
+}
+
+static int test_lockout_clamped_after_reboot(void) {
+    TEST("a lockout deadline from before a reboot is capped at one delay");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_set_attempts_for_test(10);
+    pin_state.lockout_deadline = get_time_ms() + 30ULL * 24 * 3600 * 1000;
+    save_pin_state();
+    simulate_reboot();
+    uint32_t remaining = storage_crypto_get_delay_remaining();
+    if (remaining == 0 || remaining > get_delay_ms(10))
+        FAIL("deadline not clamped to a single delay");
+    PASS();
+    return 0;
+}
+
+static int test_state_blob_hmac(void) {
+    TEST("a stored state blob is accepted only with its magic and a matching HMAC");
+    pin_state_blob_t blob;
+    memset(&blob, 0, sizeof(blob));
+    memcpy(blob.state.magic, PIN_STATE_MAGIC, 4);
+    blob.state.failed_attempts = 7;
+    if (compute_state_hmac(&blob.state, blob.hmac) != 0)
+        FAIL("hmac failed");
+    pin_state_t out;
+    if (pin_state_from_blob(&blob, &out) != 0 || out.failed_attempts != 7)
+        FAIL("valid blob rejected");
+    blob.state.failed_attempts = 0;
+    if (pin_state_from_blob(&blob, &out) == 0)
+        FAIL("a reset counter with the old HMAC was accepted");
+    blob.state.failed_attempts = 7;
+    blob.state.magic[0] ^= 1;
+    if (pin_state_from_blob(&blob, &out) == 0)
+        FAIL("wrong magic accepted");
+    PASS();
+    return 0;
+}
+
+static int test_nvs_blob_paths(void) {
+    TEST("the stored PIN blob: round trip, tampered, unreadable and absent");
+    reset_test_state();
+    pin_state_loaded = false;
+    storage_crypto_record_attempt(false);
+    storage_crypto_record_attempt(false);
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 2)
+        FAIL("failures did not survive a reboot through the blob");
+
+    host_pin_blob.hmac[0] ^= 1;
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != PIN_TAMPERED_ATTEMPTS ||
+        storage_crypto_get_delay_remaining() == 0)
+        FAIL("a blob failing its HMAC was not treated as tampered");
+
+    host_pin_blob_status = -1;
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != PIN_TAMPERED_ATTEMPTS)
+        FAIL("an unreadable blob was not treated as tampered");
+
+    host_pin_blob_status = PIN_BLOB_NOT_FOUND;
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("an absent blob should start from zero");
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== PIN Attempt Limiting Tests ===\n\n");
 
@@ -395,6 +575,14 @@ int main(void) {
     failures += test_kdf_marker_switches_derivation();
     failures += test_hmac_tamper_detection();
     failures += test_attempt_overflow_protection();
+    failures += test_unlock_refused_without_persistent_state();
+    failures += test_pending_attempt_survives_reset();
+    failures += test_pending_cleared_by_result();
+    failures += test_unsaved_success_reported();
+    failures += test_correct_pin_on_last_attempt();
+    failures += test_lockout_clamped_after_reboot();
+    failures += test_state_blob_hmac();
+    failures += test_nvs_blob_paths();
 
     printf("\n");
     if (failures == 0) {

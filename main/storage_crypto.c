@@ -40,13 +40,10 @@ static uint64_t get_time_ms(void) {
 #define PIN_PBKDF2_ITERATIONS 100000
 #define PIN_PBKDF2_SALT_LEN   16
 
-#define NVS_NAMESPACE    "pin_rl"
-#define NVS_KEY_FAILURES "failures"
-#define NVS_KEY_LOCKOUT  "lockout"
-#define NVS_KEY_BRICKED  "bricked"
-#define NVS_KEY_SALT     "salt"
-#define NVS_KEY_HMAC     "hmac"
-#define NVS_KEY_KDF_VER  "kdfver"
+#define NVS_NAMESPACE   "pin_rl"
+#define NVS_KEY_STATE   "state"
+#define NVS_KEY_SALT    "salt"
+#define NVS_KEY_KDF_VER "kdfver"
 
 // Storage key derivation scheme. Persisted; absent means legacy (an existing
 // device), so its shares stay decryptable. See [[kdf-version]].
@@ -62,8 +59,18 @@ typedef struct __attribute__((packed)) {
     uint8_t failed_attempts;
     uint64_t lockout_deadline;
     uint8_t bricked;
-    uint8_t reserved[2];
+    uint8_t pending;
+    uint8_t reserved[1];
 } pin_state_t;
+
+typedef struct __attribute__((packed)) {
+    pin_state_t state;
+    uint8_t hmac[32];
+} pin_state_blob_t;
+
+/* A stored state that fails its HMAC is not trusted as zero failures. It restarts at
+ * the 15-minute tier: limited, but an accidental corruption does not brick. */
+#define PIN_TAMPERED_ATTEMPTS 10
 
 #define PIN_STATE_MAGIC "PIN\0"
 #define PIN_STATE_SIZE  sizeof(pin_state_t)
@@ -187,6 +194,95 @@ static int compute_state_hmac(const pin_state_t *state, uint8_t hmac_out[32]) {
     return (ret == 0) ? 0 : -1;
 }
 
+static int pin_state_from_blob(const pin_state_blob_t *blob, pin_state_t *out) {
+    uint8_t expected[32];
+    int ok = memcmp(blob->state.magic, PIN_STATE_MAGIC, 4) == 0 &&
+             compute_state_hmac(&blob->state, expected) == 0 &&
+             secure_memcmp(expected, blob->hmac, 32) == 0;
+    secure_memzero(expected, sizeof(expected));
+    if (!ok) {
+        return -1;
+    }
+    memcpy(out, &blob->state, sizeof(*out));
+    return 0;
+}
+
+static uint32_t get_delay_ms(uint8_t attempts);
+static int save_pin_state(void);
+static int record_failure(void);
+
+static void mark_pin_state_tampered(void) {
+    pin_state.failed_attempts = PIN_TAMPERED_ATTEMPTS;
+    pin_state.pending = 0;
+    pin_state.lockout_deadline = get_time_ms() + get_delay_ms(PIN_TAMPERED_ATTEMPTS);
+}
+
+/* lockout_deadline is time since boot, so a deadline from before a reboot can lie far
+ * in the new boot's future. Cap it at a full delay from now. */
+static void clamp_lockout_deadline(void) {
+    uint32_t delay_ms = get_delay_ms(pin_state.failed_attempts);
+    if (pin_state.lockout_deadline == 0 || delay_ms == UINT32_MAX) {
+        return;
+    }
+    uint64_t latest = get_time_ms() + delay_ms;
+    if (pin_state.lockout_deadline > latest) {
+        pin_state.lockout_deadline = latest;
+    }
+}
+
+#define PIN_BLOB_NOT_FOUND 1
+
+#ifdef ESP_PLATFORM
+/* Returns 0 with the blob read, PIN_BLOB_NOT_FOUND, or -1 for any other result. */
+static int pin_blob_read(pin_state_blob_t *blob) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return PIN_BLOB_NOT_FOUND;
+    }
+    if (err != ESP_OK) {
+        return -1;
+    }
+    size_t len = sizeof(*blob);
+    err = nvs_get_blob(handle, NVS_KEY_STATE, blob, &len);
+    nvs_close(handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return PIN_BLOB_NOT_FOUND;
+    }
+    return (err == ESP_OK && len == sizeof(*blob)) ? 0 : -1;
+}
+
+static int pin_blob_write(const pin_state_blob_t *blob) {
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return -1;
+    }
+    esp_err_t err = nvs_set_blob(handle, NVS_KEY_STATE, blob, sizeof(*blob));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err == ESP_OK ? 0 : -1;
+}
+#else
+/* Host builds keep the blob in memory so the same load and save logic runs in tests. */
+static pin_state_blob_t host_pin_blob;
+static int host_pin_blob_status = PIN_BLOB_NOT_FOUND;
+
+static int pin_blob_read(pin_state_blob_t *blob) {
+    if (host_pin_blob_status == 0) {
+        memcpy(blob, &host_pin_blob, sizeof(*blob));
+    }
+    return host_pin_blob_status;
+}
+
+static int pin_blob_write(const pin_state_blob_t *blob) {
+    memcpy(&host_pin_blob, blob, sizeof(*blob));
+    host_pin_blob_status = 0;
+    return 0;
+}
+#endif
+
 static void load_pin_state(void) {
     if (pin_state_loaded) {
         return;
@@ -196,6 +292,7 @@ static void load_pin_state(void) {
     pin_state.failed_attempts = 0;
     pin_state.lockout_deadline = 0;
     pin_state.bricked = 0;
+    pin_state.pending = 0;
     memset(pin_state.reserved, 0, sizeof(pin_state.reserved));
 
     if (se_init() == SE_OK && se_is_provisioned()) {
@@ -207,67 +304,42 @@ static void load_pin_state(void) {
             }
         }
     } else {
-#ifdef ESP_PLATFORM
-        nvs_handle_t handle;
-        if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
-            uint8_t failures = 0;
-            uint64_t lockout = 0;
-            uint8_t bricked = 0;
-            uint8_t stored_hmac[32];
-            size_t hmac_len = sizeof(stored_hmac);
-
-            nvs_get_u8(handle, NVS_KEY_FAILURES, &failures);
-            nvs_get_u64(handle, NVS_KEY_LOCKOUT, &lockout);
-            nvs_get_u8(handle, NVS_KEY_BRICKED, &bricked);
-
-            pin_state_t temp_state;
-            memcpy(temp_state.magic, PIN_STATE_MAGIC, 4);
-            temp_state.failed_attempts = failures;
-            temp_state.lockout_deadline = lockout;
-            temp_state.bricked = bricked;
-            memset(temp_state.reserved, 0, sizeof(temp_state.reserved));
-
-            if (nvs_get_blob(handle, NVS_KEY_HMAC, stored_hmac, &hmac_len) == ESP_OK &&
-                hmac_len == 32) {
-                uint8_t computed_hmac[32];
-                if (compute_state_hmac(&temp_state, computed_hmac) == 0 &&
-                    secure_memcmp(stored_hmac, computed_hmac, 32) == 0) {
-                    memcpy(&pin_state, &temp_state, sizeof(pin_state));
-                }
+        pin_state_blob_t blob;
+        int ret = pin_blob_read(&blob);
+        if (ret == 0) {
+            if (pin_state_from_blob(&blob, &pin_state) != 0) {
+                ESP_LOGE(TAG, "Stored PIN state fails its HMAC; restricting attempts");
+                mark_pin_state_tampered();
             }
-            nvs_close(handle);
+        } else if (ret != PIN_BLOB_NOT_FOUND) {
+            ESP_LOGE(TAG, "Stored PIN state unreadable; restricting attempts");
+            mark_pin_state_tampered();
         }
-#endif
+        secure_memzero(&blob, sizeof(blob));
     }
 
     pin_state_loaded = true;
+
+    /* Set before a share is decrypted and cleared with the result, so a reset in
+     * between still counts as a failed attempt. */
+    if (pin_state.pending) {
+        record_failure();
+    }
+    clamp_lockout_deadline();
 }
 
-static void save_pin_state(void) {
+static int save_pin_state(void) {
     if (se_available) {
         uint8_t se_data[SE_SLOT_SIZE];
         memset(se_data, 0, sizeof(se_data));
         memcpy(se_data, &pin_state, PIN_STATE_SIZE);
-        se_write_slot(SE_SLOT_PIN_STATE, se_data, sizeof(se_data));
-    } else {
-#ifdef ESP_PLATFORM
-        nvs_handle_t handle;
-        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-            uint8_t hmac[32];
-            if (compute_state_hmac(&pin_state, hmac) != 0) {
-                nvs_close(handle);
-                return;
-            }
-
-            nvs_set_u8(handle, NVS_KEY_FAILURES, pin_state.failed_attempts);
-            nvs_set_u64(handle, NVS_KEY_LOCKOUT, pin_state.lockout_deadline);
-            nvs_set_u8(handle, NVS_KEY_BRICKED, pin_state.bricked);
-            nvs_set_blob(handle, NVS_KEY_HMAC, hmac, sizeof(hmac));
-            nvs_commit(handle);
-            nvs_close(handle);
-        }
-#endif
+        return se_write_slot(SE_SLOT_PIN_STATE, se_data, sizeof(se_data)) == SE_OK ? 0 : -1;
     }
+    pin_state_blob_t blob;
+    memcpy(&blob.state, &pin_state, sizeof(blob.state));
+    int ret = compute_state_hmac(&blob.state, blob.hmac) == 0 ? pin_blob_write(&blob) : -1;
+    secure_memzero(&blob, sizeof(blob));
+    return ret;
 }
 
 static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {
@@ -468,35 +540,47 @@ int storage_crypto_check_rate_limit(void) {
     return 0;
 }
 
-void storage_crypto_record_attempt(bool success) {
+static int record_failure(void) {
+    pin_state.pending = 0;
+    if (pin_state.failed_attempts < UINT8_MAX) {
+        pin_state.failed_attempts++;
+    }
+
+    if (pin_state.failed_attempts >= PIN_MAX_ATTEMPTS) {
+        ESP_LOGE(TAG, "Max PIN attempts exceeded - wiping device");
+        pin_state.bricked = 1;
+        int ret = save_pin_state();
+        wipe_secrets();
+        return ret;
+    }
+
+    uint32_t delay_ms = get_delay_ms(pin_state.failed_attempts);
+    if (delay_ms > 0 && delay_ms != UINT32_MAX) {
+        pin_state.lockout_deadline = get_time_ms() + delay_ms;
+        ESP_LOGW(TAG, "PIN attempt %d/%d - next attempt in %lu seconds", pin_state.failed_attempts,
+                 PIN_MAX_ATTEMPTS, (unsigned long)(delay_ms / 1000));
+    } else {
+        pin_state.lockout_deadline = 0;
+    }
+    return save_pin_state();
+}
+
+int storage_crypto_begin_attempt(void) {
+    load_pin_state();
+    pin_state.pending = 1;
+    return save_pin_state();
+}
+
+int storage_crypto_record_attempt(bool success) {
     load_pin_state();
 
-    if (success) {
-        pin_state.failed_attempts = 0;
-        pin_state.lockout_deadline = 0;
-    } else {
-        if (pin_state.failed_attempts < UINT8_MAX) {
-            pin_state.failed_attempts++;
-        }
-
-        if (pin_state.failed_attempts >= PIN_MAX_ATTEMPTS) {
-            ESP_LOGE(TAG, "Max PIN attempts exceeded - wiping device");
-            pin_state.bricked = 1;
-            save_pin_state();
-            wipe_secrets();
-            return;
-        }
-
-        uint32_t delay_ms = get_delay_ms(pin_state.failed_attempts);
-        if (delay_ms > 0 && delay_ms != UINT32_MAX) {
-            pin_state.lockout_deadline = get_time_ms() + delay_ms;
-            ESP_LOGW(TAG, "PIN attempt %d/%d - next attempt in %lu seconds",
-                     pin_state.failed_attempts, PIN_MAX_ATTEMPTS, (unsigned long)(delay_ms / 1000));
-        } else {
-            pin_state.lockout_deadline = 0;
-        }
+    if (!success) {
+        return record_failure();
     }
-    save_pin_state();
+    pin_state.pending = 0;
+    pin_state.failed_attempts = 0;
+    pin_state.lockout_deadline = 0;
+    return save_pin_state();
 }
 
 uint8_t storage_crypto_get_attempts(void) {
@@ -526,6 +610,16 @@ uint32_t storage_crypto_get_delay_remaining(void) {
     return (uint32_t)(pin_state.lockout_deadline - now);
 }
 
+#ifdef ESP_PLATFORM
+static bool pin_state_persistent = false;
+#else
+static bool pin_state_persistent = true;
+#endif
+
+void storage_crypto_set_pin_state_persistent(bool persistent) {
+    pin_state_persistent = persistent;
+}
+
 bool storage_crypto_is_bricked(void) {
     load_pin_state();
     return pin_state.bricked != 0 || pin_state.failed_attempts >= PIN_MAX_ATTEMPTS;
@@ -533,6 +627,11 @@ bool storage_crypto_is_bricked(void) {
 
 int storage_crypto_init(const char *pin) {
     load_pin_state();
+
+    /* Without a place to persist failures, a reboot would reset the attempt limit. */
+    if (!se_available && !pin_state_persistent) {
+        return ERR_PIN_NO_STATE;
+    }
 
     if (pin_state.bricked || pin_state.failed_attempts >= PIN_MAX_ATTEMPTS) {
         return ERR_PIN_BRICKED;
@@ -644,6 +743,7 @@ void storage_crypto_reset_rate_limit(void) {
     pin_state.failed_attempts = 0;
     pin_state.lockout_deadline = 0;
     pin_state.bricked = 0;
+    pin_state.pending = 0;
     memset(pin_state.reserved, 0, sizeof(pin_state.reserved));
     pin_state_loaded = true;
     salt_initialized = false;

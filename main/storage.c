@@ -546,6 +546,10 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         bool is_v1 = slot_is_v1(&slot);
         const uint8_t *aad = is_v1 ? NULL : (const uint8_t *)slot.group;
         size_t aad_len = is_v1 ? 0 : STORAGE_GROUP_LEN + 1;
+        if (storage_crypto_begin_attempt() != 0) {
+            secure_memzero(&slot, sizeof(slot));
+            return STORAGE_ERR_IO;
+        }
         if (storage_crypto_decrypt(slot.share_data, actual_len, aad, aad_len, slot.nonce, slot.tag,
                                    decrypted) != 0) {
             ESP_LOGE(TAG, "Share decryption failed - tampered or wrong PIN");
@@ -555,7 +559,13 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         }
         // A correct GCM tag proves the PIN was right; clear the failure counter
         // so an occasional mistype never accumulates toward the brick threshold.
-        storage_crypto_record_attempt(true);
+        // If that cannot be saved, the attempt still reads as pending and counts
+        // as a failure at the next boot, so do not release the share either.
+        if (storage_crypto_record_attempt(true) != 0) {
+            secure_memzero(decrypted, sizeof(decrypted));
+            secure_memzero(&slot, sizeof(slot));
+            return STORAGE_ERR_IO;
+        }
         bytes_to_hex(decrypted, actual_len, share_hex, len);
         secure_memzero(decrypted, sizeof(decrypted));
         secure_memzero(&slot, sizeof(slot));
