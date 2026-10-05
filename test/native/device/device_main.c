@@ -136,7 +136,7 @@ esp_err_t esp_partition_write(const esp_partition_t *p, size_t off, const void *
 }
 
 esp_err_t esp_partition_erase_range(const esp_partition_t *p, size_t off, size_t size) {
-    if (p != &policy_part || off + size > PARTITION_SIZE) {
+    if (p != &policy_part || off + size > PARTITION_SIZE || off % 4096 || size % 4096) {
         return ESP_FAIL;
     }
     memset(policy_flash + off, 0xFF, size);
