@@ -498,6 +498,106 @@ int storage_save_share(const char *group, const char *share_hex) {
     return (err == ESP_OK) ? STORAGE_OK : STORAGE_ERR_IO;
 }
 
+/* The PIN was proven at unlock, so a slot that fails to decrypt here is damaged or
+ * tampered, not a guess, and is not counted as a PIN attempt. */
+static int decrypt_slot(share_slot_t *slot, uint16_t data_len, uint8_t *out) {
+    bool is_v1 = slot_is_v1(slot);
+    if (storage_crypto_decrypt(
+            slot->share_data, data_len, is_v1 ? NULL : (const uint8_t *)slot->group,
+            is_v1 ? 0 : STORAGE_GROUP_LEN + 1, slot->nonce, slot->tag, out) != 0) {
+        ESP_LOGE(TAG, "Share decryption failed - slot damaged or tampered");
+        return STORAGE_ERR_DECRYPT;
+    }
+    return STORAGE_OK;
+}
+
+/* Proves the PIN against the stored shares as one counted attempt, accepted if any share
+ * decrypts, so one damaged slot cannot make the right PIN count as a failure.
+ * STORAGE_ERR_NOT_FOUND only when the partition was read and holds no shares; storage that
+ * cannot be read refuses instead of taking the PIN on trust. */
+static int verify_pin_with_shares(void) {
+    if (!initialized) {
+        return STORAGE_ERR_NOT_INIT;
+    }
+    bool valid[MAX_SHARES] = {false};
+    bool any = false;
+    for (int i = 0; i < MAX_SHARES; i++) {
+        share_slot_t slot;
+        if (esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot,
+                               sizeof(slot)) != ESP_OK) {
+            secure_memzero(&slot, sizeof(slot));
+            return STORAGE_ERR_IO;
+        }
+        valid[i] = slot_is_valid(&slot) && (slot.share_len & ENCRYPTED_FLAG);
+        any = any || valid[i];
+        secure_memzero(&slot, sizeof(slot));
+    }
+    if (!any) {
+        return STORAGE_ERR_NOT_FOUND;
+    }
+
+    if (storage_crypto_begin_attempt() != 0) {
+        return STORAGE_ERR_IO;
+    }
+    bool proven = false;
+    bool tried = false;
+    for (int i = 0; i < MAX_SHARES && !proven; i++) {
+        share_slot_t slot;
+        if (!valid[i]) {
+            continue;
+        }
+        if (esp_partition_read(storage_partition, (size_t)i * STORAGE_SHARE_SLOT_SIZE, &slot,
+                               sizeof(slot)) != ESP_OK) {
+            secure_memzero(&slot, sizeof(slot));
+            /* A decrypt that already failed under this PIN still counts. */
+            if (tried) {
+                storage_crypto_record_attempt(false);
+            } else {
+                storage_crypto_abandon_attempt();
+            }
+            return STORAGE_ERR_IO;
+        }
+        tried = true;
+        null_terminate_group(&slot);
+        uint8_t decrypted[STORAGE_SHARE_LEN];
+        proven = decrypt_slot(&slot, slot_data_len(&slot), decrypted) == STORAGE_OK;
+        secure_memzero(decrypted, sizeof(decrypted));
+        secure_memzero(&slot, sizeof(slot));
+    }
+    int saved = storage_crypto_record_attempt(proven);
+    if (!proven) {
+        return STORAGE_ERR_DECRYPT;
+    }
+    /* Unsaved, the attempt still reads as pending and counts as a failure at boot. */
+    return saved == 0 ? STORAGE_OK : STORAGE_ERR_IO;
+}
+
+int storage_unlock(const char *pin) {
+    int ret = storage_crypto_init(pin);
+    if (ret != 0) {
+        return ret;
+    }
+    ret = storage_crypto_check_verifier();
+    if (ret == -1) {
+        ret = STORAGE_ERR_IO;
+    } else if (ret == STORAGE_CRYPTO_NO_VERIFIER) {
+        ret = verify_pin_with_shares();
+        if (ret == STORAGE_ERR_DECRYPT) {
+            ret = ERR_PIN_INVALID;
+        } else if (ret == STORAGE_ERR_NOT_FOUND && !storage_crypto_can_keep_verifier()) {
+            /* No share to check against and nowhere to keep the PIN: taking it on trust
+             * would let anyone set it. */
+            ret = ERR_PIN_NO_STATE;
+        } else if (ret == STORAGE_OK || ret == STORAGE_ERR_NOT_FOUND) {
+            ret = storage_crypto_store_verifier() == 0 ? 0 : STORAGE_ERR_IO;
+        }
+    }
+    if (ret != 0) {
+        storage_crypto_clear();
+    }
+    return ret;
+}
+
 int storage_load_share(const char *group, char *share_hex, size_t len) {
     KEEP_ASSERT(group != NULL);
     KEEP_ASSERT(share_hex != NULL);
@@ -543,28 +643,10 @@ int storage_load_share(const char *group, char *share_hex, size_t len) {
         }
 
         uint8_t decrypted[STORAGE_SHARE_LEN];
-        bool is_v1 = slot_is_v1(&slot);
-        const uint8_t *aad = is_v1 ? NULL : (const uint8_t *)slot.group;
-        size_t aad_len = is_v1 ? 0 : STORAGE_GROUP_LEN + 1;
-        if (storage_crypto_begin_attempt() != 0) {
+        int ret = decrypt_slot(&slot, actual_len, decrypted);
+        if (ret != STORAGE_OK) {
             secure_memzero(&slot, sizeof(slot));
-            return STORAGE_ERR_IO;
-        }
-        if (storage_crypto_decrypt(slot.share_data, actual_len, aad, aad_len, slot.nonce, slot.tag,
-                                   decrypted) != 0) {
-            ESP_LOGE(TAG, "Share decryption failed - tampered or wrong PIN");
-            storage_crypto_record_attempt(false);
-            secure_memzero(&slot, sizeof(slot));
-            return STORAGE_ERR_DECRYPT;
-        }
-        // A correct GCM tag proves the PIN was right; clear the failure counter
-        // so an occasional mistype never accumulates toward the brick threshold.
-        // If that cannot be saved, the attempt still reads as pending and counts
-        // as a failure at the next boot, so do not release the share either.
-        if (storage_crypto_record_attempt(true) != 0) {
-            secure_memzero(decrypted, sizeof(decrypted));
-            secure_memzero(&slot, sizeof(slot));
-            return STORAGE_ERR_IO;
+            return ret;
         }
         bytes_to_hex(decrypted, actual_len, share_hex, len);
         secure_memzero(decrypted, sizeof(decrypted));
@@ -580,6 +662,11 @@ int storage_delete_share(const char *group) {
 
     if (!initialized) {
         return STORAGE_ERR_NOT_INIT;
+    }
+    /* Deleting needs the PIN too; otherwise a host could empty the device and then set a
+     * PIN of its own at the next unlock. */
+    if (!storage_crypto_is_initialized()) {
+        return STORAGE_ERR_CRYPTO_NOT_INIT;
     }
 
     char padded_group[STORAGE_GROUP_LEN + 1];

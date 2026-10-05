@@ -29,6 +29,17 @@ void storage_crypto_clear(void);
 
 int storage_crypto_check_rate_limit(void);
 int storage_crypto_begin_attempt(void);
+/* Ends a begun attempt without counting it, for a check that could not be completed. */
+void storage_crypto_abandon_attempt(void);
+bool storage_crypto_can_keep_verifier(void);
+
+#define STORAGE_CRYPTO_NO_VERIFIER 1
+
+/* Checks the unlocked key against the stored PIN verifier as a counted attempt.
+ * Returns 0 on a match, ERR_PIN_INVALID on a mismatch, STORAGE_CRYPTO_NO_VERIFIER when
+ * none is stored yet, or -1 on a storage error. */
+int storage_crypto_check_verifier(void);
+int storage_crypto_store_verifier(void);
 int storage_crypto_record_attempt(bool success);
 
 uint8_t storage_crypto_get_attempts(void);

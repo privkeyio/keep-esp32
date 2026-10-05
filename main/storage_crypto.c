@@ -40,10 +40,11 @@ static uint64_t get_time_ms(void) {
 #define PIN_PBKDF2_ITERATIONS 100000
 #define PIN_PBKDF2_SALT_LEN   16
 
-#define NVS_NAMESPACE   "pin_rl"
-#define NVS_KEY_STATE   "state"
-#define NVS_KEY_SALT    "salt"
-#define NVS_KEY_KDF_VER "kdfver"
+#define NVS_NAMESPACE    "pin_rl"
+#define NVS_KEY_STATE    "state"
+#define NVS_KEY_VERIFIER "verifier"
+#define NVS_KEY_SALT     "salt"
+#define NVS_KEY_KDF_VER  "kdfver"
 
 // Storage key derivation scheme. Persisted; absent means legacy (an existing
 // device), so its shares stay decryptable. See [[kdf-version]].
@@ -571,6 +572,12 @@ int storage_crypto_begin_attempt(void) {
     return save_pin_state();
 }
 
+void storage_crypto_abandon_attempt(void) {
+    load_pin_state();
+    pin_state.pending = 0;
+    save_pin_state();
+}
+
 int storage_crypto_record_attempt(bool success) {
     load_pin_state();
 
@@ -620,6 +627,10 @@ void storage_crypto_set_pin_state_persistent(bool persistent) {
     pin_state_persistent = persistent;
 }
 
+bool storage_crypto_can_keep_verifier(void) {
+    return pin_state_persistent;
+}
+
 bool storage_crypto_is_bricked(void) {
     load_pin_state();
     return pin_state.bricked != 0 || pin_state.failed_attempts >= PIN_MAX_ATTEMPTS;
@@ -659,6 +670,117 @@ int storage_crypto_init(const char *pin) {
     if (ret == 0) {
         key_initialized = true;
     }
+    return ret;
+}
+
+/* Bound to the key derivation in use. Switching kdfver must rewrite the verifier in the
+ * same step, or every correct PIN would then count as a failure. */
+static const uint8_t PIN_VERIFIER_LABEL[] = "keep-pin-verifier-v1";
+
+static int compute_verifier(uint8_t out[32]) {
+    int ret = mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), storage_key,
+                              STORAGE_CRYPTO_KEY_SIZE, PIN_VERIFIER_LABEL,
+                              sizeof(PIN_VERIFIER_LABEL) - 1, out);
+    return ret == 0 ? 0 : -1;
+}
+
+#ifdef ESP_PLATFORM
+static int verifier_read(uint8_t out[32]) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return STORAGE_CRYPTO_NO_VERIFIER;
+    }
+    if (err != ESP_OK) {
+        return -1;
+    }
+    size_t len = 32;
+    err = nvs_get_blob(handle, NVS_KEY_VERIFIER, out, &len);
+    nvs_close(handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return STORAGE_CRYPTO_NO_VERIFIER;
+    }
+    return (err == ESP_OK && len == 32) ? 0 : -1;
+}
+
+static int verifier_write(const uint8_t v[32]) {
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return -1;
+    }
+    esp_err_t err = nvs_set_blob(handle, NVS_KEY_VERIFIER, v, 32);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err == ESP_OK ? 0 : -1;
+}
+#else
+static uint8_t host_verifier[32];
+static bool host_verifier_set = false;
+
+/* Fails like NVS does when it could not be initialized. */
+static int verifier_read(uint8_t out[32]) {
+    if (!pin_state_persistent) {
+        return -1;
+    }
+    if (!host_verifier_set) {
+        return STORAGE_CRYPTO_NO_VERIFIER;
+    }
+    memcpy(out, host_verifier, 32);
+    return 0;
+}
+
+static int verifier_write(const uint8_t v[32]) {
+    if (!pin_state_persistent) {
+        return -1;
+    }
+    memcpy(host_verifier, v, 32);
+    host_verifier_set = true;
+    return 0;
+}
+#endif
+
+int storage_crypto_check_verifier(void) {
+    if (!key_initialized) {
+        return -1;
+    }
+    /* Without NVS there is nowhere to keep a verifier; the PIN is proven against the
+     * shares at every unlock instead, counted by the secure element. */
+    if (!pin_state_persistent) {
+        return STORAGE_CRYPTO_NO_VERIFIER;
+    }
+    uint8_t stored[32];
+    int ret = verifier_read(stored);
+    if (ret != 0) {
+        secure_memzero(stored, sizeof(stored));
+        return ret;
+    }
+    if (storage_crypto_begin_attempt() != 0) {
+        secure_memzero(stored, sizeof(stored));
+        return -1;
+    }
+    uint8_t computed[32];
+    bool match = compute_verifier(computed) == 0 && ct_compare(computed, stored, 32) == 0;
+    secure_memzero(computed, sizeof(computed));
+    secure_memzero(stored, sizeof(stored));
+    int saved = storage_crypto_record_attempt(match);
+    if (!match) {
+        return ERR_PIN_INVALID;
+    }
+    return saved == 0 ? 0 : -1;
+}
+
+int storage_crypto_store_verifier(void) {
+    if (!key_initialized) {
+        return -1;
+    }
+    if (!pin_state_persistent) {
+        return 0;
+    }
+    uint8_t v[32];
+    int ret = compute_verifier(v) == 0 ? verifier_write(v) : -1;
+    secure_memzero(v, sizeof(v));
     return ret;
 }
 
