@@ -14,7 +14,7 @@
 #include "storage_crypto.h"
 #include "frost_signer.h"
 #include "frost_dkg.h"
-#include "psbt.h"
+#include "bitcoin_rpc.h"
 #include "policy.h"
 #include "secresult.h"
 #include "random_utils.h"
@@ -30,7 +30,6 @@
 #define RATE_LIMIT_DELAY_MS  1000
 
 static int consecutive_errors = 0;
-static bool psbt_initialized = false;
 
 static void handle_ping(const rpc_request_t *req, rpc_response_t *resp) {
     uint32_t boot_counter = 0;
@@ -248,81 +247,6 @@ static void handle_export_share(const rpc_request_t *req, rpc_response_t *resp) 
     protocol_success(resp, req->id, result);
 }
 
-static void handle_bitcoin_parse(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!psbt_initialized) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
-        return;
-    }
-    if (!req->psbt[0]) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
-        return;
-    }
-
-    psbt_summary_t summary;
-    int ret = psbt_parse(req->psbt, &summary);
-    if (ret != 0) {
-        char err_msg[64];
-        snprintf(err_msg, sizeof(err_msg), "PSBT parse error: %d", ret);
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, err_msg);
-        return;
-    }
-
-    char result[256];
-    snprintf(result, sizeof(result),
-             "{\"inputs\":%zu,\"outputs\":%zu,\"total_in_sats\":%llu,\"total_out_sats\":%llu,\"fee_"
-             "sats\":%llu}",
-             summary.input_count, summary.output_count, (unsigned long long)summary.total_in_sats,
-             (unsigned long long)summary.total_out_sats, (unsigned long long)summary.fee_sats);
-    protocol_success(resp, req->id, result);
-}
-
-static void handle_bitcoin_sign(const rpc_request_t *req, rpc_response_t *resp) {
-    if (!psbt_initialized) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_INTERNAL, "PSBT not initialized");
-        return;
-    }
-    if (!req->psbt[0]) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Missing psbt");
-        return;
-    }
-
-    psbt_summary_t summary;
-    if (psbt_parse(req->psbt, &summary) != 0) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Failed to parse PSBT");
-        return;
-    }
-
-    secresult_t policy_ret = policy_evaluate_secure(summary.total_out_sats, summary.fee_sats);
-    if (!SECRESULT_IS_TRUE(policy_ret)) {
-        if (policy_ret == SECRESULT_ERR_POLICY_DENIED) {
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy denied");
-        } else {
-            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Policy evaluation failed");
-        }
-        return;
-    }
-
-    uint8_t sighash[32];
-    uint8_t sighash_type;
-    int ret = psbt_get_sighash(req->psbt, req->input_idx, sighash, &sighash_type);
-    if (ret == PSBT_ERR_SIGHASH_TYPE) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Unsupported sighash type");
-        return;
-    }
-    if (ret != 0) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SIGN, "Failed to get sighash");
-        return;
-    }
-
-    char hex[65];
-    bytes_to_hex(sighash, 32, hex, sizeof(hex));
-
-    char result[160];
-    snprintf(result, sizeof(result), "{\"input_idx\":%zu,\"sighash\":\"%s\",\"sighash_type\":%u}",
-             req->input_idx, hex, (unsigned)sighash_type);
-    protocol_success(resp, req->id, result);
-}
-
 static void handle_dkg_checkpoint(const rpc_request_t *req, rpc_response_t *resp) {
     size_t sid_len = strlen(req->session_id);
     if (sid_len == 0) {
@@ -407,10 +331,10 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         handle_dkg_checkpoint(req, resp);
         break;
     case RPC_METHOD_BITCOIN_PARSE:
-        handle_bitcoin_parse(req, resp);
+        bitcoin_rpc_parse(req, resp);
         break;
     case RPC_METHOD_BITCOIN_SIGN:
-        handle_bitcoin_sign(req, resp);
+        bitcoin_rpc_sign(req, resp);
         break;
     case RPC_METHOD_POLICY_UPDATE:
         policy_handle_update(req, resp);
@@ -481,11 +405,10 @@ static void app_init(void) {
 
     frost_signer_init();
 
-    int psbt_ret = psbt_init();
+    int psbt_ret = bitcoin_rpc_init();
     if (psbt_ret != 0) {
         ESP_LOGW(TAG, "PSBT init failed: %d", psbt_ret);
     } else {
-        psbt_initialized = true;
         ESP_LOGI(TAG, "PSBT support initialized");
     }
 
