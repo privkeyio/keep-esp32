@@ -37,6 +37,11 @@ ESP32-S3 FROST threshold signing device security documentation.
   #142 (corruption can contribute to bricking).
 - **PIN limitation:** PIN adds entropy but does not protect against offline brute-force
   if flash is extracted (no hardware-enforced rate limiting)
+- PIN attempt state is kept in NVS. If NVS cannot be initialized at boot, `unlock` is
+  refused rather than running without a persistent limit. On the standard partition
+  table, erasing only the `nvs` partition (`esptool.py erase_region 0x9000 0x4000`)
+  recovers the device and leaves the shares intact. Secure-boot builds disable ROM
+  download mode, so they cannot be recovered this way
 - Each slot uses unique 12-byte random nonce
 - 16-byte GCM tag detects tampering
 - Storage V2 binds group name as AAD

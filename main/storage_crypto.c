@@ -230,6 +230,59 @@ static void clamp_lockout_deadline(void) {
     }
 }
 
+#define PIN_BLOB_NOT_FOUND 1
+
+#ifdef ESP_PLATFORM
+/* Returns 0 with the blob read, PIN_BLOB_NOT_FOUND, or -1 for any other result. */
+static int pin_blob_read(pin_state_blob_t *blob) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return PIN_BLOB_NOT_FOUND;
+    }
+    if (err != ESP_OK) {
+        return -1;
+    }
+    size_t len = sizeof(*blob);
+    err = nvs_get_blob(handle, NVS_KEY_STATE, blob, &len);
+    nvs_close(handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return PIN_BLOB_NOT_FOUND;
+    }
+    return (err == ESP_OK && len == sizeof(*blob)) ? 0 : -1;
+}
+
+static int pin_blob_write(const pin_state_blob_t *blob) {
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return -1;
+    }
+    esp_err_t err = nvs_set_blob(handle, NVS_KEY_STATE, blob, sizeof(*blob));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err == ESP_OK ? 0 : -1;
+}
+#else
+/* Host builds keep the blob in memory so the same load and save logic runs in tests. */
+static pin_state_blob_t host_pin_blob;
+static int host_pin_blob_status = PIN_BLOB_NOT_FOUND;
+
+static int pin_blob_read(pin_state_blob_t *blob) {
+    if (host_pin_blob_status == 0) {
+        memcpy(blob, &host_pin_blob, sizeof(*blob));
+    }
+    return host_pin_blob_status;
+}
+
+static int pin_blob_write(const pin_state_blob_t *blob) {
+    memcpy(&host_pin_blob, blob, sizeof(*blob));
+    host_pin_blob_status = 0;
+    return 0;
+}
+#endif
+
 static void load_pin_state(void) {
     if (pin_state_loaded) {
         return;
@@ -251,25 +304,18 @@ static void load_pin_state(void) {
             }
         }
     } else {
-#ifdef ESP_PLATFORM
-        nvs_handle_t handle;
-        if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
-            pin_state_blob_t blob;
-            size_t len = sizeof(blob);
-            esp_err_t err = nvs_get_blob(handle, NVS_KEY_STATE, &blob, &len);
-            nvs_close(handle);
-            if (err == ESP_OK && len == sizeof(blob)) {
-                if (pin_state_from_blob(&blob, &pin_state) != 0) {
-                    ESP_LOGE(TAG, "Stored PIN state fails its HMAC; restricting attempts");
-                    mark_pin_state_tampered();
-                }
-            } else if (err != ESP_ERR_NVS_NOT_FOUND) {
-                ESP_LOGE(TAG, "Stored PIN state unreadable; restricting attempts");
+        pin_state_blob_t blob;
+        int ret = pin_blob_read(&blob);
+        if (ret == 0) {
+            if (pin_state_from_blob(&blob, &pin_state) != 0) {
+                ESP_LOGE(TAG, "Stored PIN state fails its HMAC; restricting attempts");
                 mark_pin_state_tampered();
             }
-            secure_memzero(&blob, sizeof(blob));
+        } else if (ret != PIN_BLOB_NOT_FOUND) {
+            ESP_LOGE(TAG, "Stored PIN state unreadable; restricting attempts");
+            mark_pin_state_tampered();
         }
-#endif
+        secure_memzero(&blob, sizeof(blob));
     }
 
     pin_state_loaded = true;
@@ -289,26 +335,11 @@ static int save_pin_state(void) {
         memcpy(se_data, &pin_state, PIN_STATE_SIZE);
         return se_write_slot(SE_SLOT_PIN_STATE, se_data, sizeof(se_data)) == SE_OK ? 0 : -1;
     }
-#ifdef ESP_PLATFORM
     pin_state_blob_t blob;
     memcpy(&blob.state, &pin_state, sizeof(blob.state));
-    if (compute_state_hmac(&blob.state, blob.hmac) != 0) {
-        return -1;
-    }
-    nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
-        return -1;
-    }
-    esp_err_t err = nvs_set_blob(handle, NVS_KEY_STATE, &blob, sizeof(blob));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
+    int ret = compute_state_hmac(&blob.state, blob.hmac) == 0 ? pin_blob_write(&blob) : -1;
     secure_memzero(&blob, sizeof(blob));
-    return err == ESP_OK ? 0 : -1;
-#else
-    return 0;
-#endif
+    return ret;
 }
 
 static int get_device_id(uint8_t device_id[DEVICE_ID_SIZE]) {

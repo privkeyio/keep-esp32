@@ -99,6 +99,7 @@ static void reset_test_state(void) {
     storage_crypto_reset_rate_limit();
     memset(mock_se_slots, 0, sizeof(mock_se_slots));
     mock_se_available = false;
+    host_pin_blob_status = PIN_BLOB_NOT_FOUND;
 }
 
 static int test_initial_state(void) {
@@ -504,6 +505,35 @@ static int test_state_blob_hmac(void) {
     return 0;
 }
 
+static int test_nvs_blob_paths(void) {
+    TEST("the stored PIN blob: round trip, tampered, unreadable and absent");
+    reset_test_state();
+    pin_state_loaded = false;
+    storage_crypto_record_attempt(false);
+    storage_crypto_record_attempt(false);
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 2)
+        FAIL("failures did not survive a reboot through the blob");
+
+    host_pin_blob.hmac[0] ^= 1;
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != PIN_TAMPERED_ATTEMPTS ||
+        storage_crypto_get_delay_remaining() == 0)
+        FAIL("a blob failing its HMAC was not treated as tampered");
+
+    host_pin_blob_status = -1;
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != PIN_TAMPERED_ATTEMPTS)
+        FAIL("an unreadable blob was not treated as tampered");
+
+    host_pin_blob_status = PIN_BLOB_NOT_FOUND;
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("an absent blob should start from zero");
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== PIN Attempt Limiting Tests ===\n\n");
 
@@ -528,6 +558,7 @@ int main(void) {
     failures += test_correct_pin_on_last_attempt();
     failures += test_lockout_clamped_after_reboot();
     failures += test_state_blob_hmac();
+    failures += test_nvs_blob_paths();
 
     printf("\n");
     if (failures == 0) {
