@@ -458,6 +458,19 @@ def signing_gate(build):
                  lambda: commit(a, secrets.token_bytes(32)), "not approved")
     expect_error("and deny bitcoin_sign", lambda: psbt_for(30000), "Policy denied")
 
+    b_psbt = b.rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": 30000})["psbt"]
+    b_sign = lambda: b.rpc("bitcoin_sign", {"psbt": b_psbt, "input_idx": 0})
+    b.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 999999}, 225)})
+    check("the PSBT used below passes a sane limit", "sighash" in b_sign())
+    for i, (label, rules) in enumerate([("a non-number limit", {"max_amount": "999999"}),
+                                        ("a negative limit", {"max_amount": -1}),
+                                        ("a fractional limit", {"max_amount": 999999.5})]):
+        b.rpc("policy_update", {"bundle": warden.bundle(rules, 230 + i)})
+        expect_error(f"{label} denies instead of being ignored", b_sign, "Policy denied")
+    b.rpc("policy_update", {"bundle": warden.bundle({"MAX_AMOUNT": 1}, 280)})
+    expect_error("a mis-cased limit key still restricts", b_sign, "Policy denied")
+    b.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 290)})
+
     for d in devices:
         d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "allow_raw": True}, 300)})
     msg = secrets.token_bytes(32)
@@ -465,6 +478,54 @@ def signing_gate(build):
           bip340_verify(xonly, msg, frost_sign(build, devices, "g", msg)))
     for d in devices:
         d.close()
+
+
+def session_safety(build):
+    keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), "even"]))
+    share = keys["shares"][0]["share"]
+    warden = Warden()
+
+    d = Device(os.path.join(build, "keep_device"), "discard")
+    d.rpc("import_share", {"group": "g", "share": share})
+    d.rpc("test_set_confirm", {"approve": True})
+    session = secrets.token_hex(32)
+    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": secrets.token_bytes(32).hex()})
+    d.rpc("test_fail_next_checkpoint_delete")
+    expect_error("a policy update that cannot discard old sessions is refused",
+                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 100)}), "Storage error")
+    check("and installs nothing", d.rpc("policy_get")["has_policy"] is False)
+    d.close()
+
+    d = Device(os.path.join(build, "keep_device"), "cut")
+    d.rpc("import_share", {"group": "g", "share": share})
+    d.rpc("test_set_confirm", {"approve": True})
+    d.rpc("policy_update", {"bundle": warden.bundle({"allow_raw": True}, 100)})
+    session = secrets.token_hex(32)
+    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": secrets.token_bytes(32).hex()})
+    d.rpc("test_cut_before_pin_raise")
+    expect_error("power lost before the pin is raised", lambda: d.rpc(
+        "policy_update", {"bundle": warden.bundle({"max_amount": 1}, 200)}), "Storage error")
+    check("the stricter policy is already in force", d.rpc("policy_get")["created_at"] == 200)
+    expect_error("a session from the looser policy cannot be resumed after the cut",
+                 lambda: d.rpc("frost_session_resume", {"session_id": session}), "")
+    d.close()
+
+    d = Device(os.path.join(build, "keep_device"), "nonce")
+    d.rpc("import_share", {"group": "g", "share": share})
+    other = Device(os.path.join(build, "keep_device"), "peer")
+    other.rpc("import_share", {"group": "g", "share": keys["shares"][2]["share"]})
+    session = secrets.token_hex(32)
+    msg = secrets.token_bytes(32).hex()
+    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg})
+    peer = other.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg})
+    d.rpc("test_fail_next_checkpoint_delete")
+    expect_error("a share is not released if its checkpoint cannot be cleared",
+                 lambda: d.rpc("frost_sign", {"group": "g", "session_id": session,
+                                              "commitments": peer["commitment"]}), "checkpoint")
+    expect_error("nor returned on a retry", lambda: d.rpc(
+        "frost_sign", {"group": "g", "session_id": session, "commitments": peer["commitment"]}), "")
+    d.close()
+    other.close()
 
 
 def regtest(build, knots_bin):
@@ -550,6 +611,7 @@ def main():
     offline(build)
     policy_pinning(build)
     signing_gate(build)
+    session_safety(build)
     if os.environ.get("KNOTS_BIN"):
         regtest(build, os.environ["KNOTS_BIN"])
     print("e2e: all checks passed")

@@ -290,10 +290,7 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
         return -1;
     }
 
-    secresult_t raw_ok = SECRESULT_TRUE;
-    if (has_policy) {
-        raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
-    }
+    secresult_t raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
 
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
@@ -480,14 +477,21 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
         return;
     }
 
+    /* The checkpoint still holds this nonce. If it cannot be removed, release nothing: a
+     * resume after a reboot could otherwise sign a second message with the same nonce. */
+    if (session_checkpoint_clear(session_id) != 0) {
+        secure_memzero(&sign_result, sizeof(sign_result));
+        free_session(s);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to clear session checkpoint");
+        return;
+    }
+
     record_consumed_session(session_id);
 
     memcpy(s->session.sig_shares[share_idx], sign_result.sig_share, sign_result.sig_share_len);
     s->session.sig_share_lens[share_idx] = sign_result.sig_share_len;
     s->session.sig_share_indices[share_idx] = sign_result.index;
     s->session.sig_share_count++;
-
-    session_checkpoint_clear(session_id);
 
     char sig_share_hex[73];
     bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len, sig_share_hex,
@@ -548,7 +552,7 @@ void frost_signer_cleanup_stale(void) {
     }
 }
 
-void frost_signer_discard_sessions(void) {
+int frost_signer_discard_sessions(void) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
         if (sessions[i].active) {
             free_session(&sessions[i]);
@@ -556,9 +560,16 @@ void frost_signer_discard_sessions(void) {
     }
     uint8_t ids[STORAGE_MAX_SESSION_CHECKPOINTS][SESSION_ID_LEN];
     int count = session_checkpoint_list(ids, STORAGE_MAX_SESSION_CHECKPOINTS);
-    for (int i = 0; i < count; i++) {
-        session_checkpoint_clear(ids[i]);
+    if (count < 0) {
+        return -1;
     }
+    int ret = 0;
+    for (int i = 0; i < count; i++) {
+        if (session_checkpoint_clear(ids[i]) != 0) {
+            ret = -1;
+        }
+    }
+    return ret;
 }
 
 void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index,

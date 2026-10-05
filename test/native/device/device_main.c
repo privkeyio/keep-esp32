@@ -125,7 +125,13 @@ int storage_load_session_checkpoint(const uint8_t *id, void *d, size_t l) {
     return 0;
 }
 
+static bool fail_next_checkpoint_delete = false;
+
 int storage_delete_session_checkpoint(const uint8_t *id) {
+    if (fail_next_checkpoint_delete) {
+        fail_next_checkpoint_delete = false;
+        return -1;
+    }
     int i = find_checkpoint(id);
     if (i >= 0) {
         memset(&checkpoints[i], 0, sizeof(checkpoints[i]));
@@ -356,6 +362,9 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
     } else if (strcmp(m, "test_cut_during_policy_write") == 0) {
         /* Power lost after the sector erase and before the write completes. */
         fail_next_flash_write = true;
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_fail_next_checkpoint_delete") == 0) {
+        fail_next_checkpoint_delete = true;
         protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_cut_before_pin_raise") == 0) {
         /* Power lost after the bundle is written and before the pin is raised. */
