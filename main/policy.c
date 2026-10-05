@@ -10,6 +10,7 @@
 #include "secresult.h"
 #include "anti_glitch.h"
 #include "cJSON.h"
+#include "ux_interface.h"
 #include <secp256k1.h>
 #include <secp256k1_schnorrsig.h>
 #include <secp256k1_extrakeys.h>
@@ -20,6 +21,8 @@
 #define TAG            "policy"
 #define PARTITION_NAME "policy"
 #define SECTOR_SIZE    4096
+
+#define POLICY_PIN_CONFIRM_TIMEOUT_MS 120000
 
 static const esp_partition_t *policy_partition = NULL;
 static bool initialized = false;
@@ -49,17 +52,53 @@ int policy_init(void) {
     return 0;
 }
 
-int policy_save_bundle(const policy_bundle_t *bundle) {
-    KEEP_ASSERT(bundle != NULL);
+int policy_check_update(const policy_pin_t *pin, const policy_bundle_t *installed,
+                        const policy_bundle_t *candidate, bool *needs_confirm) {
+    KEEP_ASSERT(candidate != NULL);
+    KEEP_ASSERT(needs_confirm != NULL);
+    *needs_confirm = false;
 
-    if (!initialized)
-        return POLICY_ERR_STORAGE;
-    if (bundle->version != POLICY_VERSION)
+    if (candidate->version != POLICY_VERSION)
         return POLICY_ERR_VERSION;
+    if (candidate->rules_len > POLICY_MAX_RULES_LEN)
+        return POLICY_ERR_MALFORMED;
 
-    int ret = policy_verify_signature(bundle);
+    int ret = policy_verify_signature(candidate);
     if (ret != 0)
         return ret;
+
+    if (pin != NULL) {
+        if (ct_compare(candidate->warden_pubkey, pin->warden_pubkey, POLICY_PUBKEY_LEN) != 0)
+            return POLICY_ERR_WARDEN;
+        uint64_t floor = pin->created_at;
+        if (installed &&
+            ct_compare(installed->warden_pubkey, pin->warden_pubkey, POLICY_PUBKEY_LEN) == 0 &&
+            installed->created_at > floor) {
+            floor = installed->created_at;
+        }
+        return candidate->created_at > floor ? 0 : POLICY_ERR_ROLLBACK;
+    }
+
+    /* Unpinned, including a bundle installed before pinning existed: the key must be
+     * confirmed on the device, and a bundle from the same key must still be newer. */
+    *needs_confirm = true;
+    if (installed &&
+        ct_compare(candidate->warden_pubkey, installed->warden_pubkey, POLICY_PUBKEY_LEN) == 0 &&
+        candidate->created_at <= installed->created_at) {
+        return POLICY_ERR_ROLLBACK;
+    }
+    return 0;
+}
+
+static int store_bundle(const policy_bundle_t *bundle, policy_pin_t *pin, bool pinned) {
+    /* The pin is written before the bundle and raised after it, so a power cut at any
+     * point leaves the device pinned and failing closed until a newer bundle arrives. */
+    if (!pinned) {
+        memcpy(pin->warden_pubkey, bundle->warden_pubkey, POLICY_PUBKEY_LEN);
+        pin->created_at = 0;
+        if (policy_pin_write(pin) != 0)
+            return POLICY_ERR_STORAGE;
+    }
 
     esp_err_t err = esp_partition_read(policy_partition, 0, sector_buf, SECTOR_SIZE);
     if (err != ESP_OK) {
@@ -82,8 +121,48 @@ int policy_save_bundle(const policy_bundle_t *bundle) {
     if (err != ESP_OK)
         return POLICY_ERR_STORAGE;
 
+    pin->created_at = bundle->created_at;
+    if (policy_pin_write(pin) != 0)
+        return POLICY_ERR_STORAGE;
+
     ESP_LOGI(TAG, "Policy bundle saved (rules_len=%lu)", (unsigned long)bundle->rules_len);
     return 0;
+}
+
+int policy_save_bundle(const policy_bundle_t *bundle) {
+    KEEP_ASSERT(bundle != NULL);
+
+    if (!initialized)
+        return POLICY_ERR_STORAGE;
+
+    policy_pin_t pin;
+    int pin_ret = policy_pin_read(&pin);
+    if (pin_ret != 0 && pin_ret != POLICY_ERR_NOT_FOUND) {
+        return POLICY_ERR_STORAGE;
+    }
+    bool pinned = pin_ret == 0;
+
+    policy_bundle_t installed;
+    bool installed_valid =
+        policy_load_bundle(&installed) == 0 && policy_verify_signature(&installed) == 0;
+
+    bool needs_confirm = false;
+    int ret = policy_check_update(pinned ? &pin : NULL, installed_valid ? &installed : NULL, bundle,
+                                  &needs_confirm);
+    secure_memzero(&installed, sizeof(installed));
+    if (ret != 0)
+        return ret;
+
+    if (needs_confirm &&
+        !ux_confirm_warden_pin(bundle->warden_pubkey, POLICY_PIN_CONFIRM_TIMEOUT_MS)) {
+        return POLICY_ERR_UNCONFIRMED;
+    }
+
+    ret = store_bundle(bundle, &pin, pinned);
+    if (needs_confirm) {
+        ux_report_warden_pin(ret == 0);
+    }
+    return ret;
 }
 
 int policy_load_bundle(policy_bundle_t *bundle) {
@@ -130,6 +209,12 @@ int policy_delete_bundle(void) {
 }
 
 bool policy_has_bundle(void) {
+    /* Pinned means a policy is in force even if the bundle is missing or unreadable, so
+     * signing fails closed instead of treating the device as unrestricted. */
+    policy_pin_t pin;
+    if (policy_pin_read(&pin) != POLICY_ERR_NOT_FOUND)
+        return true;
+
     if (!initialized)
         return false;
 
@@ -222,6 +307,25 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Unsupported version");
         return;
     }
+    if (ret == POLICY_ERR_MALFORMED) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Malformed policy");
+        return;
+    }
+    if (ret == POLICY_ERR_WARDEN) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS,
+                       "Policy not signed by the pinned Warden key");
+        return;
+    }
+    if (ret == POLICY_ERR_ROLLBACK) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS,
+                       "Policy is not newer than the installed one");
+        return;
+    }
+    if (ret == POLICY_ERR_UNCONFIRMED) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS,
+                       "Warden key not confirmed on the device");
+        return;
+    }
     if (ret != 0) {
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
         return;
@@ -238,9 +342,23 @@ void policy_handle_get(const rpc_request_t *req, rpc_response_t *resp) {
 
     policy_bundle_t bundle;
     int ret = policy_load_bundle(&bundle);
+    if (ret == 0 && policy_verify_signature(&bundle) != 0)
+        ret = POLICY_ERR_INVALID_SIG;
     if (ret != 0) {
         secure_memzero(&bundle, sizeof(bundle));
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Load error");
+        policy_pin_t pin;
+        if (policy_pin_read(&pin) != 0) {
+            PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Load error");
+            return;
+        }
+        char pin_hex[65];
+        bytes_to_hex(pin.warden_pubkey, POLICY_PUBKEY_LEN, pin_hex, sizeof(pin_hex));
+        char result[192];
+        snprintf(result, sizeof(result),
+                 "{\"has_policy\":true,\"bundle_valid\":false,\"warden_pubkey\":\"%s\","
+                 "\"created_at\":%llu}",
+                 pin_hex, (unsigned long long)pin.created_at);
+        protocol_success(resp, req->id, result);
         return;
     }
 

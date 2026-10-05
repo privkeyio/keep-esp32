@@ -55,6 +55,16 @@ static void serial_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t 
     }
 }
 
+static void serial_confirm_warden_pin(const char *fingerprint, ux_decision_cb_t cb,
+                                      void *user_data) {
+    (void)fingerprint;
+    if (cb == NULL) {
+        return;
+    }
+    ESP_LOGW(TAG, "Warden key pinning needs on-device confirmation (headless mode)");
+    cb(false, user_data);
+}
+
 static void serial_show_qr(const char *data, size_t len) {
     (void)data;
     (void)len;
@@ -88,6 +98,7 @@ const ux_backend_t ux_serial_backend = {
     .show_success = serial_show_success,
     .show_error = serial_show_error,
     .confirm_transaction = serial_confirm_transaction,
+    .confirm_warden_pin = serial_confirm_warden_pin,
     .show_qr = serial_show_qr,
     .scan_qr = serial_scan_qr,
     .wait_any_input = serial_wait_any_input,

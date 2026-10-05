@@ -28,6 +28,15 @@ typedef struct {
 } __attribute__((packed)) policy_bundle_t;
 
 int policy_init(void);
+typedef struct {
+    uint8_t warden_pubkey[POLICY_PUBKEY_LEN];
+    uint64_t created_at;
+} policy_pin_t;
+
+int policy_pin_read(policy_pin_t *pin);
+int policy_pin_write(const policy_pin_t *pin);
+int policy_check_update(const policy_pin_t *pin, const policy_bundle_t *installed,
+                        const policy_bundle_t *candidate, bool *needs_confirm);
 int policy_save_bundle(const policy_bundle_t *bundle);
 int policy_load_bundle(policy_bundle_t *bundle);
 int policy_delete_bundle(void);

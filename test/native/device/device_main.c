@@ -22,6 +22,7 @@
 #include "protocol.h"
 #include "random_utils.h"
 #include "storage.h"
+#include "ux_interface.h"
 
 static struct {
     char group[STORAGE_GROUP_LEN + 1];
@@ -124,8 +125,14 @@ esp_err_t esp_partition_read(const esp_partition_t *p, size_t off, void *dst, si
     return ESP_OK;
 }
 
+static bool fail_next_flash_write = false;
+
 esp_err_t esp_partition_write(const esp_partition_t *p, size_t off, const void *src, size_t size) {
     if (p != &policy_part || off + size > PARTITION_SIZE) {
+        return ESP_FAIL;
+    }
+    if (fail_next_flash_write) {
+        fail_next_flash_write = false;
         return ESP_FAIL;
     }
     const uint8_t *s = src;
@@ -240,12 +247,98 @@ static void finalize(cJSON *params, int id, rpc_response_t *resp) {
     wally_psbt_free(psbt);
 }
 
+/* The pin record lives in NVS on the device; here it is in memory. */
+static bool pin_present = false;
+static policy_pin_t pin_record;
+
+int policy_pin_read(policy_pin_t *pin) {
+    if (!pin_present) {
+        return POLICY_ERR_NOT_FOUND;
+    }
+    memcpy(pin, &pin_record, sizeof(*pin));
+    return 0;
+}
+
+static bool fail_next_pin_write = false;
+
+int policy_pin_write(const policy_pin_t *pin) {
+    if (fail_next_pin_write) {
+        fail_next_pin_write = false;
+        return POLICY_ERR_STORAGE;
+    }
+    memcpy(&pin_record, pin, sizeof(*pin));
+    pin_present = true;
+    return 0;
+}
+
+/* The display asks the user to trust a Warden key before the first policy is
+ * pinned. Here the test sets the answer; unset, it refuses like a headless device. */
+static bool confirm_answer = false;
+static int confirm_prompts = 0;
+static uint8_t confirm_last_key[32];
+
+bool ux_confirm_warden_pin(const uint8_t pubkey[32], uint32_t timeout_ms) {
+    (void)timeout_ms;
+    confirm_prompts++;
+    memcpy(confirm_last_key, pubkey, 32);
+    return confirm_answer;
+}
+
+static int pin_reports_ok = 0;
+static int pin_reports_failed = 0;
+
+void ux_report_warden_pin(bool saved) {
+    if (saved) {
+        pin_reports_ok++;
+    } else {
+        pin_reports_failed++;
+    }
+}
+
 static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
     cJSON *root = cJSON_Parse(line);
     cJSON *method = root ? cJSON_GetObjectItem(root, "method") : NULL;
     cJSON *params = root ? cJSON_GetObjectItem(root, "params") : NULL;
     const char *m = cJSON_IsString(method) ? method->valuestring : "";
-    if (strcmp(m, "test_set_sighash") == 0 && params) {
+    if (strcmp(m, "test_set_confirm") == 0 && params) {
+        confirm_answer = cJSON_IsTrue(cJSON_GetObjectItem(params, "approve"));
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_cut_during_policy_write") == 0) {
+        /* Power lost after the sector erase and before the write completes. */
+        fail_next_flash_write = true;
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_cut_before_pin_raise") == 0) {
+        /* Power lost after the bundle is written and before the pin is raised. */
+        fail_next_pin_write = true;
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_erase_policy_sector") == 0) {
+        memset(policy_flash, 0xFF, 4096);
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_install_legacy_bundle") == 0 && params) {
+        /* A bundle stored by firmware that predates the pin record. */
+        cJSON *hex = cJSON_GetObjectItem(params, "bundle");
+        size_t written = 0;
+        memset(policy_flash, 0xFF, 4096);
+        if (cJSON_IsString(hex) &&
+            wally_hex_to_bytes(hex->valuestring, policy_flash, sizeof(policy_bundle_t), &written) ==
+                WALLY_OK) {
+            protocol_success(resp, id, "{\"ok\":true}");
+        } else {
+            protocol_error(resp, id, PROTOCOL_ERR_PARAMS, "bad bundle");
+        }
+    } else if (strcmp(m, "test_corrupt_policy") == 0) {
+        policy_flash[sizeof(policy_bundle_t) - 1] ^= 0x01;
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_confirm_log") == 0) {
+        char key_hex[65], result[128];
+        for (int i = 0; i < 32; i++) {
+            snprintf(key_hex + 2 * i, 3, "%02x", confirm_last_key[i]);
+        }
+        snprintf(result, sizeof(result),
+                 "{\"prompts\":%d,\"last_key\":\"%s\",\"saved\":%d,\"save_failed\":%d}",
+                 confirm_prompts, key_hex, pin_reports_ok, pin_reports_failed);
+        protocol_success(resp, id, result);
+    } else if (strcmp(m, "test_set_sighash") == 0 && params) {
         set_sighash(params, id, resp);
     } else if (strcmp(m, "test_finalize") == 0 && params) {
         finalize(params, id, resp);

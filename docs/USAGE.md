@@ -185,6 +185,21 @@ The device supports [Warden](https://github.com/privkeyio/warden) policy bundles
 3. **Device** verifies signature and stores bundle in flash
 4. **Before signing**, device evaluates transaction against policy rules
 
+### Warden Key Pinning
+
+The first policy installed pins its `warden_pubkey`. Before storing it, the device shows the key on the display and waits up to 120 seconds for the user to tap **Trust**; check it against the key Warden shows. `policy_update` does not answer until then, so a host sending the first bundle needs a serial timeout above 120 seconds. Headless builds (`KEEP_UX_SERIAL`, or the display disabled) cannot confirm. A headless device without a policy cannot install one and keeps signing without one; a headless device that already holds a bundle from older firmware keeps enforcing it but cannot update it.
+
+The pin is kept in NVS, separately from the bundle, together with the newest `created_at` installed. After that, a bundle is accepted only if it is signed by the pinned key and its `created_at` is strictly newer, so an older, looser policy cannot be replayed. A bundle installed by firmware from before pinning is not trusted as pinned: the next `policy_update` asks for confirmation on the display.
+
+A pinned device always enforces its policy. If the bundle is missing or fails its signature check, for example after power is lost during an update, `bitcoin_sign` and `frost_commit` are refused until a newer bundle from the pinned key is installed; `policy_get` reports this as `"bundle_valid": false`. Clearing the pin requires erasing the whole flash (`esptool.py erase_flash`), which also erases the shares.
+
+| Error | Cause |
+|-------|-------|
+| `Warden key not confirmed on the device` | Unpinned device: rejected on the display, timed out, or headless |
+| `Policy not signed by the pinned Warden key` | Bundle signed by a different key |
+| `Policy is not newer than the installed one` | `created_at` not greater than the newest installed |
+| `Storage error` | The pin record or the policy sector could not be read or written |
+
 ### RPC Methods
 
 ```bash

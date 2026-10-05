@@ -3,6 +3,9 @@
 
 #include "ux_interface.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include <stdio.h>
 #include <string.h>
 
 #define TAG             "ux_manager"
@@ -78,4 +81,57 @@ int ux_init(void) {
         return active_backend->init();
     }
     return 0;
+}
+
+static SemaphoreHandle_t pin_decision_sem = NULL;
+static volatile bool pin_decision = false;
+
+static void pin_decision_cb(bool approved, void *user_data) {
+    (void)user_data;
+    pin_decision = approved;
+    xSemaphoreGive(pin_decision_sem);
+}
+
+bool ux_confirm_warden_pin(const uint8_t pubkey[32], uint32_t timeout_ms) {
+    if (!active_backend || !active_backend->confirm_warden_pin || !pubkey) {
+        return false;
+    }
+    if (!pin_decision_sem) {
+        pin_decision_sem = xSemaphoreCreateBinary();
+        if (!pin_decision_sem) {
+            return false;
+        }
+    }
+    xSemaphoreTake(pin_decision_sem, 0);
+    pin_decision = false;
+
+    char fingerprint[UX_WARDEN_FINGERPRINT_LEN];
+    char *p = fingerprint;
+    for (int i = 0; i < 32; i++) {
+        p += snprintf(p, 3, "%02x", pubkey[i]);
+        if (i % 4 == 3 && i != 31) {
+            *p++ = ' ';
+        }
+    }
+    *p = '\0';
+
+    active_backend->confirm_warden_pin(fingerprint, pin_decision_cb, NULL);
+    bool approved =
+        xSemaphoreTake(pin_decision_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE && pin_decision;
+
+    if (!approved && active_backend->show_error) {
+        active_backend->show_error("Policy", "Warden key not confirmed");
+    }
+    return approved;
+}
+
+void ux_report_warden_pin(bool saved) {
+    if (!active_backend) {
+        return;
+    }
+    if (saved && active_backend->show_success) {
+        active_backend->show_success("Warden key pinned");
+    } else if (!saved && active_backend->show_error) {
+        active_backend->show_error("Policy", "Warden key could not be saved");
+    }
 }

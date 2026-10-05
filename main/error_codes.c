@@ -124,6 +124,12 @@ const char *error_name(int code) {
         return "POLICY_HASH";
     case ERR_POLICY_MALFORMED:
         return "POLICY_MALFORMED";
+    case ERR_POLICY_WARDEN:
+        return "POLICY_WARDEN";
+    case ERR_POLICY_ROLLBACK:
+        return "POLICY_ROLLBACK";
+    case ERR_POLICY_UNCONFIRMED:
+        return "POLICY_UNCONFIRMED";
 
     case ERR_SESSION_INVALID_STATE:
         return "SESSION_INVALID_STATE";
@@ -287,6 +293,12 @@ const char *error_to_string(int code) {
         return "Policy hash mismatch";
     case ERR_POLICY_MALFORMED:
         return "Malformed policy";
+    case ERR_POLICY_WARDEN:
+        return "Policy not signed by the pinned Warden key";
+    case ERR_POLICY_ROLLBACK:
+        return "Policy is not newer than the installed one";
+    case ERR_POLICY_UNCONFIRMED:
+        return "Warden key not confirmed on the device";
 
     case ERR_SESSION_INVALID_STATE:
         return "Invalid session state";

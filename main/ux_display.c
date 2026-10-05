@@ -36,6 +36,7 @@ static void create_idle_screen(const char *device_name, bool policy_loaded,
                                uint32_t policy_version);
 static void create_scanning_screen(void);
 static void create_transaction_screen(const ux_tx_info_t *tx);
+static void create_warden_pin_screen(const char *fingerprint);
 static void create_signing_screen(int current, int total);
 static void create_qr_screen(const char *data, size_t len);
 static void create_error_screen(const char *title, const char *message);
@@ -166,6 +167,17 @@ static void display_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t
     pending_user_data = user_data;
     create_transaction_screen(tx);
     current_state = UI_STATE_CONFIRM_TX;
+    bsp_display_unlock();
+}
+
+static void display_confirm_warden_pin(const char *fingerprint, ux_decision_cb_t cb,
+                                       void *user_data) {
+    bsp_display_lock(portMAX_DELAY);
+    clear_screen();
+    pending_callback = cb;
+    pending_user_data = user_data;
+    create_warden_pin_screen(fingerprint);
+    current_state = UI_STATE_CONFIRM_PIN;
     bsp_display_unlock();
 }
 
@@ -451,6 +463,70 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_center(approve_label);
 }
 
+static void create_warden_pin_screen(const char *fingerprint) {
+    current_screen = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(current_screen, SCREEN_WIDTH, SCREEN_HEIGHT);
+    lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
+    lv_obj_set_style_pad_all(current_screen, 0, 0);
+    lv_obj_set_style_border_width(current_screen, 0, 0);
+    lv_obj_center(current_screen);
+
+    lv_obj_t *title = lv_label_create(current_screen);
+    lv_label_set_text(title, "Trust this Warden key?");
+    lv_obj_set_style_text_color(title, COLOR_TEXT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+
+    lv_obj_t *hint = lv_label_create(current_screen);
+    lv_label_set_text(hint,
+                      "Only approve if it matches the key Warden shows.\nIt cannot be changed "
+                      "without erasing the device flash.");
+    lv_obj_set_style_text_color(hint, COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+    lv_obj_set_width(hint, 300);
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 36);
+
+    lv_obj_t *fp_box = lv_obj_create(current_screen);
+    lv_obj_set_size(fp_box, 300, 70);
+    lv_obj_set_style_bg_color(fp_box, COLOR_SURFACE, 0);
+    lv_obj_set_style_border_width(fp_box, 0, 0);
+    lv_obj_set_style_radius(fp_box, 6, 0);
+    lv_obj_set_style_pad_all(fp_box, 6, 0);
+    lv_obj_align(fp_box, LV_ALIGN_TOP_MID, 0, 86);
+
+    lv_obj_t *fp_label = lv_label_create(fp_box);
+    lv_label_set_text(fp_label, fingerprint ? fingerprint : "");
+    lv_obj_set_style_text_color(fp_label, COLOR_TEXT, 0);
+    lv_obj_set_style_text_font(fp_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(fp_label, 288);
+    lv_label_set_long_mode(fp_label, LV_LABEL_LONG_WRAP);
+    lv_obj_center(fp_label);
+
+    lv_obj_t *reject_btn = lv_btn_create(current_screen);
+    lv_obj_set_size(reject_btn, 145, 42);
+    lv_obj_align(reject_btn, LV_ALIGN_BOTTOM_LEFT, 10, -8);
+    lv_obj_set_style_bg_color(reject_btn, COLOR_SURFACE, 0);
+    lv_obj_set_style_radius(reject_btn, 6, 0);
+    lv_obj_add_event_cb(reject_btn, reject_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *reject_label = lv_label_create(reject_btn);
+    lv_label_set_text(reject_label, "Reject");
+    lv_obj_set_style_text_color(reject_label, COLOR_DANGER, 0);
+    lv_obj_center(reject_label);
+
+    lv_obj_t *approve_btn = lv_btn_create(current_screen);
+    lv_obj_set_size(approve_btn, 145, 42);
+    lv_obj_align(approve_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
+    lv_obj_set_style_bg_color(approve_btn, COLOR_SUCCESS, 0);
+    lv_obj_set_style_radius(approve_btn, 6, 0);
+    lv_obj_add_event_cb(approve_btn, approve_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *approve_label = lv_label_create(approve_btn);
+    lv_label_set_text(approve_label, "Trust");
+    lv_obj_center(approve_label);
+}
+
 static void create_signing_screen(int current, int total) {
     current_screen = lv_obj_create(lv_scr_act());
     lv_obj_set_size(current_screen, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -596,6 +672,7 @@ const ux_backend_t ux_display_backend = {
     .show_success = display_show_success,
     .show_error = display_show_error,
     .confirm_transaction = display_confirm_transaction,
+    .confirm_warden_pin = display_confirm_warden_pin,
     .show_qr = display_show_qr,
     .scan_qr = display_scan_qr,
     .wait_any_input = display_wait_any_input,
