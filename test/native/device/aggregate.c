@@ -63,6 +63,9 @@ int main(int argc, char **argv) {
         }
         if (!kp) {
             kp = secp256k1_frost_keypair_create(index);
+            if (!kp) {
+                return 5;
+            }
             kp->public_keys = pubkeys[i];
         }
         commits[i].index = le32(commit);

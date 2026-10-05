@@ -149,7 +149,7 @@ static void make_psbt(cJSON *params, int id, rpc_response_t *resp) {
     cJSON *sighash = cJSON_GetObjectItem(params, "sighash");
     uint8_t script[34] = {0x51, 0x20};
     size_t written = 0;
-    if (!cJSON_IsString(key) || !cJSON_IsNumber(amount) ||
+    if (!cJSON_IsString(key) || !cJSON_IsNumber(amount) || amount->valuedouble < 1000.0 ||
         wally_hex_to_bytes(key->valuestring, script + 2, 32, &written) != WALLY_OK ||
         written != 32) {
         protocol_error(resp, id, PROTOCOL_ERR_PARAMS, "bad params");
@@ -201,7 +201,7 @@ static void set_sighash(cJSON *params, int id, rpc_response_t *resp) {
     cJSON *sighash = cJSON_GetObjectItem(params, "sighash");
     struct wally_psbt *psbt = NULL;
     if (!cJSON_IsString(b64) || !cJSON_IsNumber(sighash) ||
-        wally_psbt_from_base64(b64->valuestring, 0, &psbt) != WALLY_OK ||
+        wally_psbt_from_base64(b64->valuestring, 0, &psbt) != WALLY_OK || psbt->num_inputs == 0 ||
         wally_psbt_input_set_sighash(&psbt->inputs[0], (uint32_t)sighash->valueint) != WALLY_OK) {
         protocol_error(resp, id, PROTOCOL_ERR_PARAMS, "bad params");
     } else {
@@ -222,7 +222,7 @@ static void finalize(cJSON *params, int id, rpc_response_t *resp) {
     int ok = cJSON_IsString(b64) && cJSON_IsString(sig_hex) &&
              wally_hex_to_bytes(sig_hex->valuestring, sig, sizeof(sig), &sig_len) == WALLY_OK &&
              wally_psbt_from_base64(b64->valuestring, 0, &psbt) == WALLY_OK &&
-             wally_tx_witness_stack_init_alloc(1, &wit) == WALLY_OK &&
+             psbt->num_inputs > 0 && wally_tx_witness_stack_init_alloc(1, &wit) == WALLY_OK &&
              wally_tx_witness_stack_add(wit, sig, sig_len) == WALLY_OK &&
              wally_psbt_input_set_final_witness(&psbt->inputs[0], wit) == WALLY_OK &&
              wally_psbt_extract(psbt, 0, &tx) == WALLY_OK &&

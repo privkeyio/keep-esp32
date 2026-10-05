@@ -175,7 +175,7 @@ def regtest(build, knots_bin):
     cli_base = [os.path.join(knots_bin, "bitcoin-cli"), "-regtest", f"-datadir={datadir}"]
 
     def cli(*args):
-        out = subprocess.run(cli_base + list(args), capture_output=True, text=True)
+        out = subprocess.run(cli_base + list(args), capture_output=True, text=True, timeout=120)
         if out.returncode != 0:
             raise RuntimeError(f"{args[0]}: {out.stderr.strip()}")
         try:
