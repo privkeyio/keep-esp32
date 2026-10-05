@@ -16,6 +16,8 @@ static uint8_t mock_checkpoint_flash[28672];
 static esp_partition_t mock_partition = {"storage", 65536, 0};
 static esp_partition_t mock_checkpoint_partition = {"checkpoint", 28672, 0};
 static bool partition_exists = true;
+static bool mock_storage_read_fails = false;
+static int mock_reads_before_fault = -1;
 static bool checkpoint_partition_exists = true;
 
 const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
@@ -39,7 +41,9 @@ esp_err_t esp_partition_read(const esp_partition_t *partition, size_t src_offset
         memcpy(dst, mock_checkpoint_flash + src_offset, size);
         return ESP_OK;
     }
-    if (src_offset + size > sizeof(mock_flash))
+    if (mock_storage_read_fails || src_offset + size > sizeof(mock_flash))
+        return ESP_FAIL;
+    if (mock_reads_before_fault >= 0 && mock_reads_before_fault-- == 0)
         return ESP_FAIL;
     memcpy(dst, mock_flash + src_offset, size);
     return ESP_OK;
@@ -133,81 +137,210 @@ static int test_init_no_partition(void) {
     return 0;
 }
 
-static int test_successful_load_resets_pin_attempts(void) {
-    TEST("successful share load records a PIN success");
+static int test_load_does_not_count_attempts(void) {
+    TEST("share loads after unlock leave the PIN counter alone");
     reset_flash();
     if (storage_init() != 0)
         FAIL("init failed");
-
     if (storage_save_share("grp", "deadbeef") != 0)
         FAIL("save failed");
 
-    // Simulate a couple of prior mistypes accumulated on this device.
-    storage_crypto_record_attempt(false);
-    storage_crypto_record_attempt(false);
-    if (storage_crypto_get_attempts() != 2)
-        FAIL("precondition: 2 failed attempts");
-
     char loaded[128];
+    mock_begin_attempt_calls = 0;
     mock_record_success_calls = 0;
+    mock_record_failure_calls = 0;
     if (storage_load_share("grp", loaded, sizeof(loaded)) != 0)
         FAIL("load failed");
-
-    // The good decrypt must be recorded as a success, clearing the counter.
-    // Without it, failed_attempts only ever climbs toward the brick threshold.
-    if (mock_record_success_calls != 1)
-        FAIL("successful load must record a PIN success");
-    if (storage_crypto_get_attempts() != 0)
-        FAIL("success must reset the failed-attempt counter");
-
-    PASS();
-    return 0;
-}
-
-static int test_load_withheld_when_success_not_saved(void) {
-    TEST("a share is not released when the PIN success cannot be saved");
-    reset_flash();
-    if (storage_init() != 0 || storage_save_share("grp", "deadbeef") != 0)
-        FAIL("setup failed");
-    char loaded[128];
-    memset(loaded, 'x', sizeof(loaded));
-    mock_record_result = -1;
+    mock_decrypt_result = -1;
     int ret = storage_load_share("grp", loaded, sizeof(loaded));
-    mock_record_result = 0;
-    if (ret != STORAGE_ERR_IO)
-        FAIL("a failed save of the success must refuse the load");
-    if (loaded[0] != 'x')
-        FAIL("the share must not be written out");
+    mock_decrypt_result = 0;
+    if (ret != STORAGE_ERR_DECRYPT)
+        FAIL("a slot that does not decrypt must be reported");
+    if (mock_begin_attempt_calls || mock_record_success_calls || mock_record_failure_calls)
+        FAIL("the PIN was proven at unlock; loads must not count attempts");
     PASS();
     return 0;
 }
 
-static int test_load_marks_attempt_before_decrypt(void) {
-    TEST("share load marks the PIN attempt before decrypting, and refuses if it cannot");
+static int test_delete_requires_unlock(void) {
+    TEST("deleting a share requires an unlocked device");
     reset_flash();
     if (storage_init() != 0)
         FAIL("init failed");
     if (storage_save_share("grp", "deadbeef") != 0)
         FAIL("save failed");
+    mock_crypto_initialized = false;
+    int ret = storage_delete_share("grp");
+    mock_crypto_initialized = true;
+    if (ret != STORAGE_ERR_CRYPTO_NOT_INIT)
+        FAIL("delete while locked must be refused");
+    if (!storage_has_share("grp"))
+        FAIL("the share must still be there");
+    if (storage_delete_share("grp") != STORAGE_OK)
+        FAIL("delete once unlocked failed");
+    PASS();
+    return 0;
+}
 
-    char loaded[128];
+static int unlock_case(int verifier, bool with_share, int decrypt, int store, int *stores) {
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    if (with_share && storage_save_share("grp", "deadbeef") != STORAGE_OK) {
+        return -99;
+    }
+    mock_check_verifier_result = verifier;
+    mock_decrypt_result = decrypt;
+    mock_store_verifier_result = store;
+    mock_store_verifier_calls = 0;
     mock_begin_attempt_calls = 0;
-    mock_decrypt_saw_begin = false;
-    if (storage_load_share("grp", loaded, sizeof(loaded)) != 0)
-        FAIL("load failed");
-    if (mock_begin_attempt_calls != 1 || !mock_decrypt_saw_begin)
-        FAIL("decrypt ran without the attempt marked first");
+    int ret = storage_unlock("1234");
+    *stores = mock_store_verifier_calls;
+    mock_check_verifier_result = STORAGE_CRYPTO_NO_VERIFIER;
+    mock_decrypt_result = 0;
+    mock_store_verifier_result = 0;
+    return ret;
+}
 
-    mock_begin_attempt_calls = 0;
-    mock_decrypt_saw_begin = false;
-    mock_begin_attempt_result = -1;
-    int ret = storage_load_share("grp", loaded, sizeof(loaded));
-    mock_begin_attempt_result = 0;
-    if (ret != STORAGE_ERR_IO)
-        FAIL("an attempt that cannot be recorded must not decrypt");
-    if (mock_decrypt_saw_begin)
-        FAIL("decrypt ran although the attempt was not recorded");
+static int unlock_case_keep_flash(int *stores) {
+    mock_crypto_initialized = true;
+    mock_check_verifier_result = STORAGE_CRYPTO_NO_VERIFIER;
+    mock_store_verifier_calls = 0;
+    int ret = storage_unlock("1234");
+    *stores = mock_store_verifier_calls;
+    return ret;
+}
 
+static int test_unlock_verifies_pin(void) {
+    TEST("unlock proves the PIN before anything else can decrypt");
+    int stores = 0;
+    if (unlock_case(0, true, 0, 0, &stores) != 0 || !storage_crypto_is_initialized() || stores)
+        FAIL("a verifier match should unlock without rewriting it");
+    if (unlock_case(ERR_PIN_INVALID, true, 0, 0, &stores) != ERR_PIN_INVALID ||
+        storage_crypto_is_initialized())
+        FAIL("a verifier mismatch must refuse and clear the key");
+    if (unlock_case(STORAGE_CRYPTO_NO_VERIFIER, true, 0, 0, &stores) != 0 || stores != 1 ||
+        mock_begin_attempt_calls != 1)
+        FAIL("without a verifier, a counted share decrypt should prove the PIN and store one");
+    mock_record_failure_calls = 0;
+    if (unlock_case(STORAGE_CRYPTO_NO_VERIFIER, true, -1, 0, &stores) != ERR_PIN_INVALID ||
+        stores || storage_crypto_is_initialized())
+        FAIL("a share that does not decrypt must refuse without storing a verifier");
+    if (mock_record_failure_calls != 1 || !mock_decrypt_saw_begin)
+        FAIL("the wrong PIN must be counted, with the attempt marked before decrypting");
+    if (unlock_case(STORAGE_CRYPTO_NO_VERIFIER, false, 0, 0, &stores) != 0 || stores != 1)
+        FAIL("with no shares the PIN should become the verifier");
+    if (unlock_case(STORAGE_CRYPTO_NO_VERIFIER, false, 0, -1, &stores) != STORAGE_ERR_IO ||
+        storage_crypto_is_initialized())
+        FAIL("a verifier that cannot be stored must refuse and clear the key");
+    if (unlock_case(-1, true, 0, 0, &stores) != STORAGE_ERR_IO || storage_crypto_is_initialized())
+        FAIL("a verifier read error must refuse and clear the key");
+    mock_crypto_initialized = true;
+    PASS();
+    return 0;
+}
+
+static int test_unlock_storage_edge_cases(void) {
+    TEST("unlock refuses unreadable storage and accepts the PIN if any share proves it");
+    int stores = 0;
+
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    storage_save_share("grp", "deadbeef");
+    storage_cleanup();
+    mock_store_verifier_calls = 0;
+    int ret = storage_unlock("1234");
+    if (ret != STORAGE_ERR_NOT_INIT || mock_store_verifier_calls || storage_crypto_is_initialized())
+        FAIL("storage that is not initialized must refuse without storing a verifier");
+
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    storage_save_share("grp", "deadbeef");
+    mock_storage_read_fails = true;
+    mock_store_verifier_calls = 0;
+    ret = storage_unlock("1234");
+    mock_storage_read_fails = false;
+    if (ret != STORAGE_ERR_IO || mock_store_verifier_calls || storage_crypto_is_initialized())
+        FAIL("a read error must refuse without storing a verifier");
+
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    storage_save_share("one", "deadbeef");
+    storage_save_share("two", "cafebabe");
+    mock_decrypt_fail_first = 1;
+    mock_record_success_calls = 0;
+    mock_record_failure_calls = 0;
+    if (unlock_case_keep_flash(&stores) != 0 || stores != 1)
+        FAIL("a damaged first slot must not stop a good one proving the PIN");
+    if (mock_record_success_calls != 1 || mock_record_failure_calls != 0)
+        FAIL("the check must be recorded once, as a success");
+
+    reset_flash();
+    storage_init();
+    share_slot_t v1_slot;
+    memset(&v1_slot, 0, sizeof(v1_slot));
+    strncpy(v1_slot.group, "legacy", STORAGE_GROUP_LEN);
+    v1_slot.format_version = STORAGE_FORMAT_V1;
+    uint8_t plaintext[] = {0xde, 0xad, 0xbe, 0xef};
+    uint8_t encrypted[STORAGE_SHARE_LEN];
+    storage_crypto_encrypt(plaintext, sizeof(plaintext), NULL, 0, v1_slot.nonce, encrypted,
+                           v1_slot.tag);
+    v1_slot.share_len = sizeof(plaintext) | ENCRYPTED_FLAG;
+    memcpy(v1_slot.share_data, encrypted, sizeof(plaintext));
+    memcpy(mock_flash, &v1_slot, sizeof(v1_slot));
+    mock_crypto_reset_aad();
+    if (unlock_case_keep_flash(&stores) != 0 || stores != 1 || mock_last_decrypt_aad_len != 0)
+        FAIL("a legacy V1 share must prove the PIN, decrypted without AAD");
+
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    storage_save_share("grp", "deadbeef");
+    mock_reads_before_fault = STORAGE_MAX_SHARES;
+    mock_abandon_attempt_calls = 0;
+    mock_record_failure_calls = 0;
+    ret = unlock_case_keep_flash(&stores);
+    mock_reads_before_fault = -1;
+    if (ret != STORAGE_ERR_IO || mock_abandon_attempt_calls != 1 || mock_record_failure_calls)
+        FAIL("a read fault before any decrypt must abandon the attempt, not count it");
+
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    storage_save_share("grp", "deadbeef");
+    storage_save_share("grp2", "deadbeef");
+    mock_reads_before_fault = STORAGE_MAX_SHARES + 1;
+    mock_decrypt_result = -1;
+    mock_abandon_attempt_calls = 0;
+    mock_record_failure_calls = 0;
+    ret = unlock_case_keep_flash(&stores);
+    mock_reads_before_fault = -1;
+    mock_decrypt_result = 0;
+    if (ret != STORAGE_ERR_IO || mock_abandon_attempt_calls || mock_record_failure_calls != 1)
+        FAIL("a read fault after a failed decrypt must still count the PIN");
+
+    reset_flash();
+    storage_init();
+    mock_can_keep_verifier = false;
+    ret = unlock_case_keep_flash(&stores);
+    mock_can_keep_verifier = true;
+    if (ret != ERR_PIN_NO_STATE || stores || storage_crypto_is_initialized())
+        FAIL("with no shares and nowhere to keep a verifier the PIN must not be taken on trust");
+    mock_crypto_initialized = true;
+
+    reset_flash();
+    storage_init();
+    mock_crypto_initialized = true;
+    storage_save_share("grp", "deadbeef");
+    mock_record_result = -1;
+    ret = unlock_case_keep_flash(&stores);
+    mock_record_result = 0;
+    if (ret != STORAGE_ERR_IO || stores || storage_crypto_is_initialized())
+        FAIL("a proven PIN whose result cannot be saved must refuse and clear the key");
+    mock_crypto_initialized = true;
     PASS();
     return 0;
 }
@@ -980,9 +1113,10 @@ int main(void) {
     failures += test_init();
     failures += test_init_no_partition();
     failures += test_save_load_roundtrip();
-    failures += test_successful_load_resets_pin_attempts();
-    failures += test_load_withheld_when_success_not_saved();
-    failures += test_load_marks_attempt_before_decrypt();
+    failures += test_load_does_not_count_attempts();
+    failures += test_delete_requires_unlock();
+    failures += test_unlock_verifies_pin();
+    failures += test_unlock_storage_edge_cases();
     failures += test_save_overwrite();
     failures += test_delete();
     failures += test_delete_nonexistent();

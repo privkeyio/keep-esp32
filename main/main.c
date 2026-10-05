@@ -77,7 +77,7 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
         return;
     }
 
-    int ret = storage_crypto_init(req->pin);
+    int ret = storage_unlock(req->pin);
     if (ret == ERR_PIN_BRICKED) {
         PROTOCOL_ERROR(resp, req->id, ERR_PIN_BRICKED,
                        "Device bricked after too many PIN attempts");
@@ -98,6 +98,14 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
     }
     if (ret == ERR_PIN_INVALID) {
         PROTOCOL_ERROR(resp, req->id, ERR_PIN_INVALID, "Invalid PIN");
+        return;
+    }
+    if (ret == STORAGE_ERR_IO) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Could not record the PIN check");
+        return;
+    }
+    if (ret == STORAGE_ERR_NOT_INIT) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Share storage unavailable");
         return;
     }
     if (ret != 0) {
@@ -186,6 +194,9 @@ static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) 
         break;
     case STORAGE_ERR_NOT_FOUND:
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Share not found");
+        break;
+    case STORAGE_ERR_CRYPTO_NOT_INIT:
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Unlock required");
         break;
     default:
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");

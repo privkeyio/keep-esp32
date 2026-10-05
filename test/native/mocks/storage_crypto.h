@@ -46,6 +46,33 @@ static inline int storage_crypto_begin_attempt(void) {
     return mock_begin_attempt_result;
 }
 
+static int mock_abandon_attempt_calls = 0;
+static bool mock_can_keep_verifier = true;
+
+static inline void storage_crypto_abandon_attempt(void) {
+    mock_abandon_attempt_calls++;
+}
+
+static inline bool storage_crypto_can_keep_verifier(void) {
+    return mock_can_keep_verifier;
+}
+
+#define STORAGE_CRYPTO_NO_VERIFIER 1
+static int mock_check_verifier_result = STORAGE_CRYPTO_NO_VERIFIER;
+static int mock_store_verifier_result = 0;
+static int mock_store_verifier_calls = 0;
+static int mock_decrypt_result = 0;
+static int mock_decrypt_fail_first = 0;
+
+static inline int storage_crypto_check_verifier(void) {
+    return mock_check_verifier_result;
+}
+
+static inline int storage_crypto_store_verifier(void) {
+    mock_store_verifier_calls++;
+    return mock_store_verifier_result;
+}
+
 static int mock_record_result = 0;
 
 static inline int storage_crypto_record_attempt(bool success) {
@@ -131,6 +158,13 @@ static inline int storage_crypto_decrypt(const uint8_t *ciphertext, size_t len, 
                                          const uint8_t tag[STORAGE_CRYPTO_TAG_SIZE],
                                          uint8_t *plaintext) {
     mock_decrypt_saw_begin = mock_begin_attempt_calls > 0;
+    if (mock_decrypt_fail_first > 0) {
+        mock_decrypt_fail_first--;
+        return -1;
+    }
+    if (mock_decrypt_result != 0) {
+        return mock_decrypt_result;
+    }
     if (aad && aad_len > 0 && aad_len <= sizeof(mock_last_decrypt_aad)) {
         memcpy(mock_last_decrypt_aad, aad, aad_len);
         mock_last_decrypt_aad_len = aad_len;

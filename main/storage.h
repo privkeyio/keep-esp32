@@ -50,6 +50,10 @@ void storage_cleanup(void);
 
 int storage_save_share(const char *group, const char *share_hex);
 
+/* Derives the storage key from the PIN and proves it before any other decrypt can run,
+ * as a counted attempt. Returns 0, ERR_PIN_* or STORAGE_ERR_*; the key is cleared on any
+ * failure. */
+int storage_unlock(const char *pin);
 int storage_load_share(const char *group, char *share_hex, size_t len);
 
 int storage_delete_share(const char *group);

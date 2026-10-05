@@ -24,7 +24,7 @@ typedef enum {
 
 static uint8_t mock_se_slots[SE_SLOT_COUNT][SE_SLOT_SIZE];
 static bool mock_se_available = false;
-static bool mock_se_write_fails = false;
+static int mock_se_write_fail_after = -1;
 
 se_status_t se_init(void) {
     if (mock_se_available) {
@@ -55,7 +55,7 @@ se_status_t se_write_slot(uint8_t slot, const uint8_t *data, size_t len) {
     if (slot >= SE_SLOT_COUNT || !data || len > SE_SLOT_SIZE) {
         return SE_ERR_INVALID_PARAM;
     }
-    if (mock_se_write_fails) {
+    if (mock_se_write_fail_after >= 0 && mock_se_write_fail_after-- == 0) {
         return SE_ERR_COMM_FAIL;
     }
     memcpy(mock_se_slots[slot], data, len);
@@ -84,6 +84,7 @@ se_status_t se_get_serial(uint8_t serial[SE_SERIAL_SIZE]) {
 #define STORAGE_CRYPTO_NONCE_SIZE  12
 #define STORAGE_CRYPTO_TAG_SIZE    16
 #define STORAGE_CRYPTO_MAX_PIN_LEN 64
+#define STORAGE_CRYPTO_NO_VERIFIER 1
 
 #include "crypto_asm.h"
 #include "random_utils.h"
@@ -104,6 +105,7 @@ static void reset_test_state(void) {
     memset(mock_se_slots, 0, sizeof(mock_se_slots));
     mock_se_available = false;
     host_pin_blob_status = PIN_BLOB_NOT_FOUND;
+    host_verifier_set = false;
 }
 
 static int test_initial_state(void) {
@@ -446,9 +448,9 @@ static int test_unsaved_success_reported(void) {
     pin_state_loaded = false;
     if (storage_crypto_begin_attempt() != 0)
         FAIL("begin_attempt failed");
-    mock_se_write_fails = true;
+    mock_se_write_fail_after = 0;
     int ret = storage_crypto_record_attempt(true);
-    mock_se_write_fails = false;
+    mock_se_write_fail_after = -1;
     if (ret == 0)
         FAIL("a failed save was reported as success");
     simulate_reboot();
@@ -473,6 +475,20 @@ static int test_pending_cleared_by_result(void) {
     simulate_reboot();
     if (storage_crypto_get_attempts() != 1)
         FAIL("a failure was counted twice or not at all");
+    PASS();
+    return 0;
+}
+
+static int test_abandoned_attempt_not_counted(void) {
+    TEST("an abandoned attempt clears the pending mark without counting");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_begin_attempt();
+    storage_crypto_abandon_attempt();
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("an abandoned attempt was counted");
     PASS();
     return 0;
 }
@@ -557,6 +573,61 @@ static int test_nvs_blob_paths(void) {
     return 0;
 }
 
+static int test_unlock_verifier(void) {
+    TEST("the PIN verifier: absent is not counted, a match resets, a mismatch counts");
+    reset_test_state();
+    pin_state_loaded = false;
+    if (storage_crypto_init("1234") != 0)
+        FAIL("init failed");
+    if (storage_crypto_check_verifier() != STORAGE_CRYPTO_NO_VERIFIER)
+        FAIL("expected no verifier");
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("checking for a verifier that does not exist counted an attempt");
+    if (storage_crypto_store_verifier() != 0)
+        FAIL("store failed");
+    storage_crypto_record_attempt(false);
+    if (storage_crypto_check_verifier() != 0)
+        FAIL("the right PIN did not match");
+    if (storage_crypto_get_attempts() != 0)
+        FAIL("a match did not reset the counter");
+    storage_crypto_clear();
+    if (storage_crypto_init("9999") != 0)
+        FAIL("init with another PIN failed");
+    if (storage_crypto_check_verifier() != ERR_PIN_INVALID)
+        FAIL("a wrong PIN matched");
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("a wrong PIN was not counted");
+    storage_crypto_clear();
+
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_set_pin_state_persistent(false);
+    if (storage_crypto_init("1234") != 0)
+        FAIL("a secure element device without NVS should still unlock");
+    int no_nvs_check = storage_crypto_check_verifier();
+    int no_nvs_store = storage_crypto_store_verifier();
+    bool stored = host_verifier_set;
+    storage_crypto_set_pin_state_persistent(true);
+    storage_crypto_clear();
+    if (no_nvs_check != STORAGE_CRYPTO_NO_VERIFIER || no_nvs_store != 0 || stored)
+        FAIL("without NVS there is no verifier to check or store");
+
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    if (storage_crypto_init("1234") != 0 || storage_crypto_store_verifier() != 0)
+        FAIL("setup failed");
+    mock_se_write_fail_after = 1;
+    int unsaved = storage_crypto_check_verifier();
+    mock_se_write_fail_after = -1;
+    storage_crypto_clear();
+    if (unsaved != -1)
+        FAIL("a match whose result cannot be saved must be a storage error");
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== PIN Attempt Limiting Tests ===\n\n");
 
@@ -578,11 +649,13 @@ int main(void) {
     failures += test_unlock_refused_without_persistent_state();
     failures += test_pending_attempt_survives_reset();
     failures += test_pending_cleared_by_result();
+    failures += test_abandoned_attempt_not_counted();
     failures += test_unsaved_success_reported();
     failures += test_correct_pin_on_last_attempt();
     failures += test_lockout_clamped_after_reboot();
     failures += test_state_blob_hmac();
     failures += test_nvs_blob_paths();
+    failures += test_unlock_verifier();
 
     printf("\n");
     if (failures == 0) {
