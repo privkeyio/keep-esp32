@@ -159,6 +159,12 @@ static void handle_state(int id, rpc_response_t *resp) {
     cJSON_AddNumberToObject(root, "free_heap", heap_caps_get_free_size(MALLOC_CAP_8BIT));
     cJSON_AddNumberToObject(root, "largest_block",
                             heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    lv_mem_monitor_t mem;
+    bsp_display_lock(0);
+    lv_mem_monitor(&mem);
+    bsp_display_unlock();
+    cJSON_AddNumberToObject(root, "lv_mem_total", mem.total_size);
+    cJSON_AddNumberToObject(root, "lv_mem_max_used", mem.max_used);
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (json) {

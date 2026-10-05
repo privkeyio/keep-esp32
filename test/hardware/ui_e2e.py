@@ -185,8 +185,11 @@ def main():
     check(r is not None and "result" in r, "a newer bundle from the pinned key installs", r)
     check(dev.screen()["state"] == IDLE, "a pinned update needs no prompt")
 
-    missed = dev.screen()["taps_missed"]
-    check(missed == 0, "every scheduled tap found its button", missed)
+    s = dev.screen()
+    check(s["taps_missed"] == 0, "every scheduled tap found its button", s["taps_missed"])
+    check(s["lv_mem_max_used"] * 4 <= s["lv_mem_total"] * 3,
+          "LVGL's pool peaked under three quarters full",
+          f"{s['lv_mem_max_used']} of {s['lv_mem_total']}")
     print(f"\n{'FAILED: ' + ', '.join(failures) if failures else 'All device UI checks passed'}")
     sys.exit(1 if failures else 0)
 
