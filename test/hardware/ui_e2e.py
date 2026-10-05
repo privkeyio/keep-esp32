@@ -171,6 +171,14 @@ def main():
     check("Policy v1" in s["texts"] and "No policy" not in s["texts"],
           "the home screen shows the policy", s)
 
+    # Both counters reset when the device restarts, so read them before the reboot.
+    s = dev.screen()
+    check(s["taps_missed"] == 0, "every scheduled tap found its button", s["taps_missed"])
+    check(s["lv_mem_max_used"] * 4 <= s["lv_mem_total"] * 3,
+          "LVGL's pool peaked under three quarters full across the UI flows",
+          f"{s['lv_mem_max_used']} of {s['lv_mem_total']}")
+    print(f"  LVGL pool peak: {s['lv_mem_max_used']} of {s['lv_mem_total']} bytes")
+
     print("After a reboot")
     dev.restart()
     got = dev.call("policy_get")["result"]
@@ -185,11 +193,6 @@ def main():
     check(r is not None and "result" in r, "a newer bundle from the pinned key installs", r)
     check(dev.screen()["state"] == IDLE, "a pinned update needs no prompt")
 
-    s = dev.screen()
-    check(s["taps_missed"] == 0, "every scheduled tap found its button", s["taps_missed"])
-    check(s["lv_mem_max_used"] * 4 <= s["lv_mem_total"] * 3,
-          "LVGL's pool peaked under three quarters full",
-          f"{s['lv_mem_max_used']} of {s['lv_mem_total']}")
     print(f"\n{'FAILED: ' + ', '.join(failures) if failures else 'All device UI checks passed'}")
     sys.exit(1 if failures else 0)
 
