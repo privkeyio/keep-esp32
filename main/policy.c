@@ -52,6 +52,23 @@ int policy_init(void) {
     return 0;
 }
 
+void policy_raise_lagging_pin(void) {
+    /* A power cut between writing a bundle and raising the pin leaves the pin behind it,
+     * and until then an older bundle from the pinned key would load if it were put back
+     * in flash. Catch the pin up to the installed bundle once that bundle verifies. */
+    policy_pin_t pin;
+    if (!initialized || policy_pin_read(&pin) != 0)
+        return;
+    policy_bundle_t bundle;
+    if (policy_load_bundle(&bundle) == 0 && policy_verify_signature(&bundle) == 0 &&
+        bundle.created_at > pin.created_at) {
+        pin.created_at = bundle.created_at;
+        if (policy_pin_write(&pin) != 0)
+            ESP_LOGW(TAG, "Could not raise the Warden pin to the installed bundle");
+    }
+    secure_memzero(&bundle, sizeof(bundle));
+}
+
 int policy_check_update(const policy_pin_t *pin, const policy_bundle_t *installed,
                         const policy_bundle_t *candidate, bool *needs_confirm) {
     KEEP_ASSERT(candidate != NULL);

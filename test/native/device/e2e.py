@@ -222,6 +222,14 @@ def expect_error(label, fn, fragment):
     check(f"{label}: unexpectedly accepted", False)
 
 
+def succeeds(fn):
+    try:
+        fn()
+        return True
+    except RpcError:
+        return False
+
+
 def in_force(d, created_at):
     """The bundle from created_at loads and verifies, not just the pin reporting it."""
     got = d.rpc("policy_get")
@@ -272,6 +280,7 @@ def policy_pinning(build):
     commit = lambda: d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
                                             "message": secrets.token_bytes(32).hex()})
     approve = lambda: d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
+    check("under the pinned policy, bitcoin_sign approves a spend within it", succeeds(approve))
 
     def fails_closed(label):
         got = d.rpc("policy_get")
@@ -303,6 +312,9 @@ def policy_pinning(build):
     check("the new bundle is already in force", in_force(d, 450))
     expect_error("an older bundle than the installed one is refused even though the pin lags",
                  lambda: update(warden.bundle({}, 420)), "not newer")
+    d.rpc("test_boot_policy")
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 999999}, 420)})
+    fails_closed("after a reboot raised the lagging pin, an older bundle put back in flash")
 
     d.rpc("test_erase_policy_sector")
     fails_closed("after an erase with no write")
@@ -323,6 +335,12 @@ def policy_pinning(build):
                  "Policy evaluation failed")
     d.rpc("test_fail_pin_read", {"fail": False})
     check("the bundle is in force again once the pin reads", in_force(d, 600))
+    check("and bitcoin_sign approves under it again", succeeds(approve))
+
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({}, 2**62, tamper=True)})
+    d.rpc("test_boot_policy")
+    check("a forged bundle in flash cannot raise the pin at boot and lock out updates",
+          succeeds(lambda: update(warden.bundle({"max_amount": 70000}, 700))) and in_force(d, 700))
     d.close()
 
     d = Device(os.path.join(build, "keep_device"), "fresh")

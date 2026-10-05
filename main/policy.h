@@ -38,6 +38,7 @@ int policy_pin_write(const policy_pin_t *pin);
 int policy_check_update(const policy_pin_t *pin, const policy_bundle_t *installed,
                         const policy_bundle_t *candidate, bool *needs_confirm);
 int policy_save_bundle(const policy_bundle_t *bundle);
+void policy_raise_lagging_pin(void);
 int policy_load_bundle(policy_bundle_t *bundle);
 int policy_delete_bundle(void);
 bool policy_has_bundle(void);

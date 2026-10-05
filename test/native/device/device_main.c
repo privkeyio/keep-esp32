@@ -315,6 +315,9 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
         /* Power lost after the bundle is written and before the pin is raised. */
         fail_next_pin_write = true;
         protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_boot_policy") == 0) {
+        policy_raise_lagging_pin();
+        protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_fail_pin_read") == 0 && params) {
         fail_pin_read = cJSON_IsTrue(cJSON_GetObjectItem(params, "fail"));
         protocol_success(resp, id, "{\"ok\":true}");
@@ -366,6 +369,7 @@ int main(void) {
         fprintf(stderr, "device init failed\n");
         return 1;
     }
+    policy_raise_lagging_pin();
 
     static char line[PROTOCOL_MAX_MESSAGE_LEN];
     static char out[PROTOCOL_MAX_MESSAGE_LEN];
