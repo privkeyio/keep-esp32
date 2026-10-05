@@ -133,9 +133,10 @@ int storage_delete_session_checkpoint(const uint8_t *id) {
         return -1;
     }
     int i = find_checkpoint(id);
-    if (i >= 0) {
-        memset(&checkpoints[i], 0, sizeof(checkpoints[i]));
+    if (i < 0) {
+        return STORAGE_ERR_NOT_FOUND;
     }
+    memset(&checkpoints[i], 0, sizeof(checkpoints[i]));
     return 0;
 }
 
@@ -362,6 +363,10 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
     } else if (strcmp(m, "test_cut_during_policy_write") == 0) {
         /* Power lost after the sector erase and before the write completes. */
         fail_next_flash_write = true;
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_reboot_signer") == 0) {
+        /* RAM sessions are lost on a reboot; checkpoints in flash are not. */
+        frost_signer_cleanup();
         protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_fail_next_checkpoint_delete") == 0) {
         fail_next_checkpoint_delete = true;

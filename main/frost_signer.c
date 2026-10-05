@@ -479,7 +479,8 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
 
     /* The checkpoint still holds this nonce. If it cannot be removed, release nothing: a
      * resume after a reboot could otherwise sign a second message with the same nonce. */
-    if (session_checkpoint_clear(session_id) != 0) {
+    int clear_ret = session_checkpoint_clear(session_id);
+    if (clear_ret != 0 && clear_ret != STORAGE_ERR_NOT_FOUND) {
         secure_memzero(&sign_result, sizeof(sign_result));
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to clear session checkpoint");
@@ -492,6 +493,7 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
     s->session.sig_share_lens[share_idx] = sign_result.sig_share_len;
     s->session.sig_share_indices[share_idx] = sign_result.index;
     s->session.sig_share_count++;
+    secure_memzero(s->session.our_nonce, sizeof(s->session.our_nonce));
 
     char sig_share_hex[73];
     bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len, sig_share_hex,
@@ -565,7 +567,8 @@ int frost_signer_discard_sessions(void) {
     }
     int ret = 0;
     for (int i = 0; i < count; i++) {
-        if (session_checkpoint_clear(ids[i]) != 0) {
+        int clear_ret = session_checkpoint_clear(ids[i]);
+        if (clear_ret != 0 && clear_ret != STORAGE_ERR_NOT_FOUND) {
             ret = -1;
         }
     }

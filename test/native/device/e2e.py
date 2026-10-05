@@ -510,6 +510,28 @@ def session_safety(build):
                  lambda: d.rpc("frost_session_resume", {"session_id": session}), "")
     d.close()
 
+    a = Device(os.path.join(build, "keep_device"), "resume-a")
+    a.rpc("import_share", {"group": "g", "share": share})
+    a.index, a.share = keys["shares"][0]["index"], share
+    b = Device(os.path.join(build, "keep_device"), "resume-b")
+    b.rpc("import_share", {"group": "g", "share": keys["shares"][2]["share"]})
+    b.index, b.share = keys["shares"][2]["index"], keys["shares"][2]["share"]
+    session = secrets.token_hex(32)
+    msg = secrets.token_bytes(32)
+    ca = a.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()})["commitment"]
+    cb = b.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()})["commitment"]
+    a.rpc("test_reboot_signer")
+    check("a session survives a reboot through its checkpoint",
+          a.rpc("frost_session_resume", {"session_id": session}).get("resumed") is True)
+    sa = a.rpc("frost_sign", {"group": "g", "session_id": session, "commitments": cb})["signature_share"]
+    sb = b.rpc("frost_sign", {"group": "g", "session_id": session, "commitments": ca})["signature_share"]
+    args = [os.path.join(build, "keep_device_aggregate"), msg.hex(), a.share, ca, sa, b.share, cb, sb]
+    sig = bytes.fromhex(subprocess.check_output(args, text=True).strip())
+    check("and the resumed session signs a valid BIP340 signature",
+          bip340_verify(bytes.fromhex(keys["group33"])[1:], msg, sig))
+    a.close()
+    b.close()
+
     d = Device(os.path.join(build, "keep_device"), "nonce")
     d.rpc("import_share", {"group": "g", "share": share})
     other = Device(os.path.join(build, "keep_device"), "peer")
