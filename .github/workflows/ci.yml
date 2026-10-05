@@ -32,13 +32,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/libnostr-c
-          ref: 361a4917d8179370bbd2ffcf6dcfa573de4fb97d # v0.2.1
+          ref: e07af71f39953ce31cf19c358c4ba2a7e7025800 # v0.2.2
           path: libnostr-c
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: privkeyio/noscrypt
-          ref: 45fcbef32f958145d6797f384a225c0d43616886
+          ref: 02e47e81eb9338d8cb9ae84a14a3992f00f4a651
           path: noscrypt
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
