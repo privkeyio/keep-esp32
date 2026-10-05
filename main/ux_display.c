@@ -31,6 +31,9 @@ static void *pending_user_data = NULL;
 static lv_obj_t *current_screen = NULL;
 static lv_obj_t *signing_bar = NULL;
 static lv_obj_t *signing_label = NULL;
+static const char *idle_name = "keep";
+static bool idle_policy_loaded = false;
+static uint32_t idle_policy_version = 0;
 
 static void create_idle_screen(const char *device_name, bool policy_loaded,
                                uint32_t policy_version);
@@ -82,10 +85,36 @@ static void clear_screen(void) {
 static void display_show_idle(const char *device_name, bool policy_loaded,
                               uint32_t policy_version) {
     bsp_display_lock(portMAX_DELAY);
+    idle_name = device_name;
+    idle_policy_loaded = policy_loaded;
+    idle_policy_version = policy_version;
     clear_screen();
     create_idle_screen(device_name, policy_loaded, policy_version);
     current_state = UI_STATE_IDLE;
     bsp_display_unlock();
+}
+
+static void display_set_policy_loaded(bool loaded) {
+    bsp_display_lock(portMAX_DELAY);
+    idle_policy_loaded = loaded;
+    bsp_display_unlock();
+}
+
+/* Runs from the LVGL task with the display lock held. Deferred because the tapped
+ * screen cannot be deleted inside its own event. */
+static void return_to_idle(void *unused) {
+    (void)unused;
+    if (current_state != UI_STATE_SUCCESS && current_state != UI_STATE_ERROR) {
+        return;
+    }
+    clear_screen();
+    create_idle_screen(idle_name, idle_policy_loaded, idle_policy_version);
+    current_state = UI_STATE_IDLE;
+}
+
+static void dismiss_cb(lv_event_t *e) {
+    (void)e;
+    lv_async_call(return_to_idle, NULL);
 }
 
 static void display_show_scanning(void) {
@@ -602,6 +631,7 @@ static void create_error_screen(const char *title, const char *message) {
     lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
+    lv_obj_add_event_cb(current_screen, dismiss_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *icon = lv_label_create(current_screen);
     lv_label_set_text(icon, LV_SYMBOL_CLOSE);
@@ -636,6 +666,7 @@ static void create_success_screen(const char *message) {
     lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
     lv_obj_set_style_border_width(current_screen, 0, 0);
     lv_obj_center(current_screen);
+    lv_obj_add_event_cb(current_screen, dismiss_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *check = lv_label_create(current_screen);
     lv_label_set_text(check, LV_SYMBOL_OK);
@@ -667,6 +698,7 @@ const ux_backend_t ux_display_backend = {
     .init = display_init,
     .deinit = display_deinit,
     .show_idle = display_show_idle,
+    .set_policy_loaded = display_set_policy_loaded,
     .show_scanning = display_show_scanning,
     .show_signing = display_show_signing,
     .show_success = display_show_success,

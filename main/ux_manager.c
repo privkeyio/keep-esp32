@@ -129,6 +129,9 @@ void ux_report_warden_pin(bool saved) {
     if (!active_backend) {
         return;
     }
+    if (saved && active_backend->set_policy_loaded) {
+        active_backend->set_policy_loaded(true);
+    }
     if (saved && active_backend->show_success) {
         active_backend->show_success("Warden key pinned");
     } else if (!saved && active_backend->show_error) {
