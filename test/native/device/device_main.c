@@ -250,8 +250,12 @@ static void finalize(cJSON *params, int id, rpc_response_t *resp) {
 /* The pin record lives in NVS on the device; here it is in memory. */
 static bool pin_present = false;
 static policy_pin_t pin_record;
+static bool fail_pin_read = false;
 
 int policy_pin_read(policy_pin_t *pin) {
+    if (fail_pin_read) {
+        return POLICY_ERR_STORAGE;
+    }
     if (!pin_present) {
         return POLICY_ERR_NOT_FOUND;
     }
@@ -310,6 +314,9 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
     } else if (strcmp(m, "test_cut_before_pin_raise") == 0) {
         /* Power lost after the bundle is written and before the pin is raised. */
         fail_next_pin_write = true;
+        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_fail_pin_read") == 0 && params) {
+        fail_pin_read = cJSON_IsTrue(cJSON_GetObjectItem(params, "fail"));
         protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_erase_policy_sector") == 0) {
         memset(policy_flash, 0xFF, 4096);

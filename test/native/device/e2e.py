@@ -222,6 +222,12 @@ def expect_error(label, fn, fragment):
     check(f"{label}: unexpectedly accepted", False)
 
 
+def in_force(d, created_at):
+    """The bundle from created_at loads and verifies, not just the pin reporting it."""
+    got = d.rpc("policy_get")
+    return got["created_at"] == created_at and "rules_len" in got and "bundle_valid" not in got
+
+
 def policy_pinning(build):
     d = Device(os.path.join(build, "keep_device"), "device")
     warden, other = Warden(), Warden()
@@ -244,7 +250,7 @@ def policy_pinning(build):
     check("the screen reports the pin only after it is saved, and nothing for refusals",
           log["saved"] == 1 and log["save_failed"] == 0)
     check("first policy installs once confirmed and pins its key",
-          got["has_policy"] and got["warden_pubkey"] == warden.pubkey.hex() and got["created_at"] == 100)
+          got["has_policy"] and got["warden_pubkey"] == warden.pubkey.hex() and in_force(d, 100))
     check("the confirmation was asked once more", prompts() == 2)
 
     expect_error("a newer bundle from another key is refused",
@@ -258,7 +264,7 @@ def policy_pinning(build):
     update(warden.bundle({"max_amount": 70000}, 200))
     got = d.rpc("policy_get")
     check("a newer bundle from the pinned key replaces it without asking",
-          got["created_at"] == 200 and got["warden_pubkey"] == warden.pubkey.hex() and prompts() == 2)
+          in_force(d, 200) and got["warden_pubkey"] == warden.pubkey.hex() and prompts() == 2)
 
     keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), "even"]))
     d.rpc("import_share", {"group": "g", "share": keys["shares"][0]["share"]})
@@ -270,7 +276,7 @@ def policy_pinning(build):
     def fails_closed(label):
         got = d.rpc("policy_get")
         check(f"{label}: still pinned to the Warden key with no valid bundle",
-              got["has_policy"] and got["bundle_valid"] is False
+              got["has_policy"] and got.get("bundle_valid") is False
               and got["warden_pubkey"] == warden.pubkey.hex())
         expect_error(f"{label}: frost_commit is refused", commit, "Policy")
         expect_error(f"{label}: bitcoin_sign is refused", approve, "Policy evaluation failed")
@@ -281,7 +287,7 @@ def policy_pinning(build):
     fails_closed("corrupted bundle")
     update(warden.bundle({"max_amount": 70000}, 300))
     check("a corrupted bundle is replaced by a newer one from the pinned key without asking",
-          d.rpc("policy_get")["created_at"] == 300 and prompts() == 2)
+          in_force(d, 300) and prompts() == 2)
 
     d.rpc("test_cut_during_policy_write")
     expect_error("power lost while writing an update", lambda: update(warden.bundle({}, 400)),
@@ -289,19 +295,34 @@ def policy_pinning(build):
     fails_closed("after a cut write")
     update(warden.bundle({"max_amount": 70000}, 400))
     check("the interrupted update can be sent again without asking",
-          d.rpc("policy_get")["created_at"] == 400 and prompts() == 2)
+          in_force(d, 400) and prompts() == 2)
 
     d.rpc("test_cut_before_pin_raise")
     expect_error("power lost before the pin record is raised",
                  lambda: update(warden.bundle({}, 450)), "Storage error")
-    check("the new bundle is already in force", d.rpc("policy_get")["created_at"] == 450)
+    check("the new bundle is already in force", in_force(d, 450))
     expect_error("an older bundle than the installed one is refused even though the pin lags",
                  lambda: update(warden.bundle({}, 420)), "not newer")
 
     d.rpc("test_erase_policy_sector")
     fails_closed("after an erase with no write")
     update(warden.bundle({"max_amount": 70000}, 500))
-    check("recovers with a newer bundle", d.rpc("policy_get")["created_at"] == 500)
+    check("recovers with a newer bundle", in_force(d, 500))
+
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 999999}, 450)})
+    fails_closed("an older bundle from the pinned key put back in flash")
+    d.rpc("test_install_legacy_bundle", {"bundle": other.bundle({}, 900)})
+    fails_closed("a bundle from another key put back in flash")
+    update(warden.bundle({"max_amount": 70000}, 600))
+    check("recovers from a restored sector with a newer bundle",
+          in_force(d, 600) and prompts() == 2)
+
+    d.rpc("test_fail_pin_read", {"fail": True})
+    expect_error("with the pin unreadable, frost_commit is refused", commit, "Policy")
+    expect_error("with the pin unreadable, bitcoin_sign is refused", approve,
+                 "Policy evaluation failed")
+    d.rpc("test_fail_pin_read", {"fail": False})
+    check("the bundle is in force again once the pin reads", in_force(d, 600))
     d.close()
 
     d = Device(os.path.join(build, "keep_device"), "fresh")
@@ -318,12 +339,12 @@ def policy_pinning(build):
                  lambda: d.rpc("policy_update", {"bundle": other.bundle({}, 900)}), "pinned Warden key")
     d.rpc("policy_update", {"bundle": warden.bundle({}, 100)})
     check("resending the first bundle completes it without a second prompt",
-          d.rpc("policy_get")["created_at"] == 100 and d.rpc("test_confirm_log")["prompts"] == 1)
+          in_force(d, 100) and d.rpc("test_confirm_log")["prompts"] == 1)
     d.close()
 
     d = Device(os.path.join(build, "keep_device"), "legacy")
     d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 1}, 100)})
-    check("a bundle from before pinning is in force", d.rpc("policy_get")["created_at"] == 100)
+    check("a bundle from before pinning is in force", in_force(d, 100))
     expect_error("updating it still needs the key confirmed on the device",
                  lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 200)}), "not confirmed")
     d.rpc("test_set_confirm", {"approve": True})
@@ -332,7 +353,7 @@ def policy_pinning(build):
     d.rpc("policy_update", {"bundle": other.bundle({}, 50)})
     got = d.rpc("policy_get")
     check("a confirmed key can replace a legacy bundle and becomes pinned",
-          got["warden_pubkey"] == other.pubkey.hex() and got["created_at"] == 50)
+          got["warden_pubkey"] == other.pubkey.hex() and in_force(d, 50))
     expect_error("after which the old key is refused",
                  lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 999)}), "pinned Warden key")
     d.close()

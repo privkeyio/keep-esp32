@@ -192,6 +192,27 @@ int policy_load_bundle(policy_bundle_t *bundle) {
         return POLICY_ERR_NOT_FOUND;
     }
 
+    /* The pin is raised to each bundle's created_at once it is stored, so a bundle in
+     * flash that is older than the pin, or from another key, was put back or written
+     * there some other way: a restored sector must not bring back an older policy. */
+    policy_pin_t pin;
+    int pin_ret = policy_pin_read(&pin);
+    if (pin_ret == 0) {
+        int ret = 0;
+        if (ct_compare(bundle->warden_pubkey, pin.warden_pubkey, POLICY_PUBKEY_LEN) != 0) {
+            ret = POLICY_ERR_WARDEN;
+        } else if (bundle->created_at < pin.created_at) {
+            ret = POLICY_ERR_ROLLBACK;
+        }
+        if (ret != 0) {
+            secure_memzero(bundle, sizeof(policy_bundle_t));
+            return ret;
+        }
+    } else if (pin_ret != POLICY_ERR_NOT_FOUND) {
+        secure_memzero(bundle, sizeof(policy_bundle_t));
+        return POLICY_ERR_STORAGE;
+    }
+
     return 0;
 }
 
