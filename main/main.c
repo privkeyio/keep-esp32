@@ -413,6 +413,7 @@ static void app_init(void) {
     if (policy_init() != 0) {
         ESP_LOGW(TAG, "Policy init failed, continuing without policy");
     }
+    policy_raise_lagging_pin();
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
 

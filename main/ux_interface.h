@@ -39,6 +39,7 @@ struct ux_backend {
     void (*show_error)(const char *title, const char *message);
 
     void (*confirm_transaction)(const ux_tx_info_t *tx, ux_decision_cb_t cb, void *user_data);
+    void (*confirm_warden_pin)(const char *fingerprint, ux_decision_cb_t cb, void *user_data);
 
     void (*show_qr)(const char *data, size_t len);
     int (*scan_qr)(char *data, size_t max_len, uint32_t timeout_ms);
@@ -51,5 +52,10 @@ void ux_register_backend(const ux_backend_t *backend);
 const ux_backend_t *ux_get_backend(void);
 int ux_set_backend(const char *name);
 int ux_init(void);
+
+#define UX_WARDEN_FINGERPRINT_LEN 72
+
+bool ux_confirm_warden_pin(const uint8_t pubkey[32], uint32_t timeout_ms);
+void ux_report_warden_pin(bool saved);
 
 #endif

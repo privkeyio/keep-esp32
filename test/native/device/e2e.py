@@ -17,6 +17,7 @@ import os
 import secrets
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,41 @@ def bip340_verify(pubkey, msg, sig):
     e = int.from_bytes(tagged_hash("BIP0340/challenge", sig[:32] + pubkey + msg), "big") % N
     R = point_add(point_mul(G, s), point_mul(pt, N - e))
     return R is not None and R[1] % 2 == 0 and R[0] == r
+
+
+def bip340_sign(seckey, msg):
+    d0 = int.from_bytes(seckey, "big")
+    pt = point_mul(G, d0)
+    d = d0 if pt[1] % 2 == 0 else N - d0
+    pub = pt[0].to_bytes(32, "big")
+    aux = secrets.token_bytes(32)
+    t = (d ^ int.from_bytes(tagged_hash("BIP0340/aux", aux), "big")).to_bytes(32, "big")
+    k0 = int.from_bytes(tagged_hash("BIP0340/nonce", t + pub + msg), "big") % N
+    R = point_mul(G, k0)
+    k = k0 if R[1] % 2 == 0 else N - k0
+    r = R[0].to_bytes(32, "big")
+    e = int.from_bytes(tagged_hash("BIP0340/challenge", r + pub + msg), "big") % N
+    return r + ((k + e * d) % N).to_bytes(32, "big")
+
+
+class Warden:
+    """Builds policy_bundle_t (main/policy.h, packed, little endian) signed by one key."""
+
+    RULES_MAX = 2048
+
+    def __init__(self):
+        self.seckey = secrets.token_bytes(32)
+        self.pubkey = point_mul(G, int.from_bytes(self.seckey, "big"))[0].to_bytes(32, "big")
+
+    def bundle(self, rules, created_at, rules_len=None, tamper=False):
+        body = json.dumps(rules).encode()
+        head = struct.pack("<B32s32sI", 1, self.pubkey, hashlib.sha256(body).digest(),
+                           len(body) if rules_len is None else rules_len)
+        unsigned = head + body.ljust(self.RULES_MAX, b"\0") + struct.pack("<Q", created_at)
+        sig = bip340_sign(self.seckey, hashlib.sha256(unsigned).digest())
+        if tamper:
+            sig = sig[:-1] + bytes([sig[-1] ^ 1])
+        return (unsigned + sig).hex()
 
 
 class RpcError(Exception):
@@ -177,6 +213,172 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def expect_error(label, fn, fragment):
+    try:
+        fn()
+    except RpcError as e:
+        check(f"{label} ({e})", fragment in str(e))
+        return
+    check(f"{label}: unexpectedly accepted", False)
+
+
+def succeeds(fn):
+    try:
+        fn()
+        return True
+    except RpcError:
+        return False
+
+
+def in_force(d, created_at):
+    """The bundle from created_at loads and verifies, not just the pin reporting it."""
+    got = d.rpc("policy_get")
+    return got["created_at"] == created_at and "rules_len" in got and "bundle_valid" not in got
+
+
+def policy_pinning(build):
+    d = Device(os.path.join(build, "keep_device"), "device")
+    warden, other = Warden(), Warden()
+    update = lambda b: d.rpc("policy_update", {"bundle": b})
+    prompts = lambda: d.rpc("test_confirm_log")["prompts"]
+
+    expect_error("first policy without on-device confirmation is refused",
+                 lambda: update(warden.bundle({"max_amount": 50000}, 100)), "not confirmed")
+    check("the device asked about the bundle's Warden key",
+          d.rpc("test_confirm_log")["last_key"] == warden.pubkey.hex())
+    check("nothing was installed", d.rpc("policy_get")["has_policy"] is False)
+
+    d.rpc("test_set_confirm", {"approve": True})
+    expect_error("a bundle with a bad signature is refused before asking",
+                 lambda: update(warden.bundle({}, 100, tamper=True)), "Invalid signature")
+    check("no prompt for an invalid bundle", prompts() == 1)
+    update(warden.bundle({"max_amount": 50000}, 100))
+    got = d.rpc("policy_get")
+    log = d.rpc("test_confirm_log")
+    check("the screen reports the pin only after it is saved, and nothing for refusals",
+          log["saved"] == 1 and log["save_failed"] == 0)
+    check("first policy installs once confirmed and pins its key",
+          got["has_policy"] and got["warden_pubkey"] == warden.pubkey.hex() and in_force(d, 100))
+    check("the confirmation was asked once more", prompts() == 2)
+
+    expect_error("a newer bundle from another key is refused",
+                 lambda: update(other.bundle({}, 500)), "pinned Warden key")
+    expect_error("the same created_at is refused as a rollback",
+                 lambda: update(warden.bundle({"max_amount": 999999}, 100)), "not newer")
+    expect_error("an older bundle is refused as a rollback",
+                 lambda: update(warden.bundle({}, 50)), "not newer")
+    expect_error("rules_len past the buffer is refused",
+                 lambda: update(warden.bundle({}, 300, rules_len=Warden.RULES_MAX + 1)), "Malformed")
+    update(warden.bundle({"max_amount": 70000}, 200))
+    got = d.rpc("policy_get")
+    check("a newer bundle from the pinned key replaces it without asking",
+          in_force(d, 200) and got["warden_pubkey"] == warden.pubkey.hex() and prompts() == 2)
+
+    keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), "even"]))
+    d.rpc("import_share", {"group": "g", "share": keys["shares"][0]["share"]})
+    psbt = d.rpc("test_make_psbt", {"xonly": keys["group33"][2:], "amount": 20000})["psbt"]
+    commit = lambda: d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
+                                            "message": secrets.token_bytes(32).hex()})
+    approve = lambda: d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
+    check("under the pinned policy, bitcoin_sign approves a spend within it", succeeds(approve))
+
+    def fails_closed(label):
+        got = d.rpc("policy_get")
+        check(f"{label}: still pinned to the Warden key with no valid bundle",
+              got["has_policy"] and got.get("bundle_valid") is False
+              and got["warden_pubkey"] == warden.pubkey.hex())
+        expect_error(f"{label}: frost_commit is refused", commit, "Policy")
+        expect_error(f"{label}: bitcoin_sign is refused", approve, "Policy evaluation failed")
+        expect_error(f"{label}: an older bundle is still a rollback",
+                     lambda: update(warden.bundle({}, 150)), "not newer")
+
+    d.rpc("test_corrupt_policy")
+    fails_closed("corrupted bundle")
+    update(warden.bundle({"max_amount": 70000}, 300))
+    check("a corrupted bundle is replaced by a newer one from the pinned key without asking",
+          in_force(d, 300) and prompts() == 2)
+
+    d.rpc("test_cut_during_policy_write")
+    expect_error("power lost while writing an update", lambda: update(warden.bundle({}, 400)),
+                 "Storage error")
+    fails_closed("after a cut write")
+    update(warden.bundle({"max_amount": 70000}, 400))
+    check("the interrupted update can be sent again without asking",
+          in_force(d, 400) and prompts() == 2)
+
+    d.rpc("test_cut_before_pin_raise")
+    expect_error("power lost before the pin record is raised",
+                 lambda: update(warden.bundle({}, 450)), "Storage error")
+    check("the new bundle is already in force", in_force(d, 450))
+    expect_error("an older bundle than the installed one is refused even though the pin lags",
+                 lambda: update(warden.bundle({}, 420)), "not newer")
+    d.rpc("test_boot_policy")
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 999999}, 420)})
+    fails_closed("after a reboot raised the lagging pin, an older bundle put back in flash")
+    check("the reboot raised the pin to the installed bundle's created_at",
+          d.rpc("policy_get")["created_at"] == 450)
+
+    d.rpc("test_erase_policy_sector")
+    fails_closed("after an erase with no write")
+    update(warden.bundle({"max_amount": 70000}, 500))
+    check("recovers with a newer bundle", in_force(d, 500))
+
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 999999}, 450)})
+    fails_closed("an older bundle from the pinned key put back in flash")
+    d.rpc("test_install_legacy_bundle", {"bundle": other.bundle({}, 900)})
+    fails_closed("a bundle from another key put back in flash")
+    update(warden.bundle({"max_amount": 70000}, 600))
+    check("recovers from a restored sector with a newer bundle",
+          in_force(d, 600) and prompts() == 2)
+
+    d.rpc("test_fail_pin_read", {"fail": True})
+    expect_error("with the pin unreadable, frost_commit is refused", commit, "Policy")
+    expect_error("with the pin unreadable, bitcoin_sign is refused", approve,
+                 "Policy evaluation failed")
+    d.rpc("test_fail_pin_read", {"fail": False})
+    check("the bundle is in force again once the pin reads", in_force(d, 600))
+    check("and bitcoin_sign approves under it again", succeeds(approve))
+
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({}, 2**62, tamper=True)})
+    d.rpc("test_boot_policy")
+    check("a forged bundle in flash cannot raise the pin at boot and lock out updates",
+          succeeds(lambda: update(warden.bundle({"max_amount": 70000}, 700))) and in_force(d, 700))
+    d.close()
+
+    d = Device(os.path.join(build, "keep_device"), "fresh")
+    d.rpc("test_set_confirm", {"approve": True})
+    d.rpc("test_cut_during_policy_write")
+    expect_error("power lost during the first install",
+                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 100)}), "Storage error")
+    got = d.rpc("policy_get")
+    check("a confirmed first install that could not be written is reported as not saved",
+          d.rpc("test_confirm_log")["save_failed"] == 1 and d.rpc("test_confirm_log")["saved"] == 0)
+    check("the key confirmed for the first install stays pinned",
+          got["has_policy"] and got["bundle_valid"] is False and got["warden_pubkey"] == warden.pubkey.hex())
+    expect_error("another key cannot take over after the cut",
+                 lambda: d.rpc("policy_update", {"bundle": other.bundle({}, 900)}), "pinned Warden key")
+    d.rpc("policy_update", {"bundle": warden.bundle({}, 100)})
+    check("resending the first bundle completes it without a second prompt",
+          in_force(d, 100) and d.rpc("test_confirm_log")["prompts"] == 1)
+    d.close()
+
+    d = Device(os.path.join(build, "keep_device"), "legacy")
+    d.rpc("test_install_legacy_bundle", {"bundle": warden.bundle({"max_amount": 1}, 100)})
+    check("a bundle from before pinning is in force", in_force(d, 100))
+    expect_error("updating it still needs the key confirmed on the device",
+                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 200)}), "not confirmed")
+    d.rpc("test_set_confirm", {"approve": True})
+    expect_error("and is still refused as a rollback for the same key",
+                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 100)}), "not newer")
+    d.rpc("policy_update", {"bundle": other.bundle({}, 50)})
+    got = d.rpc("policy_get")
+    check("a confirmed key can replace a legacy bundle and becomes pinned",
+          got["warden_pubkey"] == other.pubkey.hex() and in_force(d, 50))
+    expect_error("after which the old key is refused",
+                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 999)}), "pinned Warden key")
+    d.close()
+
+
 def regtest(build, knots_bin):
     datadir = tempfile.mkdtemp(prefix="keep-e2e-")
     rpcport, p2pport = free_port(), free_port()
@@ -254,6 +456,7 @@ def regtest(build, knots_bin):
 def main():
     build = sys.argv[1]
     offline(build)
+    policy_pinning(build)
     if os.environ.get("KNOTS_BIN"):
         regtest(build, os.environ["KNOTS_BIN"])
     print("e2e: all checks passed")
