@@ -154,7 +154,7 @@ CLI parses PSBT → Device extracts sighash → FROST signing → CLI adds signa
 # Response: {"id":2,"result":{"input_idx":0,"sighash":"abc123...","sighash_type":0}}
 ```
 
-`sighash_type` is the input's `PSBT_IN_SIGHASH_TYPE`. Only these are signed; any other value is refused with `Unsupported sighash type`, since `NONE`, `SINGLE` and `ANYONECANPAY` would leave outputs or inputs uncommitted:
+`sighash_type` is the input's `PSBT_IN_SIGHASH_TYPE`. Only these are signed, and the table describes a Taproot key path input (for any other input, unset and `0x01` give the legacy or BIP143 hash, and `0x21` is refused); any other value is refused with `Unsupported sighash type`, since `NONE`, `SINGLE` and `ANYONECANPAY` would leave outputs or inputs uncommitted:
 
 | Value | Meaning | Final signature |
 |-------|---------|-----------------|

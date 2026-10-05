@@ -8,6 +8,7 @@
 #include <wally_core.h>
 #include <wally_crypto.h>
 #include <wally_psbt.h>
+#include <wally_psbt_members.h>
 #include <wally_script.h>
 #include <wally_transaction.h>
 #include <string.h>
@@ -42,11 +43,9 @@ int psbt_parse(const char *base64, psbt_summary_t *summary) {
     summary->output_count = psbt->num_outputs;
 
     for (size_t i = 0; i < psbt->num_inputs; i++) {
-        struct wally_psbt_input *inp = &psbt->inputs[i];
-        if (inp->witness_utxo) {
-            summary->total_in_sats += inp->witness_utxo->satoshi;
-        } else if (inp->utxo && inp->utxo->outputs && inp->index < inp->utxo->num_outputs) {
-            summary->total_in_sats += inp->utxo->outputs[inp->index].satoshi;
+        const struct wally_tx_output *utxo = NULL;
+        if (wally_psbt_get_input_best_utxo(psbt, i, &utxo) == WALLY_OK && utxo) {
+            summary->total_in_sats += utxo->satoshi;
         }
     }
 
@@ -105,7 +104,9 @@ static size_t output_len(const struct wally_tx_output *out) {
 static unsigned char *put_output(unsigned char *p, const struct wally_tx_output *out) {
     p = put_le(p, out->satoshi, 8);
     p = put_compact_size(p, out->script_len);
-    memcpy(p, out->script, out->script_len);
+    if (out->script_len) {
+        memcpy(p, out->script, out->script_len);
+    }
     return p + out->script_len;
 }
 
@@ -155,7 +156,9 @@ static int sha_aggregate(const struct wally_tx *tx, const struct wally_tx_output
             break;
         case AGG_SCRIPTS:
             p = put_compact_size(p, spent[i].script_len);
-            memcpy(p, spent[i].script, spent[i].script_len);
+            if (spent[i].script_len) {
+                memcpy(p, spent[i].script, spent[i].script_len);
+            }
             p += spent[i].script_len;
             break;
         case AGG_SEQUENCES:
@@ -252,16 +255,6 @@ int psbt_unified_sighash_taproot(const struct wally_tx *tx, size_t input_idx,
     return ret;
 }
 
-static const struct wally_tx_output *spent_output(const struct wally_psbt_input *inp) {
-    if (inp->witness_utxo) {
-        return inp->witness_utxo;
-    }
-    if (inp->utxo && inp->index < inp->utxo->num_outputs) {
-        return &inp->utxo->outputs[inp->index];
-    }
-    return NULL;
-}
-
 static int unified_sighash_from_psbt(const struct wally_psbt *psbt, const struct wally_tx *tx,
                                      size_t input_idx, uint8_t sighash[32]) {
     struct wally_tx_output *spent = calloc(tx->num_inputs, sizeof(*spent));
@@ -270,8 +263,8 @@ static int unified_sighash_from_psbt(const struct wally_psbt *psbt, const struct
     }
     int ret = 0;
     for (size_t i = 0; i < tx->num_inputs && ret == 0; i++) {
-        const struct wally_tx_output *out = spent_output(&psbt->inputs[i]);
-        if (!out) {
+        const struct wally_tx_output *out = NULL;
+        if (wally_psbt_get_input_best_utxo(psbt, i, &out) != WALLY_OK || !out) {
             ret = -1;
         } else {
             spent[i].satoshi = out->satoshi;

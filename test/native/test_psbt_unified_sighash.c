@@ -6,6 +6,7 @@
 #include "psbt.h"
 #include <wally_core.h>
 #include <wally_psbt.h>
+#include <wally_psbt_members.h>
 #include <wally_transaction.h>
 
 #define TEST(name) printf("  TEST: %s\n", name)
@@ -386,6 +387,71 @@ static int test_psbt_unified_requires_p2tr(void) {
     return 0;
 }
 
+static int test_psbt_non_witness_utxo_vout(void) {
+    TEST("a v0 PSBT input carrying only non_witness_utxo commits the output at its vout");
+    static const unsigned char p2tr[34] = {0x51, 0x20, 1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                           11,   12,   13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                                           23,   24,   25, 26, 27, 28, 29, 30, 31, 32};
+    static const unsigned char decoy[22] = {0x00, 0x14, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                                            0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                                            0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa};
+    const uint64_t spent_amount = 500000, decoy_amount = 1000;
+    struct wally_tx *prev = NULL, *tx = NULL;
+    struct wally_psbt *psbt = NULL;
+    char *b64 = NULL;
+    int failed = 1;
+    unsigned char prev_txid[32];
+    static const unsigned char zero_hash[32] = {0};
+
+    if (wally_tx_init_alloc(2, 0, 1, 2, &prev) != WALLY_OK ||
+        wally_tx_add_raw_input(prev, zero_hash, 32, 0, 0xffffffff, NULL, 0, NULL, 0) != WALLY_OK ||
+        wally_tx_add_raw_output(prev, decoy_amount, decoy, sizeof(decoy), 0) != WALLY_OK ||
+        wally_tx_add_raw_output(prev, spent_amount, p2tr, sizeof(p2tr), 0) != WALLY_OK ||
+        wally_tx_get_txid(prev, prev_txid, 32) != WALLY_OK ||
+        wally_tx_init_alloc(2, 0, 1, 1, &tx) != WALLY_OK ||
+        wally_tx_add_raw_input(tx, prev_txid, 32, 1, 0xfffffffd, NULL, 0, NULL, 0) != WALLY_OK ||
+        wally_tx_add_raw_output(tx, 499000, p2tr, sizeof(p2tr), 0) != WALLY_OK ||
+        wally_psbt_from_tx(tx, 0, 0, &psbt) != WALLY_OK ||
+        wally_psbt_set_input_utxo(psbt, 0, prev) != WALLY_OK ||
+        wally_psbt_input_set_sighash(&psbt->inputs[0], PSBT_SIGHASH_ALL_UNIFIED) != WALLY_OK ||
+        wally_psbt_to_base64(psbt, 0, &b64) != WALLY_OK) {
+        printf("    could not build PSBT\n");
+        goto out;
+    }
+
+    struct wally_tx_output spent = {0};
+    spent.satoshi = spent_amount;
+    spent.script = (unsigned char *)p2tr;
+    spent.script_len = sizeof(p2tr);
+    uint8_t expected[32], got[32];
+    uint8_t type = 0;
+    if (psbt_unified_sighash_taproot(tx, 0, &spent, PSBT_SIGHASH_ALL_UNIFIED, expected) != 0) {
+        printf("    reference sighash failed\n");
+        goto out;
+    }
+    if (psbt_get_sighash(b64, 0, got, &type) != 0 || type != PSBT_SIGHASH_ALL_UNIFIED ||
+        memcmp(got, expected, 32) != 0) {
+        printf("    sighash does not commit the output at vout 1\n");
+        goto out;
+    }
+    psbt_summary_t summary;
+    if (psbt_parse(b64, &summary) != 0 || summary.total_in_sats != spent_amount) {
+        printf("    psbt_parse summed the wrong input amount\n");
+        goto out;
+    }
+    failed = 0;
+out:
+    wally_free_string(b64);
+    wally_psbt_free(psbt);
+    wally_tx_free(tx);
+    wally_tx_free(prev);
+    if (failed) {
+        FAIL("non_witness_utxo lookup");
+    }
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== Unified Sighash Tests ===\n\n");
     if (wally_init(0) != WALLY_OK) {
@@ -399,6 +465,7 @@ int main(void) {
     failures += test_psbt_unified_vectors();
     failures += test_psbt_sighash_allowlist();
     failures += test_psbt_unified_requires_p2tr();
+    failures += test_psbt_non_witness_utxo_vout();
     wally_cleanup(0);
     printf("\n%s: %d failure(s)\n", failures ? "FAILED" : "PASSED", failures);
     return failures ? 1 : 0;
