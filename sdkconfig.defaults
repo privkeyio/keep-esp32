@@ -36,5 +36,8 @@ CONFIG_LV_USE_QRCODE=y
 CONFIG_LV_CONF_SKIP=y
 CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
-CONFIG_LV_MEM_CUSTOM=y
+# LVGL's own heap is a static pool in internal RAM. Every screen peaks under 18 KB
+# (measured in the host UI harness), and what is not reserved here is left to the
+# system heap, which must hold a whole request while it parses.
+CONFIG_LV_MEM_SIZE_KILOBYTES=32
 CONFIG_LV_MEMCPY_MEMSET_STD=y
