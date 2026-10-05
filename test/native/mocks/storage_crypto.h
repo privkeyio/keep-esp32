@@ -46,7 +46,9 @@ static inline int storage_crypto_begin_attempt(void) {
     return mock_begin_attempt_result;
 }
 
-static inline void storage_crypto_record_attempt(bool success) {
+static int mock_record_result = 0;
+
+static inline int storage_crypto_record_attempt(bool success) {
     if (success) {
         mock_record_success_calls++;
         mock_pin_attempts = 0;
@@ -54,6 +56,7 @@ static inline void storage_crypto_record_attempt(bool success) {
         mock_record_failure_calls++;
         mock_pin_attempts++;
     }
+    return mock_record_result;
 }
 
 static inline uint8_t storage_crypto_get_attempts(void) {

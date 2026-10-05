@@ -209,7 +209,7 @@ static int pin_state_from_blob(const pin_state_blob_t *blob, pin_state_t *out) {
 
 static uint32_t get_delay_ms(uint8_t attempts);
 static int save_pin_state(void);
-static void record_failure(void);
+static int record_failure(void);
 
 static void mark_pin_state_tampered(void) {
     pin_state.failed_attempts = PIN_TAMPERED_ATTEMPTS;
@@ -540,7 +540,7 @@ int storage_crypto_check_rate_limit(void) {
     return 0;
 }
 
-static void record_failure(void) {
+static int record_failure(void) {
     pin_state.pending = 0;
     if (pin_state.failed_attempts < UINT8_MAX) {
         pin_state.failed_attempts++;
@@ -549,9 +549,9 @@ static void record_failure(void) {
     if (pin_state.failed_attempts >= PIN_MAX_ATTEMPTS) {
         ESP_LOGE(TAG, "Max PIN attempts exceeded - wiping device");
         pin_state.bricked = 1;
-        save_pin_state();
+        int ret = save_pin_state();
         wipe_secrets();
-        return;
+        return ret;
     }
 
     uint32_t delay_ms = get_delay_ms(pin_state.failed_attempts);
@@ -562,7 +562,7 @@ static void record_failure(void) {
     } else {
         pin_state.lockout_deadline = 0;
     }
-    save_pin_state();
+    return save_pin_state();
 }
 
 int storage_crypto_begin_attempt(void) {
@@ -571,17 +571,16 @@ int storage_crypto_begin_attempt(void) {
     return save_pin_state();
 }
 
-void storage_crypto_record_attempt(bool success) {
+int storage_crypto_record_attempt(bool success) {
     load_pin_state();
 
     if (!success) {
-        record_failure();
-        return;
+        return record_failure();
     }
     pin_state.pending = 0;
     pin_state.failed_attempts = 0;
     pin_state.lockout_deadline = 0;
-    save_pin_state();
+    return save_pin_state();
 }
 
 uint8_t storage_crypto_get_attempts(void) {

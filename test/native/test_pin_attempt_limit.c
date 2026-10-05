@@ -24,6 +24,7 @@ typedef enum {
 
 static uint8_t mock_se_slots[SE_SLOT_COUNT][SE_SLOT_SIZE];
 static bool mock_se_available = false;
+static bool mock_se_write_fails = false;
 
 se_status_t se_init(void) {
     if (mock_se_available) {
@@ -53,6 +54,9 @@ se_status_t se_write_slot(uint8_t slot, const uint8_t *data, size_t len) {
     }
     if (slot >= SE_SLOT_COUNT || !data || len > SE_SLOT_SIZE) {
         return SE_ERR_INVALID_PARAM;
+    }
+    if (mock_se_write_fails) {
+        return SE_ERR_COMM_FAIL;
     }
     memcpy(mock_se_slots[slot], data, len);
     return SE_OK;
@@ -435,6 +439,25 @@ static int test_pending_attempt_survives_reset(void) {
     return 0;
 }
 
+static int test_unsaved_success_reported(void) {
+    TEST("a success that cannot be saved is reported and still counts after a reset");
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    if (storage_crypto_begin_attempt() != 0)
+        FAIL("begin_attempt failed");
+    mock_se_write_fails = true;
+    int ret = storage_crypto_record_attempt(true);
+    mock_se_write_fails = false;
+    if (ret == 0)
+        FAIL("a failed save was reported as success");
+    simulate_reboot();
+    if (storage_crypto_get_attempts() != 1)
+        FAIL("the pending attempt must count once the state is reread");
+    PASS();
+    return 0;
+}
+
 static int test_pending_cleared_by_result(void) {
     TEST("a completed attempt clears the pending mark");
     reset_test_state();
@@ -555,6 +578,7 @@ int main(void) {
     failures += test_unlock_refused_without_persistent_state();
     failures += test_pending_attempt_survives_reset();
     failures += test_pending_cleared_by_result();
+    failures += test_unsaved_success_reported();
     failures += test_correct_pin_on_last_attempt();
     failures += test_lockout_clamped_after_reboot();
     failures += test_state_blob_hmac();

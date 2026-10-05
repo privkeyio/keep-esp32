@@ -164,6 +164,24 @@ static int test_successful_load_resets_pin_attempts(void) {
     return 0;
 }
 
+static int test_load_withheld_when_success_not_saved(void) {
+    TEST("a share is not released when the PIN success cannot be saved");
+    reset_flash();
+    if (storage_init() != 0 || storage_save_share("grp", "deadbeef") != 0)
+        FAIL("setup failed");
+    char loaded[128];
+    memset(loaded, 'x', sizeof(loaded));
+    mock_record_result = -1;
+    int ret = storage_load_share("grp", loaded, sizeof(loaded));
+    mock_record_result = 0;
+    if (ret != STORAGE_ERR_IO)
+        FAIL("a failed save of the success must refuse the load");
+    if (loaded[0] != 'x')
+        FAIL("the share must not be written out");
+    PASS();
+    return 0;
+}
+
 static int test_load_marks_attempt_before_decrypt(void) {
     TEST("share load marks the PIN attempt before decrypting, and refuses if it cannot");
     reset_flash();
@@ -963,6 +981,7 @@ int main(void) {
     failures += test_init_no_partition();
     failures += test_save_load_roundtrip();
     failures += test_successful_load_resets_pin_attempts();
+    failures += test_load_withheld_when_success_not_saved();
     failures += test_load_marks_attempt_before_decrypt();
     failures += test_save_overwrite();
     failures += test_delete();
