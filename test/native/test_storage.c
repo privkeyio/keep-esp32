@@ -19,6 +19,7 @@ static bool partition_exists = true;
 static bool mock_storage_read_fails = false;
 static int mock_reads_before_fault = -1;
 static bool checkpoint_partition_exists = true;
+static size_t mock_read_fault_from = SIZE_MAX;
 
 const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
                                                 esp_partition_subtype_t subtype,
@@ -41,7 +42,8 @@ esp_err_t esp_partition_read(const esp_partition_t *partition, size_t src_offset
         memcpy(dst, mock_checkpoint_flash + src_offset, size);
         return ESP_OK;
     }
-    if (mock_storage_read_fails || src_offset + size > sizeof(mock_flash))
+    if (mock_storage_read_fails || src_offset >= mock_read_fault_from ||
+        src_offset + size > sizeof(mock_flash))
         return ESP_FAIL;
     if (mock_reads_before_fault >= 0 && mock_reads_before_fault-- == 0)
         return ESP_FAIL;
@@ -795,6 +797,36 @@ static int test_metadata_not_found(void) {
     return 0;
 }
 
+static int test_checkpoint_read_fault_is_not_absence(void) {
+    TEST("a checkpoint read fault is an error, never taken as no checkpoint");
+    reset_flash();
+    if (storage_init() != 0)
+        FAIL("init failed");
+    uint8_t session_id[32];
+    memset(session_id, 0xAA, sizeof(session_id));
+    uint8_t data[128];
+    memset(data, 0xBB, sizeof(data));
+    if (storage_save_session_checkpoint(session_id, data, sizeof(data)) != 0)
+        FAIL("save checkpoint failed");
+
+    uint8_t ids[STORAGE_MAX_SESSION_CHECKPOINTS][STORAGE_SESSION_ID_LEN];
+    mock_read_fault_from = STORAGE_SESSION_CHECKPOINT_OFFSET;
+    int del = storage_delete_session_checkpoint(session_id);
+    int list = storage_list_session_checkpoints(ids, STORAGE_MAX_SESSION_CHECKPOINTS);
+    int save = storage_save_session_checkpoint(session_id, data, sizeof(data));
+    mock_read_fault_from = SIZE_MAX;
+    if (del != STORAGE_ERR_IO)
+        FAIL("delete must report an I/O error, not that the checkpoint is gone");
+    if (list >= 0)
+        FAIL("list must fail rather than skip an unreadable slot");
+    if (save != STORAGE_ERR_IO)
+        FAIL("save must not write a second copy past an unreadable slot");
+    if (!storage_has_session_checkpoint(session_id))
+        FAIL("the checkpoint must still be there");
+    PASS();
+    return 0;
+}
+
 static int test_session_checkpoint_save_load(void) {
     TEST("session checkpoint save/load roundtrip");
     reset_flash();
@@ -1137,6 +1169,7 @@ int main(void) {
     failures += test_metadata_save_load();
     failures += test_metadata_not_found();
     failures += test_session_checkpoint_save_load();
+    failures += test_checkpoint_read_fault_is_not_absence();
     failures += test_session_checkpoint_list();
     failures += test_export_rate_limit_initial();
     failures += test_export_rate_limit_after_attempts();

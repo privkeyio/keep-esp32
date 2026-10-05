@@ -451,6 +451,16 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
     memcpy(policy_hash_snapshot, s->policy_hash, 32);
 
     frost_sign_result_t sign_result;
+    /* The nonce is wiped once a share is released; never sign with it again. */
+    uint8_t nonce_bits = 0;
+    for (size_t i = 0; i < sizeof(s->session.our_nonce); i++) {
+        nonce_bits |= s->session.our_nonce[i];
+    }
+    if (nonce_bits == 0) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session nonce already used");
+        return;
+    }
+
     if (frost_sign_share_pure(&s->frost_state, &s->session, s->session.message,
                               s->session.message_len, &sign_result) != 0) {
         secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
