@@ -221,6 +221,54 @@ else()
     message(STATUS "Skipping test_psbt_fraud_integration and test_psbt_unified_sighash (libwally-core not found)")
 endif()
 
+if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE)
+    find_library(MBEDCRYPTO_LIBRARY mbedcrypto)
+    add_executable(keep_device
+        device/device_main.c
+        ${CJSON_SOURCES}
+        ${MAIN_DIR}/bitcoin_rpc.c
+        ${MAIN_DIR}/psbt.c
+        ${MAIN_DIR}/psbt_fraud.c
+        ${MAIN_DIR}/policy.c
+        ${MAIN_DIR}/protocol.c
+        ${MAIN_DIR}/frost_signer.c
+        ${MAIN_DIR}/frost_signer_core.c
+        ${MAIN_DIR}/frost_signer_storage.c
+        ${MAIN_DIR}/frost.c
+        ${MAIN_DIR}/session.c
+        ${MAIN_DIR}/random_utils.c
+        ${MAIN_DIR}/hw_entropy.c
+        ${MAIN_DIR}/anti_glitch.c
+        ${MAIN_DIR}/error_codes.c
+        ${MAIN_DIR}/error_context.c
+    )
+    target_include_directories(keep_device PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/device/shim
+        ${MAIN_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/../../components/crypto_asm/include
+        ${WALLY_DIR}/include
+        ${SECP_DIR}/include
+        ${CJSON_INCLUDE}
+    )
+    target_link_directories(keep_device PRIVATE ${WALLY_DIR}/src/.libs ${SECP_DIR}/build/src)
+    target_link_libraries(keep_device wallycore secp256k1 ${MBEDCRYPTO_LIBRARY} ${CJSON_LIBS})
+    set_target_properties(keep_device PROPERTIES
+        BUILD_RPATH "${WALLY_DIR}/src/.libs;${SECP_DIR}/build/src"
+    )
+
+    add_executable(keep_device_keygen device/keygen.c)
+    target_include_directories(keep_device_keygen PRIVATE ${SECP_DIR}/include)
+    target_link_directories(keep_device_keygen PRIVATE ${SECP_DIR}/build/src)
+    target_link_libraries(keep_device_keygen secp256k1)
+    set_target_properties(keep_device_keygen PROPERTIES BUILD_RPATH ${SECP_DIR}/build/src)
+
+    add_executable(keep_device_aggregate device/aggregate.c)
+    target_include_directories(keep_device_aggregate PRIVATE ${SECP_DIR}/include)
+    target_link_directories(keep_device_aggregate PRIVATE ${SECP_DIR}/build/src)
+    target_link_libraries(keep_device_aggregate secp256k1)
+    set_target_properties(keep_device_aggregate PROPERTIES BUILD_RPATH ${SECP_DIR}/build/src)
+endif()
+
 add_executable(test_anti_glitch test_anti_glitch.c ${MAIN_DIR}/anti_glitch.c)
 target_include_directories(test_anti_glitch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mocks

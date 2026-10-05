@@ -155,6 +155,12 @@ jobs:
           fi
           echo "All native tests passed."
 
+      - name: Run the device end-to-end signing tests
+        timeout-minutes: 5
+        # Two processes of the firmware's own request handlers (test/native/device)
+        # signing as a 2-of-3 group over JSON-RPC, checked with BIP340.
+        run: python3 keep-esp32/test/native/device/e2e.py keep-esp32/test/native/build
+
   docs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
