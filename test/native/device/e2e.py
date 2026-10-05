@@ -16,6 +16,7 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -170,9 +171,17 @@ def offline(build):
         d.close()
 
 
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 def regtest(build, knots_bin):
     datadir = tempfile.mkdtemp(prefix="keep-e2e-")
-    cli_base = [os.path.join(knots_bin, "bitcoin-cli"), "-regtest", f"-datadir={datadir}"]
+    rpcport, p2pport = free_port(), free_port()
+    cli_base = [os.path.join(knots_bin, "bitcoin-cli"), "-regtest", f"-datadir={datadir}",
+                f"-rpcport={rpcport}"]
 
     def cli(*args):
         out = subprocess.run(cli_base + list(args), capture_output=True, text=True, timeout=120)
@@ -193,10 +202,17 @@ def regtest(build, knots_bin):
 
     subprocess.run([os.path.join(knots_bin, "bitcoind"), "-regtest", f"-datadir={datadir}", "-daemon",
                     "-testactivationheight=blake2b@150", "-corepolicy=0", "-txindex",
-                    "-fallbackfee=0.0001", f"-mocktime={mocktime[0]}"], check=True,
+                    "-fallbackfee=0.0001", f"-mocktime={mocktime[0]}", f"-rpcport={rpcport}",
+                    f"-port={p2pport}", "-listen=0"], check=True,
                    stdout=subprocess.DEVNULL)
     devices = []
     try:
+        cookie = os.path.join(datadir, "regtest", ".cookie")
+        deadline = time.time() + 60
+        while not os.path.exists(cookie):
+            if time.time() > deadline:
+                raise RuntimeError("regtest node did not start")
+            time.sleep(0.2)
         cli("-rpcwait", "-rpcwaittimeout=60", "getblockcount")
         cli("createwallet", "w")
         waddr = cli("getnewaddress", "", "bech32m")
