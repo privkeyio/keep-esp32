@@ -11,7 +11,13 @@
 static int failures = 0;
 static const char *shot_dir = NULL;
 
-#define TEST(name) printf("  TEST: %s\n", name)
+static int failures_at_start = 0;
+
+#define TEST(name)                    \
+    do {                              \
+        printf("  TEST: %s\n", name); \
+        failures_at_start = failures; \
+    } while (0)
 #define CHECK(cond, msg)                   \
     do {                                   \
         if (!(cond)) {                     \
@@ -21,7 +27,11 @@ static const char *shot_dir = NULL;
             return;                        \
         }                                  \
     } while (0)
-#define PASS() printf("    PASS\n")
+#define PASS()                             \
+    do {                                   \
+        if (failures == failures_at_start) \
+            printf("    PASS\n");          \
+    } while (0)
 
 #define PIN_TIMEOUT_MS 120000
 

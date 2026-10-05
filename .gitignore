@@ -1,4 +1,5 @@
 build/
+build-uitest/
 managed_components/
 # dependencies.lock is TRACKED on purpose. main/idf_component.yml constrains the
 # ESP-IDF managed components by caret range (^1.7.18, ^3.0.2, ...), so without the
