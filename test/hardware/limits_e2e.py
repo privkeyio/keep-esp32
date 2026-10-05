@@ -2,6 +2,8 @@
 """Requests at the protocol's size limits must parse on a real device.
 
 Runs against release firmware on an erased or test device; it changes nothing.
+Build from a fresh sdkconfig: an existing one keeps settings that sdkconfig.defaults
+has since changed.
 A request that does not fit in the heap fails as "Parse error" (-32700), which
 is how the device answers when cJSON cannot allocate, so each check asks for a
 reply that only a parsed request can produce.
@@ -100,7 +102,7 @@ def main():
         r = dev.send({"method": "bitcoin_parse", "params": params})
         if not parsed(r):
             break
-    check(parsed(r), "the longest request still parses after 20 more, so nothing leaks", r)
+    check(parsed(r), "the longest request keeps parsing when repeated 20 times", r)
 
     print(f"\n{'FAILED: ' + ', '.join(failures) if failures else 'All limit checks passed'}")
     sys.exit(1 if failures else 0)
