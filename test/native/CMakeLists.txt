@@ -208,8 +208,17 @@ if(EXISTS ${WALLY_DIR}/include/wally_psbt.h)
         INSTALL_RPATH ${WALLY_DIR}/src/.libs
     )
     target_compile_definitions(test_psbt_fraud_integration PRIVATE NATIVE_TEST=1)
+
+    add_executable(test_psbt_unified_sighash test_psbt_unified_sighash.c ${MAIN_DIR}/psbt.c)
+    target_include_directories(test_psbt_unified_sighash PRIVATE ${MAIN_DIR} ${WALLY_DIR}/include)
+    target_link_directories(test_psbt_unified_sighash PRIVATE ${WALLY_DIR}/src/.libs)
+    target_link_libraries(test_psbt_unified_sighash wallycore)
+    set_target_properties(test_psbt_unified_sighash PROPERTIES
+        BUILD_RPATH ${WALLY_DIR}/src/.libs
+        INSTALL_RPATH ${WALLY_DIR}/src/.libs
+    )
 else()
-    message(STATUS "Skipping test_psbt_fraud_integration (libwally-core not found)")
+    message(STATUS "Skipping test_psbt_fraud_integration and test_psbt_unified_sighash (libwally-core not found)")
 endif()
 
 add_executable(test_anti_glitch test_anti_glitch.c ${MAIN_DIR}/anti_glitch.c)
