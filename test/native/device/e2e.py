@@ -197,12 +197,7 @@ def regtest(build, knots_bin):
                    stdout=subprocess.DEVNULL)
     devices = []
     try:
-        for _ in range(100):
-            try:
-                cli("getblockcount")
-                break
-            except RuntimeError:
-                time.sleep(0.2)
+        cli("-rpcwait", "-rpcwaittimeout=60", "getblockcount")
         cli("createwallet", "w")
         waddr = cli("getnewaddress", "", "bech32m")
         mine(155, waddr)
