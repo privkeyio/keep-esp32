@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "sign_approval.h"
 
@@ -15,6 +16,10 @@
         return 1;                      \
     } while (0)
 
+static bool consume(const uint8_t m[32], uint64_t now) {
+    return SECRESULT_IS_TRUE(sign_approval_consume_secure(m, now));
+}
+
 static void msg_of(uint8_t out[32], uint8_t tag) {
     memset(out, tag, 32);
 }
@@ -25,9 +30,9 @@ static int test_single_use(void) {
     uint8_t m[32];
     msg_of(m, 1);
     sign_approval_add(m, 1000);
-    if (!sign_approval_consume(m, 1001))
+    if (!consume(m, 1001))
         FAIL("first consume refused");
-    if (sign_approval_consume(m, 1002))
+    if (consume(m, 1002))
         FAIL("second consume accepted");
     PASS();
     return 0;
@@ -41,28 +46,32 @@ static int test_other_message(void) {
     msg_of(b, 1);
     b[31] ^= 1;
     sign_approval_add(a, 0);
-    if (sign_approval_consume(b, 1))
+    if (consume(b, 1))
         FAIL("different message accepted");
-    if (!sign_approval_consume(a, 1))
+    if (!consume(a, 1))
         FAIL("the approved one was lost");
     PASS();
     return 0;
 }
 
 static int test_expiry(void) {
-    TEST("an approval expires after the TTL, including across timer wrap");
+    TEST("an approval expires after the TTL, and a clock that went backwards expires it");
     sign_approval_clear();
     uint8_t m[32];
     msg_of(m, 2);
     sign_approval_add(m, 5000);
-    if (sign_approval_consume(m, 5000 + SIGN_APPROVAL_TTL_MS))
+    if (consume(m, 5000 + SIGN_APPROVAL_TTL_MS))
         FAIL("accepted at the TTL");
-    sign_approval_add(m, UINT32_MAX - 10);
-    if (!sign_approval_consume(m, 20))
-        FAIL("refused just after the timer wrapped");
-    sign_approval_add(m, UINT32_MAX - 10);
-    if (sign_approval_consume(m, SIGN_APPROVAL_TTL_MS))
-        FAIL("accepted past the TTL across the wrap");
+    sign_approval_add(m, 5000);
+    if (!consume(m, 5000 + SIGN_APPROVAL_TTL_MS - 1))
+        FAIL("refused just inside the TTL");
+    uint64_t late = 60ULL * 24 * 3600 * 1000;
+    sign_approval_add(m, late);
+    if (!consume(m, late + 1))
+        FAIL("refused after 60 days of uptime, where a 32-bit clock would have wrapped");
+    sign_approval_add(m, late);
+    if (consume(m, late - 1))
+        FAIL("accepted when now is earlier than when it was added");
     PASS();
     return 0;
 }
@@ -80,17 +89,17 @@ static int test_refresh_and_eviction(void) {
     msg_of(m, 99);
     sign_approval_add(m, 201);
     msg_of(m, 11);
-    if (sign_approval_consume(m, 202))
+    if (consume(m, 202))
         FAIL("the oldest entry was not the one evicted");
     msg_of(m, 10);
-    if (!sign_approval_consume(m, 202))
+    if (!consume(m, 202))
         FAIL("the refreshed entry was evicted");
     msg_of(m, 99);
-    if (!sign_approval_consume(m, 202))
+    if (!consume(m, 202))
         FAIL("the newest entry is missing");
     for (int i = 2; i < SIGN_APPROVAL_SLOTS; i++) {
         msg_of(m, (uint8_t)(10 + i));
-        if (!sign_approval_consume(m, 202))
+        if (!consume(m, 202))
             FAIL("an unrelated entry was lost");
     }
     PASS();
@@ -103,7 +112,7 @@ static int test_clear(void) {
     msg_of(m, 3);
     sign_approval_add(m, 0);
     sign_approval_clear();
-    if (sign_approval_consume(m, 1))
+    if (consume(m, 1))
         FAIL("approval survived clear");
     PASS();
     return 0;

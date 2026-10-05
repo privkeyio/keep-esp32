@@ -81,29 +81,74 @@ int storage_load_metadata(const char *group, group_metadata_t *metadata) {
     return -1;
 }
 
+/* Session checkpoints live in a flash partition on the device; here they are in memory
+ * so frost_session_resume runs exactly as it does there. */
+static struct {
+    uint8_t id[STORAGE_SESSION_ID_LEN];
+    uint8_t data[STORAGE_CHECKPOINT_MAX_SIZE];
+    size_t len;
+    bool used;
+} checkpoints[STORAGE_MAX_SESSION_CHECKPOINTS];
+
+static int find_checkpoint(const uint8_t *id) {
+    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
+        if (checkpoints[i].used && memcmp(checkpoints[i].id, id, STORAGE_SESSION_ID_LEN) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 int storage_save_session_checkpoint(const uint8_t *id, const void *d, size_t l) {
-    (void)id;
-    (void)d;
-    (void)l;
-    return -1;
+    int i = find_checkpoint(id);
+    for (int j = 0; i < 0 && j < STORAGE_MAX_SESSION_CHECKPOINTS; j++) {
+        if (!checkpoints[j].used) {
+            i = j;
+        }
+    }
+    if (i < 0 || l > STORAGE_CHECKPOINT_MAX_SIZE) {
+        return -1;
+    }
+    memcpy(checkpoints[i].id, id, STORAGE_SESSION_ID_LEN);
+    memcpy(checkpoints[i].data, d, l);
+    checkpoints[i].len = l;
+    checkpoints[i].used = true;
+    return 0;
 }
+
 int storage_load_session_checkpoint(const uint8_t *id, void *d, size_t l) {
-    (void)id;
-    (void)d;
-    (void)l;
-    return -1;
+    int i = find_checkpoint(id);
+    if (i < 0 || checkpoints[i].len != l) {
+        return -1;
+    }
+    memcpy(d, checkpoints[i].data, l);
+    return 0;
 }
+
 int storage_delete_session_checkpoint(const uint8_t *id) {
-    (void)id;
+    int i = find_checkpoint(id);
+    if (i >= 0) {
+        memset(&checkpoints[i], 0, sizeof(checkpoints[i]));
+    }
     return 0;
 }
+
 int storage_list_session_checkpoints(uint8_t ids[][STORAGE_SESSION_ID_LEN], int m) {
-    (void)ids;
-    (void)m;
-    return 0;
+    int n = 0;
+    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS && n < m; i++) {
+        if (checkpoints[i].used) {
+            memcpy(ids[n++], checkpoints[i].id, STORAGE_SESSION_ID_LEN);
+        }
+    }
+    return n;
 }
+
 int storage_count_session_checkpoints(void) {
-    return 0;
+    int n = 0;
+    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
+        n += checkpoints[i].used;
+    }
+    return n;
 }
 
 #define PARTITION_SIZE 65536
@@ -414,6 +459,9 @@ int main(void) {
                 break;
             case RPC_METHOD_FROST_SIGN:
                 frost_sign(req.group, req.session_id, req.commitments, &resp);
+                break;
+            case RPC_METHOD_SESSION_RESUME:
+                frost_session_resume(req.session_id, &resp);
                 break;
             case RPC_METHOD_BITCOIN_PARSE:
                 bitcoin_rpc_parse(&req, &resp);

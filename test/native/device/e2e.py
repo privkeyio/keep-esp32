@@ -104,7 +104,7 @@ class Warden:
         self.pubkey = point_mul(G, int.from_bytes(self.seckey, "big"))[0].to_bytes(32, "big")
 
     def bundle(self, rules, created_at, rules_len=None, tamper=False):
-        body = json.dumps(rules).encode()
+        body = rules if isinstance(rules, bytes) else json.dumps(rules).encode()
         head = struct.pack("<B32s32sI", 1, self.pubkey, hashlib.sha256(body).digest(),
                            len(body) if rules_len is None else rules_len)
         unsigned = head + body.ljust(self.RULES_MAX, b"\0") + struct.pack("<Q", created_at)
@@ -422,6 +422,12 @@ def signing_gate(build):
     expect_error("its sighash sent straight to frost_commit is refused",
                  lambda: commit(a, over_sighash), "not approved")
 
+    psbt, sighash = psbt_for(40500)
+    expect_error("a commit that fails before the commitment",
+                 lambda: a.rpc("frost_commit", {"group": "missing", "session_id": secrets.token_hex(32),
+                                                "message": sighash.hex()}), "Share not found")
+    check("does not use up the approval", "commitment" in commit(a, sighash))
+
     psbt, sighash = psbt_for(41000)
     a.rpc("test_advance_clock", {"ms": 120001})
     expect_error("an approval expires after two minutes", lambda: commit(a, sighash), "not approved")
@@ -429,6 +435,28 @@ def signing_gate(build):
     psbt, sighash = psbt_for(42000)
     a.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 200)})
     expect_error("installing a policy drops earlier approvals", lambda: commit(a, sighash), "not approved")
+
+    session = secrets.token_hex(32)
+    raw = secrets.token_bytes(32)
+    plain = Device(os.path.join(build, "keep_device"), "resume")
+    plain.rpc("import_share", {"group": "g", "share": a.share})
+    plain.rpc("frost_commit", {"group": "g", "session_id": session, "message": raw.hex()})
+    plain.rpc("test_set_confirm", {"approve": True})
+    plain.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 100)})
+    expect_error("the open session cannot be signed once a policy is installed",
+                 lambda: plain.rpc("frost_sign", {"group": "g", "session_id": session,
+                                                  "commitments": ""}), "")
+    expect_error("and cannot be resumed from its checkpoint under the new policy",
+                 lambda: plain.rpc("frost_session_resume", {"session_id": session}), "")
+    plain.close()
+
+    a.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "ALLOW_RAW": True}, 210)})
+    expect_error("allow_raw is matched case-sensitively",
+                 lambda: commit(a, secrets.token_bytes(32)), "not approved")
+    a.rpc("policy_update", {"bundle": warden.bundle(b'{"max_amount": 50000, "allow_raw": true} x', 220)})
+    expect_error("rules with trailing data are refused rather than partly read",
+                 lambda: commit(a, secrets.token_bytes(32)), "not approved")
+    expect_error("and deny bitcoin_sign", lambda: psbt_for(30000), "Policy denied")
 
     for d in devices:
         d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "allow_raw": True}, 300)})

@@ -290,14 +290,9 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
         return -1;
     }
 
+    secresult_t raw_ok = SECRESULT_TRUE;
     if (has_policy) {
-        secresult_t raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
-        if (!SECRESULT_IS_TRUE(raw_ok) && !sign_approval_consume(message, sign_approval_now_ms())) {
-            secure_memzero(policy_hash, sizeof(policy_hash));
-            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN,
-                           "Message not approved by bitcoin_sign under the installed policy");
-            return -1;
-        }
+        raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
     }
 
     signing_session_t *s = alloc_session(session_id);
@@ -327,6 +322,19 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to init session");
         return -1;
+    }
+
+    /* Consumed only now, so a failure setting up the session does not use up a valid
+     * approval. */
+    if (!SECRESULT_IS_TRUE(raw_ok)) {
+        secresult_t approved = ag_verify_condition_secure(
+            sign_approval_consume_secure(message, sign_approval_now_ms()));
+        if (!SECRESULT_IS_TRUE(approved)) {
+            free_session(s);
+            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN,
+                           "Message not approved by bitcoin_sign under the installed policy");
+            return -1;
+        }
     }
 
     frost_commitment_result_t commit_result;
@@ -537,6 +545,19 @@ void frost_signer_cleanup_stale(void) {
             FROST_LOGW(TAG, "Cleaning up stale session");
             free_session(&sessions[i]);
         }
+    }
+}
+
+void frost_signer_discard_sessions(void) {
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        if (sessions[i].active) {
+            free_session(&sessions[i]);
+        }
+    }
+    uint8_t ids[STORAGE_MAX_SESSION_CHECKPOINTS][SESSION_ID_LEN];
+    int count = session_checkpoint_list(ids, STORAGE_MAX_SESSION_CHECKPOINTS);
+    for (int i = 0; i < count; i++) {
+        session_checkpoint_clear(ids[i]);
     }
 }
 

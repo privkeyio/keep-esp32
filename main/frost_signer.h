@@ -9,6 +9,9 @@
 int frost_signer_init(void);
 void frost_signer_cleanup(void);
 void frost_signer_cleanup_stale(void);
+/* Drops every signing session and checkpoint, so none started under an older policy
+ * can continue under a new one. */
+void frost_signer_discard_sessions(void);
 void frost_get_pubkey(const char *group, rpc_response_t *resp);
 void frost_get_share_info(const char *group, rpc_response_t *resp);
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex,

@@ -12,6 +12,7 @@
 #include "cJSON.h"
 #include "ux_interface.h"
 #include "sign_approval.h"
+#include "frost_signer.h"
 #include <secp256k1.h>
 #include <secp256k1_schnorrsig.h>
 #include <secp256k1_extrakeys.h>
@@ -371,6 +372,7 @@ void policy_handle_update(const rpc_request_t *req, rpc_response_t *resp) {
     }
 
     sign_approval_clear();
+    frost_signer_discard_sessions();
     protocol_success(resp, req->id, "{\"ok\":true}");
 }
 
@@ -458,7 +460,7 @@ static secresult_t load_rules_secure(cJSON **rules) {
     rules_str[bundle.rules_len] = '\0';
     secure_memzero(&bundle, sizeof(bundle));
 
-    *rules = cJSON_Parse(rules_str);
+    *rules = cJSON_ParseWithOpts(rules_str, NULL, 1);
     secure_memzero(rules_str, sizeof(rules_str));
     return *rules ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED;
 }
@@ -473,7 +475,7 @@ secresult_t policy_allows_raw_secure(void) {
     if (!SECRESULT_IS_TRUE(loaded)) {
         return loaded;
     }
-    bool allowed = rules && cJSON_IsTrue(cJSON_GetObjectItem(rules, "allow_raw"));
+    bool allowed = rules && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(rules, "allow_raw"));
     cJSON_Delete(rules);
     return ag_verify_condition_secure(allowed ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED);
 }

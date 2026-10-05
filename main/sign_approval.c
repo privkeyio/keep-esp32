@@ -7,17 +7,17 @@
 
 typedef struct {
     uint8_t message[32];
-    uint32_t added_ms;
+    uint64_t added_ms;
     bool used;
 } approval_t;
 
 static approval_t approvals[SIGN_APPROVAL_SLOTS];
 
-static bool expired(const approval_t *a, uint32_t now_ms) {
-    return (uint32_t)(now_ms - a->added_ms) >= SIGN_APPROVAL_TTL_MS;
+static bool expired(const approval_t *a, uint64_t now_ms) {
+    return now_ms < a->added_ms || now_ms - a->added_ms >= SIGN_APPROVAL_TTL_MS;
 }
 
-void sign_approval_add(const uint8_t message[32], uint32_t now_ms) {
+void sign_approval_add(const uint8_t message[32], uint64_t now_ms) {
     approval_t *slot = NULL;
     for (int i = 0; i < SIGN_APPROVAL_SLOTS && !slot; i++) {
         if (approvals[i].used && ct_compare(approvals[i].message, message, 32) == 0) {
@@ -42,16 +42,16 @@ void sign_approval_add(const uint8_t message[32], uint32_t now_ms) {
     slot->used = true;
 }
 
-bool sign_approval_consume(const uint8_t message[32], uint32_t now_ms) {
+secresult_t sign_approval_consume_secure(const uint8_t message[32], uint64_t now_ms) {
     for (int i = 0; i < SIGN_APPROVAL_SLOTS; i++) {
         approval_t *a = &approvals[i];
         if (a->used && ct_compare(a->message, message, 32) == 0) {
             bool valid = !expired(a, now_ms);
             secure_memzero(a, sizeof(*a));
-            return valid;
+            return valid ? SECRESULT_TRUE : SECRESULT_ERR_POLICY_DENIED;
         }
     }
-    return false;
+    return SECRESULT_ERR_POLICY_DENIED;
 }
 
 void sign_approval_clear(void) {
@@ -61,21 +61,21 @@ void sign_approval_clear(void) {
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
 
-uint32_t sign_approval_now_ms(void) {
-    return (uint32_t)(esp_timer_get_time() / 1000);
+uint64_t sign_approval_now_ms(void) {
+    return (uint64_t)esp_timer_get_time() / 1000;
 }
 #else
 #include <time.h>
 
-static uint32_t test_offset_ms = 0;
+static uint64_t test_offset_ms = 0;
 
 void sign_approval_test_advance_ms(uint32_t ms) {
     test_offset_ms += ms;
 }
 
-uint32_t sign_approval_now_ms(void) {
+uint64_t sign_approval_now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000) + test_offset_ms;
+    return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000 + test_offset_ms;
 }
 #endif
