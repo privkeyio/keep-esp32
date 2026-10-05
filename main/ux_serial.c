@@ -27,8 +27,8 @@ static void serial_show_signing(int current, int total) {
     ESP_LOGI(TAG, "Signing input %d/%d", current, total);
 }
 
-static void serial_show_success(const char *message) {
-    ESP_LOGI(TAG, "Success: %s", message);
+static void serial_show_success(const char *title, const char *message) {
+    ESP_LOGI(TAG, "Success [%s]: %s", title, message);
 }
 
 static void serial_show_error(const char *title, const char *message) {

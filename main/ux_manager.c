@@ -116,11 +116,17 @@ bool ux_confirm_warden_pin(const uint8_t pubkey[32], uint32_t timeout_ms) {
     *p = '\0';
 
     active_backend->confirm_warden_pin(fingerprint, pin_decision_cb, NULL);
-    bool approved =
-        xSemaphoreTake(pin_decision_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE && pin_decision;
+    bool answered = xSemaphoreTake(pin_decision_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    bool approved = answered && pin_decision;
 
     if (!approved && active_backend->show_error) {
-        active_backend->show_error("Policy", "Warden key not confirmed");
+        if (answered) {
+            active_backend->show_error("Key rejected", "The policy was not installed.");
+        } else {
+            active_backend->show_error("Timed out",
+                                       "The key was not confirmed in time. The policy was not "
+                                       "installed.");
+        }
     }
     return approved;
 }
@@ -133,8 +139,9 @@ void ux_report_warden_pin(bool saved) {
         active_backend->set_policy_loaded(true);
     }
     if (saved && active_backend->show_success) {
-        active_backend->show_success("Warden key pinned");
+        active_backend->show_success("Key trusted",
+                                     "Policy installed. Only this Warden key can update it.");
     } else if (!saved && active_backend->show_error) {
-        active_backend->show_error("Policy", "Warden key could not be saved");
+        active_backend->show_error("Not saved", "The policy could not be written to flash.");
     }
 }

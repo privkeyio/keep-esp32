@@ -363,3 +363,5 @@ if(MBEDCRYPTO_LIB)
 else()
     message(STATUS "Skipping test_pin_attempt_limit (mbedtls not found)")
 endif()
+
+include(${CMAKE_CURRENT_LIST_DIR}/ui/CMakeLists.txt)
