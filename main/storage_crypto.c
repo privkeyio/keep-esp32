@@ -526,6 +526,16 @@ uint32_t storage_crypto_get_delay_remaining(void) {
     return (uint32_t)(pin_state.lockout_deadline - now);
 }
 
+#ifdef ESP_PLATFORM
+static bool pin_state_persistent = false;
+#else
+static bool pin_state_persistent = true;
+#endif
+
+void storage_crypto_set_pin_state_persistent(bool persistent) {
+    pin_state_persistent = persistent;
+}
+
 bool storage_crypto_is_bricked(void) {
     load_pin_state();
     return pin_state.bricked != 0 || pin_state.failed_attempts >= PIN_MAX_ATTEMPTS;
@@ -533,6 +543,11 @@ bool storage_crypto_is_bricked(void) {
 
 int storage_crypto_init(const char *pin) {
     load_pin_state();
+
+    /* Without a place to persist failures, a reboot would reset the attempt limit. */
+    if (!se_available && !pin_state_persistent) {
+        return ERR_PIN_NO_STATE;
+    }
 
     if (pin_state.bricked || pin_state.failed_attempts >= PIN_MAX_ATTEMPTS) {
         return ERR_PIN_BRICKED;

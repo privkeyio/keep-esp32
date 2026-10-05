@@ -159,6 +159,8 @@ const char *error_name(int code) {
         return "PIN_MUST_WAIT";
     case ERR_PIN_BRICKED:
         return "PIN_BRICKED";
+    case ERR_PIN_NO_STATE:
+        return "PIN_NO_STATE";
 
     case ERR_SE_INVALID_PARAM:
         return "SE_INVALID_PARAM";
@@ -320,6 +322,8 @@ const char *error_to_string(int code) {
         return "Too many attempts, wait required";
     case ERR_PIN_BRICKED:
         return "Device bricked";
+    case ERR_PIN_NO_STATE:
+        return "PIN state cannot be stored";
 
     case ERR_SE_INVALID_PARAM:
         return "Invalid secure element parameter";

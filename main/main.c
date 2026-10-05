@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
 #include "sdkconfig.h"
 
 #include "protocol.h"
@@ -84,6 +85,11 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
     }
     if (ret == ERR_PIN_LOCKED) {
         PROTOCOL_ERROR(resp, req->id, ERR_PIN_LOCKED, "Device locked");
+        return;
+    }
+    if (ret == ERR_PIN_NO_STATE) {
+        PROTOCOL_ERROR(resp, req->id, ERR_PIN_NO_STATE,
+                       "PIN attempt state cannot be stored on this device");
         return;
     }
     if (ret == ERR_PIN_MUST_WAIT) {
@@ -379,6 +385,13 @@ static void app_init(void) {
     }
 
     ag_random_delay_ms(AG_BOOT_DELAY_MIN_MS, AG_BOOT_DELAY_MAX_MS);
+
+    esp_err_t nvs_ret = nvs_flash_init();
+    if (nvs_ret != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed (%s); PIN unlock needs a secure element",
+                 esp_err_to_name(nvs_ret));
+    }
+    storage_crypto_set_pin_state_persistent(nvs_ret == ESP_OK);
 
     if (storage_init() != 0) {
         ESP_LOGW(TAG, "Storage init failed, continuing without storage");

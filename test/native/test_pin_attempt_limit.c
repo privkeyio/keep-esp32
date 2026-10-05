@@ -377,6 +377,40 @@ static int test_attempt_overflow_protection(void) {
     return 0;
 }
 
+static int test_unlock_refused_without_persistent_state(void) {
+    TEST("unlock is refused when neither NVS nor a secure element can hold PIN state");
+    reset_test_state();
+    pin_state_loaded = false;
+    storage_crypto_set_pin_state_persistent(false);
+    int ret = storage_crypto_init("1234");
+    uint8_t attempts = pin_state.failed_attempts;
+    storage_crypto_set_pin_state_persistent(true);
+    storage_crypto_clear();
+    if (ret != ERR_PIN_NO_STATE)
+        FAIL("expected ERR_PIN_NO_STATE");
+    if (attempts != 0)
+        FAIL("refusal must not count as an attempt");
+
+    reset_test_state();
+    mock_se_available = true;
+    pin_state_loaded = false;
+    storage_crypto_set_pin_state_persistent(false);
+    ret = storage_crypto_init("1234");
+    storage_crypto_set_pin_state_persistent(true);
+    storage_crypto_clear();
+    if (ret == ERR_PIN_NO_STATE)
+        FAIL("a secure element holds the state, so unlock must not be refused");
+
+    reset_test_state();
+    pin_state_loaded = false;
+    ret = storage_crypto_init("1234");
+    storage_crypto_clear();
+    if (ret != 0)
+        FAIL("with persistent state unlock should proceed");
+    PASS();
+    return 0;
+}
+
 int main(void) {
     printf("\n=== PIN Attempt Limiting Tests ===\n\n");
 
@@ -395,6 +429,7 @@ int main(void) {
     failures += test_kdf_marker_switches_derivation();
     failures += test_hmac_tamper_detection();
     failures += test_attempt_overflow_protection();
+    failures += test_unlock_refused_without_persistent_state();
 
     printf("\n");
     if (failures == 0) {
