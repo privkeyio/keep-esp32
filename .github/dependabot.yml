@@ -25,3 +25,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # ESP-IDF 6 ships mbedTLS 4, which drops APIs noscrypt, libnostr-c and the
+    # firmware use, and the image must move together with ci.yml and release.yml.
+    # That migration is done deliberately, not through a base image bump.
+    ignore:
+      - dependency-name: "espressif/idf"
+        update-types: ["version-update:semver-major"]
