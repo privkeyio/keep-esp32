@@ -4,6 +4,7 @@
 #   Directory '/build/keep-esp32/build' doesn't seem to be a CMake build directory
 # and anything else stray would silently become a build input.
 build/
+build-uitest/
 output/
 managed_components/
 sdkconfig.old

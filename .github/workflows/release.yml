@@ -52,6 +52,18 @@ jobs:
           target: esp32s3
           path: keep-esp32
 
+      - name: Refuse UI test firmware
+        # A UI test build lets anyone with USB access tap the screen. Check the
+        # header the compiler consumed: only grep's "no match" (1) may pass, so a
+        # match (0) or a missing or unreadable header (2) refuses.
+        run: |
+          rc=0
+          grep -q '^#define CONFIG_KEEP_UI_TEST 1' keep-esp32/build/config/sdkconfig.h || rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::UI test firmware or unreadable config (grep exit $rc); refusing to release"
+            exit 1
+          fi
+
       - name: Install esptool
         run: pip install esptool
 

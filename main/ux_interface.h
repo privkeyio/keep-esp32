@@ -33,9 +33,10 @@ struct ux_backend {
     void (*deinit)(void);
 
     void (*show_idle)(const char *device_name, bool policy_loaded, uint32_t policy_version);
+    void (*set_policy_loaded)(bool loaded);
     void (*show_scanning)(void);
     void (*show_signing)(int current, int total);
-    void (*show_success)(const char *message);
+    void (*show_success)(const char *title, const char *message);
     void (*show_error)(const char *title, const char *message);
 
     void (*confirm_transaction)(const ux_tx_info_t *tx, ux_decision_cb_t cb, void *user_data);

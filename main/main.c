@@ -24,6 +24,7 @@
 #include "crypto_asm.h"
 #include "ux_interface.h"
 #include "self_test.h"
+#include "ui_test.h"
 
 #define TAG                  "main"
 #define VERSION              "0.2.2"
@@ -450,6 +451,9 @@ static void app_init(void) {
         ESP_LOGE(TAG, "UX init failed, restarting");
         esp_restart();
     }
+    if (strcmp(ux_get_backend()->name, "display") == 0) {
+        ui_test_init();
+    }
 
     const ux_backend_t *ux = ux_get_backend();
     if (ux != NULL && ux->show_idle != NULL) {
@@ -475,7 +479,9 @@ void app_main(void) {
             }
             memset(&resp, 0, sizeof(resp));
             if (protocol_parse_request(line_buf, &req) == 0) {
-                handle_request(&req, &resp);
+                if (!ui_test_handle(line_buf, &req, &resp)) {
+                    handle_request(&req, &resp);
+                }
             } else {
                 PROTOCOL_ERROR(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
             }

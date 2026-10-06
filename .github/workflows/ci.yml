@@ -108,6 +108,14 @@ jobs:
           path: libwally-core
           submodules: recursive
 
+      # The UI tests render the firmware's screens with the LVGL release that
+      # dependencies.lock pins (lvgl/lvgl 9.5.0), placed where an IDF build puts it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lvgl/lvgl
+          ref: 85aa60d18b3d5e5588d7b247abf90198f07c8a63 # v9.5.0
+          path: keep-esp32/managed_components/lvgl__lvgl
+
       - name: Build secp256k1-frost
         run: |
           cd secp256k1-frost
@@ -131,7 +139,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libcjson-dev
 
       - name: Run native tests
+        timeout-minutes: 15
+        env:
+          UI_SHOT_DIR: ${{ github.workspace }}/ui-screens
         run: |
+          mkdir -p "$UI_SHOT_DIR"
           cd keep-esp32/test/native
           mkdir -p build && cd build
           # REQUIRE_ALL_TESTS turns a missing optional dependency into a configure
@@ -154,6 +166,14 @@ jobs:
             exit 1
           fi
           echo "All native tests passed."
+
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-screens
+          path: ui-screens
+          if-no-files-found: error
 
       - name: Run the device end-to-end signing tests
         timeout-minutes: 5

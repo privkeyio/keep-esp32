@@ -25,12 +25,21 @@
 #define COLOR_TEXT    lv_color_hex(0xf0f6fc)
 #define COLOR_MUTED   lv_color_hex(0x8b949e)
 
+/* A press that starts this soon after a screen appears is ignored, so a tap aimed at
+ * the previous screen (or a bounce of it) cannot act on the new one. */
+#define INPUT_GUARD_MS 500
+
 static ui_state_t current_state = UI_STATE_IDLE;
 static ux_decision_cb_t pending_callback = NULL;
 static void *pending_user_data = NULL;
 static lv_obj_t *current_screen = NULL;
 static lv_obj_t *signing_bar = NULL;
 static lv_obj_t *signing_label = NULL;
+static TickType_t screen_shown_at = 0;
+static bool press_armed = false;
+static const char *idle_name = "keep";
+static bool idle_policy_loaded = false;
+static uint32_t idle_policy_version = 0;
 
 static void create_idle_screen(const char *device_name, bool policy_loaded,
                                uint32_t policy_version);
@@ -39,8 +48,7 @@ static void create_transaction_screen(const ux_tx_info_t *tx);
 static void create_warden_pin_screen(const char *fingerprint);
 static void create_signing_screen(int current, int total);
 static void create_qr_screen(const char *data, size_t len);
-static void create_error_screen(const char *title, const char *message);
-static void create_success_screen(const char *message);
+static void create_result_screen(bool ok, const char *title, const char *message);
 
 static int display_init(void) {
     bsp_display_cfg_t cfg = {.lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
@@ -70,6 +78,8 @@ static void display_deinit(void) {
 static void clear_screen(void) {
     pending_callback = NULL;
     pending_user_data = NULL;
+    screen_shown_at = xTaskGetTickCount();
+    press_armed = false;
 
     if (current_screen) {
         lv_obj_del(current_screen);
@@ -82,10 +92,48 @@ static void clear_screen(void) {
 static void display_show_idle(const char *device_name, bool policy_loaded,
                               uint32_t policy_version) {
     bsp_display_lock(portMAX_DELAY);
+    idle_name = device_name;
+    idle_policy_loaded = policy_loaded;
+    idle_policy_version = policy_version;
     clear_screen();
     create_idle_screen(device_name, policy_loaded, policy_version);
     current_state = UI_STATE_IDLE;
     bsp_display_unlock();
+}
+
+static void display_set_policy_loaded(bool loaded) {
+    bsp_display_lock(portMAX_DELAY);
+    idle_policy_loaded = loaded;
+    bsp_display_unlock();
+}
+
+/* Runs from the LVGL task with the display lock held. Deferred because the tapped
+ * screen cannot be deleted inside its own event. */
+static void return_to_idle(void *unused) {
+    (void)unused;
+    if (current_state != UI_STATE_SUCCESS && current_state != UI_STATE_ERROR) {
+        return;
+    }
+    clear_screen();
+    create_idle_screen(idle_name, idle_policy_loaded, idle_policy_version);
+    current_state = UI_STATE_IDLE;
+}
+
+static void arm_press_cb(lv_event_t *e) {
+    (void)e;
+    press_armed = xTaskGetTickCount() - screen_shown_at >= pdMS_TO_TICKS(INPUT_GUARD_MS);
+}
+
+static void on_tap(lv_obj_t *obj, lv_event_cb_t cb) {
+    lv_obj_add_event_cb(obj, arm_press_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(obj, cb, LV_EVENT_CLICKED, NULL);
+}
+
+static void dismiss_cb(lv_event_t *e) {
+    (void)e;
+    if (press_armed) {
+        lv_async_call(return_to_idle, NULL);
+    }
 }
 
 static void display_show_scanning(void) {
@@ -122,10 +170,10 @@ static void display_show_signing(int current, int total) {
     bsp_display_unlock();
 }
 
-static void display_show_success(const char *message) {
+static void display_show_success(const char *title, const char *message) {
     bsp_display_lock(portMAX_DELAY);
     clear_screen();
-    create_success_screen(message);
+    create_result_screen(true, title, message);
     current_state = UI_STATE_SUCCESS;
     bsp_display_unlock();
 }
@@ -133,7 +181,7 @@ static void display_show_success(const char *message) {
 static void display_show_error(const char *title, const char *message) {
     bsp_display_lock(portMAX_DELAY);
     clear_screen();
-    create_error_screen(title, message);
+    create_result_screen(false, title, message);
     current_state = UI_STATE_ERROR;
     bsp_display_unlock();
 }
@@ -151,12 +199,16 @@ static void invoke_pending_callback(bool approved) {
 
 static void approve_btn_cb(lv_event_t *e) {
     (void)e;
-    invoke_pending_callback(true);
+    if (press_armed) {
+        invoke_pending_callback(true);
+    }
 }
 
 static void reject_btn_cb(lv_event_t *e) {
     (void)e;
-    invoke_pending_callback(false);
+    if (press_armed) {
+        invoke_pending_callback(false);
+    }
 }
 
 static void display_confirm_transaction(const ux_tx_info_t *tx, ux_decision_cb_t cb,
@@ -444,7 +496,7 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_align(reject_btn, LV_ALIGN_BOTTOM_LEFT, 10, -8);
     lv_obj_set_style_bg_color(reject_btn, COLOR_SURFACE, 0);
     lv_obj_set_style_radius(reject_btn, 6, 0);
-    lv_obj_add_event_cb(reject_btn, reject_btn_cb, LV_EVENT_CLICKED, NULL);
+    on_tap(reject_btn, reject_btn_cb);
 
     lv_obj_t *reject_label = lv_label_create(reject_btn);
     lv_label_set_text(reject_label, "Reject");
@@ -456,7 +508,7 @@ static void create_transaction_screen(const ux_tx_info_t *tx) {
     lv_obj_align(approve_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
     lv_obj_set_style_bg_color(approve_btn, COLOR_SUCCESS, 0);
     lv_obj_set_style_radius(approve_btn, 6, 0);
-    lv_obj_add_event_cb(approve_btn, approve_btn_cb, LV_EVENT_CLICKED, NULL);
+    on_tap(approve_btn, approve_btn_cb);
 
     lv_obj_t *approve_label = lv_label_create(approve_btn);
     lv_label_set_text(approve_label, "Approve");
@@ -478,9 +530,8 @@ static void create_warden_pin_screen(const char *fingerprint) {
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     lv_obj_t *hint = lv_label_create(current_screen);
-    lv_label_set_text(hint,
-                      "Only approve if it matches the key Warden shows.\nIt cannot be changed "
-                      "without erasing the device flash.");
+    lv_label_set_text(hint, "Trust only if this matches the key Warden shows.\nIt can't be changed "
+                            "without erasing the device.");
     lv_obj_set_style_text_color(hint, COLOR_WARNING, 0);
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
     lv_obj_set_width(hint, 300);
@@ -508,7 +559,7 @@ static void create_warden_pin_screen(const char *fingerprint) {
     lv_obj_align(reject_btn, LV_ALIGN_BOTTOM_LEFT, 10, -8);
     lv_obj_set_style_bg_color(reject_btn, COLOR_SURFACE, 0);
     lv_obj_set_style_radius(reject_btn, 6, 0);
-    lv_obj_add_event_cb(reject_btn, reject_btn_cb, LV_EVENT_CLICKED, NULL);
+    on_tap(reject_btn, reject_btn_cb);
 
     lv_obj_t *reject_label = lv_label_create(reject_btn);
     lv_label_set_text(reject_label, "Reject");
@@ -520,7 +571,7 @@ static void create_warden_pin_screen(const char *fingerprint) {
     lv_obj_align(approve_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
     lv_obj_set_style_bg_color(approve_btn, COLOR_SUCCESS, 0);
     lv_obj_set_style_radius(approve_btn, 6, 0);
-    lv_obj_add_event_cb(approve_btn, approve_btn_cb, LV_EVENT_CLICKED, NULL);
+    on_tap(approve_btn, approve_btn_cb);
 
     lv_obj_t *approve_label = lv_label_create(approve_btn);
     lv_label_set_text(approve_label, "Trust");
@@ -596,70 +647,46 @@ static void create_qr_screen(const char *data, size_t len) {
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -15);
 }
 
-static void create_error_screen(const char *title, const char *message) {
+static void create_result_screen(bool ok, const char *title, const char *message) {
     current_screen = lv_obj_create(lv_scr_act());
     lv_obj_set_size(current_screen, SCREEN_WIDTH, SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
     lv_obj_set_style_border_width(current_screen, 0, 0);
+    lv_obj_set_style_pad_all(current_screen, 0, 0);
     lv_obj_center(current_screen);
 
     lv_obj_t *icon = lv_label_create(current_screen);
-    lv_label_set_text(icon, LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_color(icon, COLOR_DANGER, 0);
+    lv_label_set_text(icon, ok ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(icon, ok ? COLOR_SUCCESS : COLOR_DANGER, 0);
     lv_obj_set_style_text_font(icon, &lv_font_montserrat_32, 0);
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 24);
 
     lv_obj_t *title_label = lv_label_create(current_screen);
-    lv_label_set_text(title_label, title ? title : "Error");
+    lv_label_set_text(title_label, title ? title : (ok ? "Done" : "Error"));
     lv_obj_set_style_text_color(title_label, COLOR_TEXT, 0);
-    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, 0);
-    lv_obj_align(title_label, LV_ALIGN_CENTER, 0, -10);
-
-    lv_obj_t *msg_label = lv_label_create(current_screen);
-    lv_label_set_text(msg_label, message ? message : "An error occurred");
-    lv_obj_set_style_text_color(msg_label, COLOR_MUTED, 0);
-    lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
-    lv_obj_set_width(msg_label, 280);
-    lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 25);
-
-    lv_obj_t *hint = lv_label_create(current_screen);
-    lv_label_set_text(hint, "Tap to continue");
-    lv_obj_set_style_text_color(hint, COLOR_MUTED, 0);
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -20);
-}
-
-static void create_success_screen(const char *message) {
-    current_screen = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(current_screen, SCREEN_WIDTH, SCREEN_HEIGHT);
-    lv_obj_set_style_bg_color(current_screen, COLOR_BG, 0);
-    lv_obj_set_style_border_width(current_screen, 0, 0);
-    lv_obj_center(current_screen);
-
-    lv_obj_t *check = lv_label_create(current_screen);
-    lv_label_set_text(check, LV_SYMBOL_OK);
-    lv_obj_set_style_text_color(check, COLOR_SUCCESS, 0);
-    lv_obj_set_style_text_font(check, &lv_font_montserrat_32, 0);
-    lv_obj_align(check, LV_ALIGN_CENTER, 0, -40);
-
-    lv_obj_t *title = lv_label_create(current_screen);
-    lv_label_set_text(title, "Success");
-    lv_obj_set_style_text_color(title, COLOR_TEXT, 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_24, 0);
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 70);
 
     lv_obj_t *msg_label = lv_label_create(current_screen);
     lv_label_set_text(msg_label, message ? message : "");
     lv_obj_set_style_text_color(msg_label, COLOR_MUTED, 0);
-    lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, 45);
+    lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(msg_label, 290);
+    lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
+    lv_obj_align(msg_label, LV_ALIGN_TOP_MID, 0, 108);
 
-    lv_obj_t *hint = lv_label_create(current_screen);
-    lv_label_set_text(hint, "Tap to continue");
-    lv_obj_set_style_text_color(hint, COLOR_MUTED, 0);
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_t *btn = lv_btn_create(current_screen);
+    lv_obj_set_size(btn, 300, 46);
+    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_bg_color(btn, COLOR_SURFACE, 0);
+    lv_obj_set_style_radius(btn, 6, 0);
+    on_tap(btn, dismiss_cb);
+
+    lv_obj_t *btn_label = lv_label_create(btn);
+    lv_label_set_text(btn_label, ok ? "Done" : "OK");
+    lv_obj_set_style_text_font(btn_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(btn_label);
 }
 
 const ux_backend_t ux_display_backend = {
@@ -667,6 +694,7 @@ const ux_backend_t ux_display_backend = {
     .init = display_init,
     .deinit = display_deinit,
     .show_idle = display_show_idle,
+    .set_policy_loaded = display_set_policy_loaded,
     .show_scanning = display_show_scanning,
     .show_signing = display_show_signing,
     .show_success = display_show_success,

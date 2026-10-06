@@ -44,6 +44,17 @@ menu "Keep UX Configuration"
             Enable camera for QR code scanning.
             Requires display mode for camera preview.
 
+    config KEEP_UI_TEST
+        bool "UI test build (never for release)"
+        default n
+        depends on KEEP_DISPLAY_ENABLED
+        help
+            Lets the host tap the touchscreen and read what it shows over the
+            serial protocol, so UI flows can be tested end to end without a
+            person. Anyone with USB access could then approve prompts, so this
+            must never be enabled in firmware that holds real keys. The screen
+            shows a red TEST marker while it is on.
+
     choice KEEP_DEFAULT_UX_MODE
         prompt "Default UX mode"
         default KEEP_UX_AUTO
