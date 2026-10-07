@@ -33,7 +33,7 @@ run_case() {
     rm -rf "$work"; mkdir -p "$work/scripts" "$work/.github/workflows"
     cp Dockerfile.reproducible "$work/"
     cp .github/workflows/ci.yml .github/workflows/release.yml "$work/.github/workflows/"
-    cp "$GUARD" "$work/scripts/"
+    cp "$GUARD" scripts/build-frost-tr.sh "$work/scripts/"
     ( cd "$work" && "$@" )
 
     local rc=0 out
@@ -76,6 +76,19 @@ run_case idf-workflow-only fail "ESP-IDF version disagrees" \
 # A tag with no digest is not a pin: tags can be repushed.
 run_case idf-tag-not-digest fail "no digest-pinned espressif/idf" \
     sed -i -E 's|(FROM[[:space:]]+espressif/idf:v[0-9]+\.[0-9]+(\.[0-9]+)?)@sha256:[a-f0-9]{64}|\1|' Dockerfile.reproducible
+
+echo "== rejects a frost_tr toolchain image that moved in one place =="
+
+# The Rust stage of the Dockerfile and the script CI runs must build with the
+# same compiler; dependabot can only see the FROM line.
+run_case rust-dockerfile-only fail "frost_tr toolchain image disagrees" \
+    sed -i -E 's|(FROM[[:space:]]+espressif/idf-rust:[^@]+@sha256:)[a-f0-9]{64}|\10000000000000000000000000000000000000000000000000000000000000000|' Dockerfile.reproducible
+
+run_case rust-script-only fail "frost_tr toolchain image disagrees" \
+    sed -i -E 's|(espressif/idf-rust:[^@]+@sha256:)[a-f0-9]{64}|\10000000000000000000000000000000000000000000000000000000000000000|' scripts/build-frost-tr.sh
+
+run_case rust-tag-not-digest fail "does not name a digest-pinned espressif/idf-rust" \
+    sed -i -E 's|(espressif/idf-rust:[^@"]+)@sha256:[a-f0-9]{64}|\1|' scripts/build-frost-tr.sh
 
 echo "== the pre-existing dependency rule still bites =="
 
