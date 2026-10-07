@@ -105,11 +105,7 @@ pub fn rng_registered() -> i32 {
 /// A heap allocation with alignment above the IDF heap's 4-byte guarantee
 /// must come back aligned.
 pub fn alignment() -> i32 {
-    #[repr(align(16))]
-    struct Aligned([u8; 48]);
-    let b = alloc::boxed::Box::new(Aligned([0x5a; 48]));
-    let addr = &*b as *const Aligned as usize;
-    if addr % 16 != 0 || b.0[47] != 0x5a {
+    if !crate::glue::heap_aligns(16) {
         return E_ALIGNMENT;
     }
     OK

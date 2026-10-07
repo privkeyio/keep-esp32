@@ -67,6 +67,21 @@ pub fn fatal() -> ! {
     sys::fatal()
 }
 
+/// Asks the platform heap, not the global allocator, for a block aligned to
+/// `align`. Rust assumes `GlobalAlloc` results are aligned and may fold a check
+/// made on them, so the self-test checks the raw pointer instead.
+pub fn heap_aligns(align: usize) -> bool {
+    unsafe {
+        let p = sys::alloc(48, align);
+        if p.is_null() {
+            return false;
+        }
+        let ok = core::hint::black_box(p as usize) % align == 0;
+        sys::free(p);
+        ok
+    }
+}
+
 /// Overwrites `len` bytes with zeros in a way the optimizer cannot elide.
 pub unsafe fn wipe(ptr: *mut u8, len: usize) {
     for i in 0..len {

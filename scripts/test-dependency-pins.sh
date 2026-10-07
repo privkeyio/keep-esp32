@@ -87,6 +87,10 @@ run_case rust-dockerfile-only fail "frost_tr toolchain image disagrees" \
 run_case rust-script-only fail "frost_tr toolchain image disagrees" \
     sed -i -E 's|(espressif/idf-rust:[^@]+@sha256:)[a-f0-9]{64}|\10000000000000000000000000000000000000000000000000000000000000000|' scripts/build-frost-tr.sh
 
+# A comment left holding the old image must not stand in for the assignment.
+run_case rust-stale-comment fail "frost_tr toolchain image disagrees" \
+    sed -i -E '/^FROST_TR_IMAGE=/{h;s/^/# /;p;g;s|(@sha256:)[a-f0-9]{64}|\10000000000000000000000000000000000000000000000000000000000000000|}' scripts/build-frost-tr.sh
+
 run_case rust-tag-not-digest fail "does not name a digest-pinned espressif/idf-rust" \
     sed -i -E 's|(espressif/idf-rust:[^@"]+)@sha256:[a-f0-9]{64}|\1|' scripts/build-frost-tr.sh
 

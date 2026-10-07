@@ -136,7 +136,7 @@ fi
 FROST_TR_SCRIPT='scripts/build-frost-tr.sh'
 rust_docker=$(grep -oE '^FROM[[:space:]]+espressif/idf-rust:[^[:space:]@]+@sha256:[a-f0-9]{64}' "$DOCKERFILE" \
   | awk '{print $2}' | head -1)
-rust_script=$(grep -oE 'espressif/idf-rust:[^[:space:]@"]+@sha256:[a-f0-9]{64}' "$FROST_TR_SCRIPT" 2>/dev/null | head -1)
+rust_script=$(sed -nE 's|^FROST_TR_IMAGE="(espressif/idf-rust:[^[:space:]@"]+@sha256:[a-f0-9]{64})"$|\1|p' "$FROST_TR_SCRIPT" 2>/dev/null | head -1)
 if [ -z "$rust_docker" ]; then
   fail "$DOCKERFILE has no digest-pinned espressif/idf-rust stage for components/frost_tr."
 elif [ -z "$rust_script" ]; then
