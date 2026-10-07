@@ -1,0 +1,25 @@
+[package]
+name = "frost_tr"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "FROST(secp256k1, SHA-256, Taproot) for keep-esp32, wrapping the Zcash Foundation crate behind a C interface"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+frost-secp256k1-tr = { version = "=3.0.0", default-features = false, features = ["serialization"] }
+frost-core = { version = "=3.0.0", default-features = false, features = ["serialization"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = "symbols"
+
+[profile.dev]
+panic = "abort"

@@ -11,7 +11,14 @@ port := if port_raw =~ '^/dev/tty[A-Za-z0-9]+$' { port_raw } else { error("PORT 
 default:
     @just --list
 
-build:
+frost-tr:
+    scripts/build-frost-tr.sh --docker
+
+frost-tr-test:
+    python3 scripts/gen-frost-tr-vectors.py --check
+    scripts/build-frost-tr.sh --docker --test
+
+build: frost-tr
     idf.py build
 
 flash:
@@ -129,4 +136,4 @@ verify-device:
 rng-hygiene:
     ./scripts/check-rng-hygiene.sh
 
-ci: test rng-hygiene docs
+ci: test frost-tr-test rng-hygiene docs

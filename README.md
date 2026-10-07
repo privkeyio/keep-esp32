@@ -56,6 +56,7 @@ keep frost hardware ping --device /dev/ttyACM0
 ## Development
 
 ```bash
+scripts/build-frost-tr.sh --docker   # Rust FROST component, needs Docker
 source ~/esp/esp-idf/export.sh
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor

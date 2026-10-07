@@ -12,7 +12,7 @@ set(REQUIRES
 )
 
 set(PRIV_REQUIRES
-    bootloader_support secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core nvs_flash
+    bootloader_support frost_tr secp256k1-frost espressif__cjson espressif__esp_websocket_client libwally-core nvs_flash
 )
 
 if(CONFIG_KEEP_DISPLAY_ENABLED)

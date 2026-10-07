@@ -12,6 +12,7 @@ typedef enum {
     SELF_TEST_CRYPTO_LIB,
     SELF_TEST_FLASH_PARTITIONS,
     SELF_TEST_STORAGE_SLOTS,
+    SELF_TEST_FROST_TR,
     SELF_TEST_COUNT
 } self_test_id_t;
 
@@ -37,5 +38,6 @@ int self_test_storage_crypto(void);
 int self_test_crypto_lib(void);
 int self_test_flash_partitions(void);
 int self_test_storage_slots(void);
+int self_test_frost_tr(void);
 
 #endif

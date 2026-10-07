@@ -146,6 +146,7 @@ if(MbedTLS_FOUND)
     target_include_directories(test_self_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${MAIN_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../components/frost_tr/include
     )
     target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1 UNIT_TEST=1)
     target_link_libraries(test_self_test MbedTLS::mbedcrypto)
@@ -156,6 +157,7 @@ else()
         target_include_directories(test_self_test PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/mocks
             ${MAIN_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../components/frost_tr/include
         )
         target_compile_definitions(test_self_test PRIVATE NATIVE_TEST=1 UNIT_TEST=1)
         target_link_libraries(test_self_test ${MBEDCRYPTO_LIB})

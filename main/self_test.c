@@ -5,6 +5,7 @@
 #include "storage_crypto.h"
 #include "random_utils.h"
 #include "crypto_asm.h"
+#include "frost_tr.h"
 #include "esp_partition.h"
 #include "esp_log.h"
 #include <secp256k1.h>
@@ -32,6 +33,7 @@ static const self_test_t tests[] = {
     {SELF_TEST_CRYPTO_LIB, "crypto_lib", self_test_crypto_lib, true},
     {SELF_TEST_FLASH_PARTITIONS, "flash_partitions", self_test_flash_partitions, true},
     {SELF_TEST_STORAGE_SLOTS, "storage_slots", self_test_storage_slots, false},
+    {SELF_TEST_FROST_TR, "frost_tr", self_test_frost_tr, true},
 };
 
 static const uint8_t AES_GCM_TEST_KEY[32] = {
@@ -193,6 +195,14 @@ int self_test_storage_slots(void) {
 cleanup:
     secure_memzero(slot_header, sizeof(slot_header));
     return result;
+}
+
+int self_test_frost_tr(void) {
+    int ret = ftr_selftest();
+    if (ret != 0) {
+        ESP_LOGE(TAG, "frost_tr self-test failed at check %d", ret);
+    }
+    return ret;
 }
 
 int self_test_run_all(void) {

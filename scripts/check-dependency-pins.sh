@@ -128,6 +128,25 @@ else
   done
 fi
 
+# ------------------------------------ 1c. Rust toolchain agreement ---------
+# components/frost_tr is built by scripts/build-frost-tr.sh, which CI and the
+# release workflow run, and by the Dockerfile's first stage. Both must name the
+# same digest-pinned toolchain image, or the reproducible build and the released
+# archive would come from different compilers.
+FROST_TR_SCRIPT='scripts/build-frost-tr.sh'
+rust_docker=$(grep -oE '^FROM[[:space:]]+espressif/idf-rust:[^[:space:]@]+@sha256:[a-f0-9]{64}' "$DOCKERFILE" \
+  | awk '{print $2}' | head -1)
+rust_script=$(sed -nE 's|^FROST_TR_IMAGE="(espressif/idf-rust:[^[:space:]@"]+@sha256:[a-f0-9]{64})"$|\1|p' "$FROST_TR_SCRIPT" 2>/dev/null | head -1)
+if [ -z "$rust_docker" ]; then
+  fail "$DOCKERFILE has no digest-pinned espressif/idf-rust stage for components/frost_tr."
+elif [ -z "$rust_script" ]; then
+  fail "$FROST_TR_SCRIPT does not name a digest-pinned espressif/idf-rust image."
+elif [ "$rust_docker" != "$rust_script" ]; then
+  fail "frost_tr toolchain image disagrees between $DOCKERFILE and $FROST_TR_SCRIPT:"
+  echo "    $DOCKERFILE: $rust_docker"
+  echo "    $FROST_TR_SCRIPT: $rust_script"
+fi
+
 # ------------------------------------------------------- 2. freshness ------
 if ! git ls-remote --exit-code https://github.com/privkeyio/keep-esp32.git HEAD >/dev/null 2>&1; then
   echo
@@ -208,6 +227,6 @@ EOF
 fi
 
 if [ "$status" -eq 0 ]; then
-  echo "Dependency pins: OK (all commit-pinned and identical across $DOCKERFILE and the workflows)"
+  echo "Dependency pins: OK (all commit-pinned and identical across $DOCKERFILE and the workflows; frost_tr toolchain image agrees)"
 fi
 exit "$status"

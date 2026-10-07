@@ -53,6 +53,7 @@ jobs:
             -I ../secp256k1-frost/include \
             -I ../secp256k1-frost/build/include \
             -I components/crypto_asm/include \
+            -I components/frost_tr/include \
             -I components/secure_element/include \
             main/ test/native/ fuzz/
 
@@ -101,6 +102,7 @@ jobs:
             -I ../secp256k1-frost/include \
             -I ../secp256k1-frost/build/include \
             -I components/crypto_asm/include \
+            -I components/frost_tr/include \
             -I components/secure_element/include \
             -std=c11
 

@@ -70,6 +70,7 @@ pip install pyserial
 ```bash
 cd ~/projects/keep-esp32
 source ~/esp/esp-idf/export.sh
+scripts/build-frost-tr.sh --docker   # Rust FROST component (components/frost_tr)
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
