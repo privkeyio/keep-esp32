@@ -15,7 +15,7 @@ COPY --chown=esp:esp scripts/build-frost-tr.sh scripts/build-frost-tr.sh
 COPY --chown=esp:esp components/frost_tr/rust components/frost_tr/rust
 RUN FROST_TR_TARGET_DIR=/tmp/frost_tr-target bash scripts/build-frost-tr.sh
 
-FROM espressif/idf:v5.4.4@sha256:9ce51d4ace496845678065dc86f8e55fb9c25fc9f01f45597042afa7ed546926 AS builder
+FROM espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2 AS builder
 
 ARG SOURCE_DATE_EPOCH=0
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
