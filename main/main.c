@@ -135,10 +135,11 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
         ESP_LOGW(TAG, "Share migration incomplete: %d", shares_ret);
     }
 
-    char result[96];
+    char result[128];
     snprintf(result, sizeof(result),
-             "{\"unlocked\":true,\"shares_migrated\":%d,\"shares_unmigratable\":%d}", migrated,
-             unmigratable);
+             "{\"unlocked\":true,\"shares_migrated\":%d,\"shares_unmigratable\":%d,"
+             "\"migration_complete\":%s}",
+             migrated, unmigratable, shares_ret == 0 ? "true" : "false");
     protocol_success(resp, req->id, result);
 }
 

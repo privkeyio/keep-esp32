@@ -106,7 +106,7 @@ keep frost list
 keep frost hardware import --device /dev/ttyACM0 --group mygroup --share 1
 ```
 
-This firmware speaks device protocol 2 (`ping` reports `protocol_version`): the host sends the share as its frost-core `KeyPackage` and needs a keep release that supports protocol 2. A share imported by earlier firmware is rewritten in the new format at the next unlock. One that cannot be rebuilt is left in place and counted in the unlock result as `shares_unmigratable`; the device refuses to sign with it until it is deleted and imported again.
+This firmware speaks device protocol 2 (`ping` reports `protocol_version`): the host sends the share as its frost-core `KeyPackage` and needs a keep release that supports protocol 2. A share imported by earlier firmware is rewritten in the new format at the next unlock. One that cannot be rebuilt is left in place and counted in the unlock result as `shares_unmigratable` (`migration_complete` is false if a share could not be processed this time and will be retried at the next unlock); the device refuses to sign with it until it is deleted and imported again.
 
 ---
 

@@ -124,7 +124,9 @@ class DeviceConnection(DeviceRPCMixin):
             if time.time() > deadline:
                 raise TimeoutError("device did not come back after restart")
         if DEFAULT_PIN:
-            self.rpc("unlock", {"pin": DEFAULT_PIN})
+            resp = self.rpc("unlock", {"pin": DEFAULT_PIN})
+            if "result" not in resp:
+                raise RuntimeError(f"unlock after restart failed: {resp}")
 
 
 class MockDeviceConnection(DeviceRPCMixin):
