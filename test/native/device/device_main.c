@@ -438,7 +438,8 @@ int main(void) {
                 frost_get_share_info(req.group, &resp);
                 break;
             case RPC_METHOD_FROST_COMMIT:
-                frost_commit(req.group, req.session_id, req.message, &resp);
+                frost_commit(req.group, req.session_id, req.message, req.derivation_path,
+                             req.derivation_path_len, &resp);
                 break;
             case RPC_METHOD_FROST_SIGN:
                 frost_sign(req.group, req.session_id, req.signing_package, &resp);

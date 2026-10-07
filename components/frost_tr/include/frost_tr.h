@@ -22,6 +22,7 @@ extern "C" {
 #define FTR_MESSAGE_LEN         32
 #define FTR_MAX_SIGNERS         16
 #define FTR_SIGNING_PACKAGE_MAX 1687
+#define FTR_MAX_PATH_DEPTH      8
 
 // Status codes of the key package and signing calls (see rust/src/signer.rs).
 #define FTR_OK                 0
@@ -38,6 +39,7 @@ extern "C" {
 #define FTR_E_NONCES           -11
 #define FTR_E_SIGN             -12
 #define FTR_E_SELFCHECK        -13
+#define FTR_E_PATH             -14
 
 typedef struct {
     uint16_t index;
@@ -82,10 +84,12 @@ int ftr_commit(const uint8_t *kp, size_t kp_len, uint8_t out_nonces[FTR_NONCES_L
 // Produces this signer's SignatureShare for a SigningPackage serialization.
 // Refuses unless the package is canonical, carries `expected_message`, holds
 // min_signers..16 commitments including this signer's own unaltered one, and
-// the share verifies. `nonces` is zeroed on every path.
+// the share verifies. With a non-empty `path` (up to FTR_MAX_PATH_DEPTH
+// unhardened indexes) it signs under the BIP-32 child key keep derives from
+// the group key. `nonces` is zeroed on every path.
 int ftr_sign(const uint8_t *kp, size_t kp_len, uint8_t nonces[FTR_NONCES_LEN],
              const uint8_t *signing_package, size_t signing_package_len,
-             const uint8_t expected_message[FTR_MESSAGE_LEN],
+             const uint8_t expected_message[FTR_MESSAGE_LEN], const uint32_t *path, size_t path_len,
              uint8_t out_share[FTR_SIGNATURE_SHARE_LEN]);
 
 #ifdef __cplusplus

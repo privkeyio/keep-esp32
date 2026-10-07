@@ -38,6 +38,7 @@ pub const E_OWN_COMMITMENT: i32 = -10;
 pub const E_NONCES: i32 = -11;
 pub const E_SIGN: i32 = -12;
 pub const E_SELFCHECK: i32 = -13;
+pub const E_PATH: i32 = -14;
 
 pub struct KeyInfo {
     pub index: u16,
@@ -171,18 +172,20 @@ fn nonces_from(bytes: &[u8; NONCES_LEN]) -> Result<SigningNonces, i32> {
 }
 
 /// Produces this signer's share for `package`, which must carry exactly the
-/// message approved at commit. `nonces` is wiped before anything else, so the
-/// same nonces can never sign twice, whatever the outcome.
+/// message approved at commit, under the key derived for `path` (none when
+/// empty). `nonces` is wiped before anything else, so the same nonces can
+/// never sign twice, whatever the outcome.
 pub fn sign(
     kp_bytes: &[u8],
     nonces: &mut [u8; NONCES_LEN],
     package: &[u8],
     expected_message: &[u8; MESSAGE_LEN],
+    path: &[u32],
     share_out: &mut [u8; SIGNATURE_SHARE_LEN],
 ) -> Result<(), i32> {
     let mut local = *nonces;
     unsafe { crate::glue::wipe(nonces.as_mut_ptr(), NONCES_LEN) };
-    let result = sign_with(kp_bytes, &local, package, expected_message, share_out);
+    let result = sign_with(kp_bytes, &local, package, expected_message, path, share_out);
     local.zeroize();
     result
 }
@@ -192,10 +195,12 @@ fn sign_with(
     nonces: &[u8; NONCES_LEN],
     package: &[u8],
     expected_message: &[u8; MESSAGE_LEN],
+    path: &[u32],
     share_out: &mut [u8; SIGNATURE_SHARE_LEN],
 ) -> Result<(), i32> {
     let signer_nonces = nonces_from(nonces)?;
     let kp = load(kp_bytes)?;
+    let kp = if path.is_empty() { kp } else { crate::bip32::tweak(&kp, path)? };
     if package.is_empty() || package.len() > SIGNING_PACKAGE_MAX {
         return Err(E_LENGTH);
     }

@@ -11,16 +11,21 @@
 //!   aggregate <pubkeys> <package> <idx:share>...
 //!                                         verified 64-byte BIP-340 signature
 //!   legacy <key_package> <participants>   the 104-byte pre-protocol-2 share
+//!   tweak-key-package <key_package> <path>
+//!   tweak-public-key-package <pubkeys> <path>
+//!                                         keep's BIP-32 tweak for a path like 0,5
 
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::process::exit;
 
+use bitcoin::hashes::{sha256, sha512, Hash as _, HashEngine as _, Hmac, HmacEngine};
+use bitcoin::secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 use frost_secp256k1_tr as frost;
-use frost::keys::{IdentifierList, KeyPackage, PublicKeyPackage};
+use frost::keys::{IdentifierList, KeyPackage, PublicKeyPackage, SigningShare, VerifyingShare};
 use frost::round1::{SigningCommitments, SigningNonces};
 use frost::round2::SignatureShare;
-use frost::{Identifier, SigningPackage};
+use frost::{Identifier, SigningPackage, VerifyingKey};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 
@@ -67,6 +72,56 @@ fn pairs(args: &[String]) -> Vec<(Identifier, Vec<u8>)> {
 
 fn key_package(s: &str) -> KeyPackage {
     KeyPackage::deserialize(&unhex(s)).unwrap_or_else(|e| die(&format!("key package: {e}")))
+}
+
+/// keep-core v0.10.0's `frost_bip32::derive_path_composite` with its
+/// deterministic chain code, written against rust-bitcoin as keep is.
+fn composite_tweak(group_xonly: &[u8], path: &[u32]) -> [u8; 32] {
+    let mut engine = sha256::Hash::engine();
+    engine.input(b"keep-frost-bip32-chaincode-v1");
+    engine.input(group_xonly);
+    let mut chaincode = sha256::Hash::from_engine(engine).to_byte_array();
+    let secp = Secp256k1::verification_only();
+    let mut lift = vec![0x02];
+    lift.extend_from_slice(group_xonly);
+    let mut parent = PublicKey::from_slice(&lift).unwrap_or_else(|_| die("group key not on curve"));
+    let mut acc: Option<SecretKey> = None;
+    for &index in path {
+        if index >= 0x8000_0000 {
+            die("hardened index");
+        }
+        let mut engine = HmacEngine::<sha512::Hash>::new(&chaincode);
+        engine.input(&parent.serialize());
+        engine.input(&index.to_be_bytes());
+        let i = Hmac::<sha512::Hash>::from_engine(engine).to_byte_array();
+        let t: [u8; 32] = i[..32].try_into().unwrap();
+        let scalar = Scalar::from_be_bytes(t).unwrap_or_else(|_| die("tweak >= n"));
+        parent = parent.add_exp_tweak(&secp, &scalar).unwrap_or_else(|_| die("bad child"));
+        acc = Some(match acc {
+            None => SecretKey::from_slice(&t).unwrap_or_else(|_| die("zero tweak")),
+            Some(a) => a.add_tweak(&scalar).unwrap_or_else(|_| die("zero sum")),
+        });
+        chaincode.copy_from_slice(&i[32..]);
+    }
+    acc.unwrap_or_else(|| die("empty path")).secret_bytes()
+}
+
+/// The tweak as keep applies it: negated for an odd-y group key.
+fn effective_tweak(vk: &[u8], path: &[u32]) -> Scalar {
+    let mut t = composite_tweak(&vk[1..33], path);
+    if vk[0] == 0x03 {
+        t = SecretKey::from_slice(&t).unwrap().negate().secret_bytes();
+    }
+    Scalar::from_be_bytes(t).unwrap()
+}
+
+fn shift(point: &[u8], t: &Scalar) -> Vec<u8> {
+    let secp = Secp256k1::verification_only();
+    PublicKey::from_slice(point).unwrap().add_exp_tweak(&secp, t).unwrap().serialize().to_vec()
+}
+
+fn path_arg(s: &str) -> Vec<u32> {
+    s.split(',').map(|i| i.parse().unwrap_or_else(|_| die("bad path"))).collect()
 }
 
 fn participant_index(id: &Identifier) -> u16 {
@@ -163,6 +218,32 @@ fn main() {
             out.extend(participants.to_le_bytes());
             out.extend(kp.min_signers().to_le_bytes());
             println!("{}", hex(&out));
+        }
+        "tweak-key-package" => {
+            let kp = key_package(arg(1));
+            let vk = kp.verifying_key().serialize().unwrap();
+            let t = effective_tweak(&vk, &path_arg(arg(2)));
+            let share = SecretKey::from_slice(&kp.signing_share().serialize()).unwrap().add_tweak(&t).unwrap();
+            let tweaked = KeyPackage::new(
+                *kp.identifier(),
+                SigningShare::deserialize(&share.secret_bytes()).unwrap(),
+                VerifyingShare::deserialize(&shift(&kp.verifying_share().serialize().unwrap(), &t)).unwrap(),
+                VerifyingKey::deserialize(&shift(&vk, &t)).unwrap(),
+                *kp.min_signers(),
+            );
+            println!("{}", hex(&tweaked.serialize().unwrap()));
+        }
+        "tweak-public-key-package" => {
+            let pkp = PublicKeyPackage::deserialize(&unhex(arg(1))).unwrap_or_else(|e| die(&format!("pubkeys: {e}")));
+            let vk = pkp.verifying_key().serialize().unwrap();
+            let t = effective_tweak(&vk, &path_arg(arg(2)));
+            let shares: BTreeMap<_, _> = pkp
+                .verifying_shares()
+                .iter()
+                .map(|(id, vs)| (*id, VerifyingShare::deserialize(&shift(&vs.serialize().unwrap(), &t)).unwrap()))
+                .collect();
+            let tweaked = PublicKeyPackage::new(shares, VerifyingKey::deserialize(&shift(&vk, &t)).unwrap(), pkp.min_signers());
+            println!("{}", hex(&tweaked.serialize().unwrap()));
         }
         _ => die("unknown command"),
     }

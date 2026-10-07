@@ -9,6 +9,7 @@
 
 extern crate alloc;
 
+mod bip32;
 mod glue;
 mod rng;
 mod selftest;
@@ -125,12 +126,14 @@ pub unsafe extern "C" fn ftr_commit(
 }
 
 /// Signs `signing_package` with the nonces from `ftr_commit`. Refuses unless
-/// the package's message is `expected_message`. `nonces` is zeroed on every
+/// the package's message is `expected_message`. With a non-empty `path`, signs
+/// under the BIP-32 child key keep derives for it. `nonces` is zeroed on every
 /// path, success or failure.
 ///
 /// # Safety
 /// `kp` and `signing_package` must point to readable buffers of the given
-/// lengths; the fixed-size pointers to buffers of their stated sizes.
+/// lengths, `path` to `path_len` indexes (or be null with `path_len` 0); the
+/// fixed-size pointers to buffers of their stated sizes.
 #[no_mangle]
 pub unsafe extern "C" fn ftr_sign(
     kp: *const u8,
@@ -139,18 +142,29 @@ pub unsafe extern "C" fn ftr_sign(
     signing_package: *const u8,
     signing_package_len: usize,
     expected_message: *const [u8; signer::MESSAGE_LEN],
+    path: *const u32,
+    path_len: usize,
     out_share: *mut [u8; signer::SIGNATURE_SHARE_LEN],
 ) -> i32 {
     let Some(nonces) = nonces.as_mut() else {
         return signer::E_NULL;
     };
-    let (Some(kp), Some(sp), Some(msg), Some(share)) =
-        (slice(kp, kp_len), slice(signing_package, signing_package_len), expected_message.as_ref(), out_share.as_mut())
-    else {
+    let path: Option<&[u32]> = match (path.is_null(), path_len) {
+        (_, 0) => Some(&[]),
+        (false, n) if n <= bip32::MAX_DEPTH => Some(core::slice::from_raw_parts(path, n)),
+        _ => None,
+    };
+    let (Some(kp), Some(sp), Some(msg), Some(share), Some(path)) = (
+        slice(kp, kp_len),
+        slice(signing_package, signing_package_len),
+        expected_message.as_ref(),
+        out_share.as_mut(),
+        path,
+    ) else {
         glue::wipe(nonces.as_mut_ptr(), signer::NONCES_LEN);
         return signer::E_NULL;
     };
-    status(signer::sign(kp, nonces, sp, msg, share))
+    status(signer::sign(kp, nonces, sp, msg, path, share))
 }
 
 #[cfg(test)]
@@ -269,8 +283,13 @@ mod tests {
     }
 
     fn device_sign(kp: &[u8], nonces: &mut [u8; 64], sp: &[u8], msg: &[u8; 32]) -> Result<[u8; 32], i32> {
+        device_sign_at(kp, nonces, sp, msg, &[])
+    }
+
+    fn device_sign_at(kp: &[u8], nonces: &mut [u8; 64], sp: &[u8], msg: &[u8; 32], path: &[u32]) -> Result<[u8; 32], i32> {
         let mut out = [0u8; 32];
-        match unsafe { ftr_sign(kp.as_ptr(), kp.len(), nonces, sp.as_ptr(), sp.len(), msg, &mut out) } {
+        let r = unsafe { ftr_sign(kp.as_ptr(), kp.len(), nonces, sp.as_ptr(), sp.len(), msg, path.as_ptr(), path.len(), &mut out) };
+        match r {
             0 => Ok(out),
             e => Err(e),
         }
@@ -441,7 +460,9 @@ mod tests {
         let mut zero = [0u8; 64];
         assert_eq!(device_sign(&f.kp, &mut zero, &sp, &msg), Err(signer::E_NONCES));
         let mut out = [0u8; 32];
-        let r = unsafe { ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, core::ptr::null(), 0, &msg, &mut out) };
+        let r = unsafe {
+            ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, core::ptr::null(), 0, &msg, core::ptr::null(), 0, &mut out)
+        };
         assert_eq!(r, signer::E_NULL);
         assert_eq!(f.nonces, [0u8; 64], "nonces are burned on a null argument too");
     }
@@ -555,12 +576,109 @@ mod tests {
             ("FTR_E_NONCES", signer::E_NONCES as i64),
             ("FTR_E_SIGN", signer::E_SIGN as i64),
             ("FTR_E_SELFCHECK", signer::E_SELFCHECK as i64),
+            ("FTR_E_PATH", signer::E_PATH as i64),
+            ("FTR_MAX_PATH_DEPTH", bip32::MAX_DEPTH as i64),
         ];
         for (name, value) in expected {
             assert_eq!(define(name), *value, "{name}");
         }
         assert_eq!(core::mem::size_of::<FtrKeyInfo>(), 70);
         assert!(header.contains("_Static_assert(sizeof(ftr_key_info_t) == 70"));
+    }
+
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    }
+
+    fn bip32_vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!("../vectors/bip32.json")).unwrap()
+    }
+
+    #[test]
+    fn bip32_tweaks_match_keep_byte_for_byte() {
+        let v = bip32_vectors();
+        let mut cases = 0;
+        for g in v["groups"].as_array().unwrap() {
+            let kps: Vec<KeyPackage> =
+                g["key_packages"].as_array().unwrap().iter().map(|h| KeyPackage::deserialize(&unhex(h.as_str().unwrap())).unwrap()).collect();
+            let vk = unhex(g["group_key"].as_str().unwrap());
+            let xonly: [u8; 32] = vk[1..33].try_into().unwrap();
+            for c in g["cases"].as_array().unwrap() {
+                let path: Vec<u32> = c["path"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as u32).collect();
+                let t: [u8; 32] = bip32::aggregate_tweak(&xonly, &path).unwrap().to_bytes().into();
+                assert_eq!(t[..], unhex(c["aggregate_tweak"].as_str().unwrap())[..], "aggregate tweak {path:?}");
+                for (kp, want) in kps.iter().zip(c["tweaked_key_packages"].as_array().unwrap()) {
+                    let tweaked = bip32::tweak(kp, &path).unwrap();
+                    assert_eq!(tweaked.serialize().unwrap(), unhex(want.as_str().unwrap()), "{path:?}");
+                    assert_eq!(tweaked.verifying_key().serialize().unwrap()[1..], unhex(c["child_pubkey"].as_str().unwrap())[..]);
+                }
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 13);
+    }
+
+    /// The device signs under the derived key next to keep's own tweaked
+    /// packages, and keep's tweaked public key package aggregates it.
+    #[test]
+    fn signs_under_derived_keys_with_keep() {
+        let _g = with_rng();
+        let v = bip32_vectors();
+        for g in v["groups"].as_array().unwrap() {
+            let min = g["min_signers"].as_u64().unwrap() as usize;
+            let kps: Vec<Vec<u8>> = g["key_packages"].as_array().unwrap().iter().map(|h| unhex(h.as_str().unwrap())).collect();
+            for c in g["cases"].as_array().unwrap() {
+                let path: Vec<u32> = c["path"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as u32).collect();
+                let theirs: Vec<KeyPackage> = c["tweaked_key_packages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|h| KeyPackage::deserialize(&unhex(h.as_str().unwrap())).unwrap())
+                    .collect();
+                let pubkeys = frost::keys::PublicKeyPackage::deserialize(&unhex(c["tweaked_public_key_package"].as_str().unwrap())).unwrap();
+                let msg = [0x3cu8; 32];
+                let dev = 0;
+                let (mut dev_nonces, dev_c) = device_commit(&kps[dev]);
+                let dev_id = *theirs[dev].identifier();
+                let mut commitments = BTreeMap::from([(dev_id, dev_c)]);
+                let mut nonces = BTreeMap::new();
+                for kp in theirs.iter().skip(1).take(min - 1) {
+                    let (n, c) = frost::round1::commit(kp.signing_share(), &mut rng::DeviceRng);
+                    nonces.insert(*kp.identifier(), (n, kp));
+                    commitments.insert(*kp.identifier(), c);
+                }
+                let package = SigningPackage::new(commitments, &msg);
+                let share = device_sign_at(&kps[dev], &mut dev_nonces, &package.serialize().unwrap(), &msg, &path).unwrap();
+                let mut shares = BTreeMap::from([(dev_id, frost::round2::SignatureShare::deserialize(&share).unwrap())]);
+                for (id, (n, kp)) in &nonces {
+                    shares.insert(*id, frost::round2::sign(&package, n, kp).unwrap());
+                }
+                let sig = frost::aggregate(&package, &shares, &pubkeys).unwrap();
+                pubkeys.verifying_key().verify(&msg, &sig).unwrap();
+                assert_eq!(pubkeys.verifying_key().serialize().unwrap()[1..], unhex(c["child_pubkey"].as_str().unwrap())[..]);
+            }
+        }
+    }
+
+    #[test]
+    fn bip32_paths_keep_refuses_are_refused() {
+        let _g = with_rng();
+        let msg = [0x41; 32];
+        let bad: &[&[u32]] = &[&[bip32::HARDENED], &[0, 0x8000_0005], &[0; 9]];
+        for path in bad {
+            let mut f = fixture();
+            let sp = SigningPackage::new(f.commitments.clone(), &msg).serialize().unwrap();
+            let r = device_sign_at(&f.kp, &mut f.nonces, &sp, &msg, path);
+            let want = if path.len() > bip32::MAX_DEPTH { signer::E_NULL } else { signer::E_PATH };
+            assert_eq!(r, Err(want), "{path:?}");
+            assert_eq!(f.nonces, [0u8; 64], "nonces burned for {path:?}");
+        }
+        let mut f = fixture();
+        let sp = SigningPackage::new(f.commitments.clone(), &msg).serialize().unwrap();
+        let mut out = [0u8; 32];
+        let r = unsafe { ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, sp.as_ptr(), sp.len(), &msg, core::ptr::null(), 2, &mut out) };
+        assert_eq!(r, signer::E_NULL, "a null path with a length is refused");
+        assert_eq!(f.nonces, [0u8; 64]);
     }
 
     #[test]

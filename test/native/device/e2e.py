@@ -180,7 +180,7 @@ class Group:
         return d
 
 
-def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
+def frost_sign(group, devices, message, psbt=None, peers=(), name="g", path=None):
     """Signs as the host does: every device commits, the full set of commitments goes back
     to each as one signing package. `peers` are signer indices played by frost_tool. With a
     PSBT, every device approves it with bitcoin_sign first, since each enforces its own
@@ -192,13 +192,21 @@ def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
                 raise RuntimeError("device computed a different sighash")
     session = secrets.token_hex(32)
     commits, nonces = {}, {}
+    params = {"group": name, "session_id": session, "message": message.hex()}
+    if path:
+        params["derivation_path"] = path
     for d in devices:
-        r = d.rpc("frost_commit", {"group": name, "session_id": session, "message": message.hex()})
+        r = d.rpc("frost_commit", params)
         if r["index"] != d.index:
             raise RuntimeError("commitment from the wrong index")
         commits[d.index] = r["commitment"]
+    kp, pubkeys = group.kp, group.pubkeys
+    if path:
+        p = ",".join(map(str, path))
+        kp = {i: group.run("tweak-key-package", k, p) for i, k in group.kp.items()}
+        pubkeys = group.run("tweak-public-key-package", group.pubkeys, p)
     for i in peers:
-        r = json.loads(group.run("commit", group.kp[i]))
+        r = json.loads(group.run("commit", kp[i]))
         commits[i], nonces[i] = r["commitment"], r["nonces"]
     package = group.package(message, commits)
     shares = {}
@@ -206,9 +214,15 @@ def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
         shares[d.index] = d.rpc("frost_sign", {"group": name, "session_id": session,
                                                "signing_package": package})["signature_share"]
     for i in peers:
-        shares[i] = group.run("sign", group.kp[i], nonces[i], package)
-    return bytes.fromhex(group.run("aggregate", group.pubkeys, package,
+        shares[i] = group.run("sign", kp[i], nonces[i], package)
+    return bytes.fromhex(group.run("aggregate", pubkeys, package,
                                    *[f"{i}:{s}" for i, s in sorted(shares.items())]))
+
+
+def child_xonly(group, path):
+    """The x-only child key keep derives for `path`, from its tweaked key package."""
+    tweaked = group.run("tweak-key-package", group.kp[1], ",".join(map(str, path)))
+    return bytes.fromhex(tweaked)[103:135]
 
 
 def check(label, cond):
@@ -529,6 +543,44 @@ def signing_gate(build):
         d.close()
 
 
+def derivation(build):
+    for parity in ("even", "odd"):
+        devices, group = setup(build, parity)
+        for path in ([0], [0, 7], [1, 1000], [0x7FFFFFFF], [0, 1, 2, 3, 4, 5, 6, 7]):
+            msg = secrets.token_bytes(32)
+            sig = frost_sign(group, devices, msg, path=path)
+            child = child_xonly(group, path)
+            check(f"2-of-3 ({parity}) at {path} verifies as BIP340 under keep's child key",
+                  bip340_verify(child, msg, sig))
+            check(f"and not under the group key ({parity}, {path})",
+                  not bip340_verify(group.group33[1:], msg, sig))
+        msg = secrets.token_bytes(32)
+        check(f"a device and a keep signer at [0, 3] ({parity})",
+              bip340_verify(child_xonly(group, [0, 3]), msg,
+                            frost_sign(group, devices[:1], msg, peers=[2], path=[0, 3])))
+        for d in devices:
+            d.close()
+
+    group = Group(build, 3, 5, "odd")
+    devices = [group.device(build, i) for i in (1, 4)]
+    msg = secrets.token_bytes(32)
+    check("3-of-5 with two devices and a keep signer at [1, 5] verifies under the child key",
+          bip340_verify(child_xonly(group, [1, 5]), msg, frost_sign(group, devices, msg, peers=[3], path=[1, 5])))
+
+    d = devices[0]
+    commit = lambda path: d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
+                                                 "message": secrets.token_hex(32), "derivation_path": path})
+    for label, path in (("a hardened index", [0x80000000]), ("a ninth index", [0] * 9),
+                        ("a negative index", [-1]), ("a fractional index", [1.5]),
+                        ("a non-array path", 5), ("a string index", ["0"])):
+        expect_error(f"{label} is refused at commit", lambda: commit(path), "Parse error")
+    check("an empty path signs under the group key",
+          bip340_verify(group.group33[1:], msg := secrets.token_bytes(32),
+                        frost_sign(group, devices, msg, peers=[3], path=[])))
+    for d in devices:
+        d.close()
+
+
 def protocol(build):
     group = Group(build, 2, 3)
     d = Device(os.path.join(build, "keep_device"), "protocol")
@@ -725,8 +777,9 @@ def regtest(build, knots_bin):
         for d in devices:
             d.rpc("test_set_confirm", {"approve": True})
             d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 200000000}, 100)})
-        addr = cli("deriveaddresses", cli("getdescriptorinfo", f"rawtr({xonly})")["descriptor"])[0]
-        for sighash_type in (None, 0x21):
+        for sighash_type, path in ((None, None), (0x21, None), (None, [0, 3])):
+            key = child_xonly(group, path).hex() if path else xonly
+            addr = cli("deriveaddresses", cli("getdescriptorinfo", f"rawtr({key})")["descriptor"])[0]
             txid = cli("sendtoaddress", addr, "1.0")
             mine(1, waddr)
             vout = next(o["n"] for o in cli("getrawtransaction", txid, "true")["vout"]
@@ -734,18 +787,20 @@ def regtest(build, knots_bin):
             dest = cli("getnewaddress", "", "bech32m")
             psbt = cli("createpsbt", json.dumps([{"txid": txid, "vout": vout}]),
                        json.dumps([{dest: 0.9999}]))
-            psbt = cli("utxoupdatepsbt", psbt, json.dumps([f"rawtr({xonly})"]))
+            psbt = cli("utxoupdatepsbt", psbt, json.dumps([f"rawtr({key})"]))
             if sighash_type is not None:
                 psbt = devices[0].rpc("test_set_sighash", {"psbt": psbt, "sighash": sighash_type})["psbt"]
             r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
-            sig = frost_sign(group, devices, bytes.fromhex(r["sighash"]), psbt)
+            sig = frost_sign(group, devices, bytes.fromhex(r["sighash"]), psbt, path=path)
             if r["sighash_type"]:
                 sig += bytes([r["sighash_type"]])
             final = devices[0].rpc("test_finalize", {"psbt": psbt, "witness_sig": sig.hex()})["hex"]
             spend = cli("sendrawtransaction", final)
             mine(1, waddr)
             conf = cli("getrawtransaction", spend, "true")["confirmations"]
-            check(f"regtest: FROST spend under a policy, sighash type {r['sighash_type']:#x}, mined", conf == 1)
+            where = f"from the child key at {path}" if path else "from the group key"
+            check(f"regtest: FROST spend {where} under a policy, sighash type {r['sighash_type']:#x}, mined",
+                  conf == 1)
     finally:
         for d in devices:
             d.close()
@@ -760,6 +815,7 @@ def regtest(build, knots_bin):
 def main():
     build = sys.argv[1]
     offline(build)
+    derivation(build)
     protocol(build)
     policy_pinning(build)
     signing_gate(build)

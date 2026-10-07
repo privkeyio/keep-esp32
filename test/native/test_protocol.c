@@ -315,6 +315,42 @@ static int test_session_id_length(void) {
     return 0;
 }
 
+static int test_derivation_path(void) {
+    TEST("derivation_path: unhardened indexes up to 8 deep, anything else refused");
+    rpc_request_t req;
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"derivation_path\":"
+            "[0,7,2147483647]}}",
+            &req) != 0 ||
+        req.derivation_path_len != 3 || req.derivation_path[0] != 0 ||
+        req.derivation_path[1] != 7 || req.derivation_path[2] != 2147483647u)
+        FAIL("valid path not parsed");
+    protocol_free_request(&req);
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"derivation_path\":"
+            "[0,1,2,3,4,5,6,7]}}",
+            &req) != 0 ||
+        req.derivation_path_len != 8)
+        FAIL("eight indexes should be accepted");
+    protocol_free_request(&req);
+    if (protocol_parse_request("{\"id\":1,\"method\":\"frost_commit\",\"params\":{}}", &req) != 0 ||
+        req.derivation_path_len != 0)
+        FAIL("no path means an empty path");
+    protocol_free_request(&req);
+    const char *bad[] = {
+        "[2147483648]", "[0,1,2,3,4,5,6,7,8]", "[-1]", "[1.5]", "5", "[\"0\"]", "[null]", "{}"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char json[128];
+        snprintf(json, sizeof(json),
+                 "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"derivation_path\":%s}}",
+                 bad[i]);
+        if (protocol_parse_request(json, &req) != ERR_PROTOCOL_PARAMS)
+            FAIL(bad[i]);
+    }
+    PASS();
+    return 0;
+}
+
 static int test_legacy_share_field(void) {
     TEST("a request with the retired share field is flagged");
     rpc_request_t req;
@@ -503,6 +539,7 @@ int main(void) {
     failures += test_key_package_length();
     failures += test_signing_package_length();
     failures += test_session_id_length();
+    failures += test_derivation_path();
     failures += test_legacy_share_field();
     failures += test_psbt_too_long();
     failures += test_psbt_allocation();
