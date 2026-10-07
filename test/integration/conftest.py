@@ -1,6 +1,7 @@
 import json
 import os
 import secrets
+import time
 from typing import Optional
 
 import pytest
@@ -9,6 +10,7 @@ import serial
 DEFAULT_PORT = os.environ.get("KEEP_DEVICE_PORT", "/dev/ttyUSB0")
 DEFAULT_BAUD = int(os.environ.get("KEEP_DEVICE_BAUD", "115200"))
 DEFAULT_TIMEOUT = float(os.environ.get("KEEP_DEVICE_TIMEOUT", "30.0"))
+DEFAULT_PIN = os.environ.get("KEEP_DEVICE_PIN", "")
 
 
 class DeviceRPCMixin:
@@ -63,11 +65,7 @@ class DeviceConnection(DeviceRPCMixin):
         self._request_id = 0
 
     def connect(self):
-        self._serial = serial.Serial(
-            port=self.port,
-            baudrate=self.baud,
-            timeout=self.timeout,
-        )
+        self._serial = serial.Serial(port=self.port, baudrate=self.baud, timeout=1)
         self._serial.reset_input_buffer()
 
     def disconnect(self):
@@ -88,11 +86,45 @@ class DeviceConnection(DeviceRPCMixin):
         self._serial.write(line.encode("utf-8"))
         self._serial.flush()
 
-        response_line = self._serial.readline()
-        if not response_line:
-            raise TimeoutError(f"No response for {method}")
+        # The device logs on the same port; skip anything that is not this reply.
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            raw = self._serial.readline().decode("utf-8", errors="replace").strip()
+            if not raw.startswith("{"):
+                continue
+            try:
+                resp = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if resp.get("id") == self._request_id:
+                return resp
+        raise TimeoutError(f"No response for {method}")
 
-        return json.loads(response_line.decode("utf-8"))
+    def reset(self):
+        """Restarts the device, which ends every signing session, and unlocks it again."""
+        try:
+            self.rpc("restart")
+        except TimeoutError:
+            pass
+        self.disconnect()
+        deadline = time.time() + 40
+        while True:
+            time.sleep(1)
+            try:
+                self.connect()
+                self._serial.timeout = 1
+                saved, self.timeout = self.timeout, 3
+                try:
+                    if "result" in self.rpc("ping"):
+                        break
+                finally:
+                    self.timeout = saved
+            except (serial.SerialException, OSError, TimeoutError):
+                self.disconnect()
+            if time.time() > deadline:
+                raise TimeoutError("device did not come back after restart")
+        if DEFAULT_PIN:
+            self.rpc("unlock", {"pin": DEFAULT_PIN})
 
 
 class MockDeviceConnection(DeviceRPCMixin):
@@ -252,6 +284,8 @@ def device():
 
 @pytest.fixture
 def clean_device(device):
+    if isinstance(device, DeviceConnection):
+        device.reset()
     resp = device.list_shares()
     if "result" in resp and "shares" in resp["result"]:
         for group in resp["result"]["shares"]:

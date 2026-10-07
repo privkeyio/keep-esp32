@@ -63,7 +63,7 @@ class TestShareManagement:
     def test_delete_nonexistent(self, clean_device):
         resp = clean_device.delete_share("nonexistent_group_xyz")
         assert "error" in resp
-        assert resp["error"]["code"] == -3
+        assert resp["error"]["message"] == "Share not found"
 
     def test_get_share_info(self, clean_device):
         clean_device.import_share("info_test", KEY_PACKAGE_1)
@@ -80,14 +80,14 @@ class TestShareManagement:
     def test_get_share_info_not_found(self, clean_device):
         resp = clean_device.get_share_info("missing_share")
         assert "error" in resp
-        assert resp["error"]["code"] == -1
+        assert resp["error"]["message"] == "Share not found"
 
 
 class TestSigningFlow:
     def test_commit_requires_share(self, clean_device):
         resp = clean_device.frost_commit("no_such_group", random_session_id(), random_message())
         assert "error" in resp
-        assert resp["error"]["code"] == -1
+        assert resp["error"]["message"] == "Share not found"
 
     def test_commit_success(self, clean_device):
         clean_device.import_share("commit_test", KEY_PACKAGE_1)
@@ -104,7 +104,7 @@ class TestSigningFlow:
         package = signing_package(random_message(), {3: PEER_COMMITMENT})
         resp = clean_device.frost_sign("sign_test", random_session_id(), package)
         assert "error" in resp
-        assert resp["error"]["code"] == -2
+        assert resp["error"]["message"] == "Session not found"
 
     def test_complete_signing_flow(self, clean_device):
         clean_device.import_share("flow_test", KEY_PACKAGE_1)

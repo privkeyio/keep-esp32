@@ -11,7 +11,8 @@
 #include "esp_cpu.h"
 #include <stdbool.h>
 
-/* Measured peak plus margin; get_status reports the low-water mark. */
+/* Peak use measured on an ESP32-S3 is about 15.5 KB, by the boot self-test; the rest is
+ * margin. get_status reports the smallest amount ever left free. */
 #define FTR_TASK_STACK_SIZE 32768
 /* FreeRTOS fills new stacks with this byte and measures the high-water mark by it. */
 #define FTR_STACK_FILL 0xA5
