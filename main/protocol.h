@@ -9,17 +9,18 @@
 #include <stdbool.h>
 #include "error_context.h"
 #include "error_codes.h"
+#include "frost_tr.h"
 
-#define PROTOCOL_MAX_MESSAGE_LEN    16384
-#define PROTOCOL_MAX_GROUP_LEN      64
-#define PROTOCOL_MAX_HEX_LEN        512
-#define PROTOCOL_MAX_PSBT_LEN       8192
-#define PROTOCOL_VERSION            "0.2.0"
-#define PROTOCOL_API_VERSION        1
-#define PROTOCOL_MAX_PARTICIPANTS   16
-#define PROTOCOL_COMMITMENT_HEX_LEN 264
-#define PROTOCOL_MAX_PIN_LEN        64
-#define MAX_COMMITMENTS_SIZE        ((PROTOCOL_MAX_PARTICIPANTS - 1) * PROTOCOL_COMMITMENT_HEX_LEN + 1)
+#define PROTOCOL_MAX_MESSAGE_LEN     16384
+#define PROTOCOL_MAX_GROUP_LEN       64
+#define PROTOCOL_MAX_HEX_LEN         512
+#define PROTOCOL_MAX_PSBT_LEN        8192
+#define PROTOCOL_VERSION             "0.2.0"
+#define PROTOCOL_API_VERSION         2
+#define PROTOCOL_MAX_PARTICIPANTS    16
+#define PROTOCOL_MAX_PIN_LEN         64
+#define PROTOCOL_KEY_PACKAGE_HEX     (FTR_KEY_PACKAGE_MAX * 2)
+#define PROTOCOL_SIGNING_PACKAGE_HEX (FTR_SIGNING_PACKAGE_MAX * 2)
 
 typedef enum {
     RPC_METHOD_PING = 0,
@@ -30,14 +31,6 @@ typedef enum {
     RPC_METHOD_IMPORT_SHARE,
     RPC_METHOD_DELETE_SHARE,
     RPC_METHOD_LIST_SHARES,
-    RPC_METHOD_DKG_INIT,
-    RPC_METHOD_DKG_ROUND1,
-    RPC_METHOD_DKG_ROUND1_PEER,
-    RPC_METHOD_DKG_ROUND2,
-    RPC_METHOD_DKG_RECEIVE_SHARE,
-    RPC_METHOD_DKG_FINALIZE,
-    RPC_METHOD_DKG_RESUME,
-    RPC_METHOD_DKG_CHECKPOINT,
     RPC_METHOD_BITCOIN_PARSE,
     RPC_METHOD_BITCOIN_SIGN,
     RPC_METHOD_POLICY_UPDATE,
@@ -45,9 +38,9 @@ typedef enum {
     RPC_METHOD_GET_STATUS,
     RPC_METHOD_RESTART,
     RPC_METHOD_EXPORT_SHARE,
-    RPC_METHOD_SESSION_RESUME,
-    RPC_METHOD_SESSION_LIST,
     RPC_METHOD_UNLOCK,
+    /* DKG and session resume, removed in protocol 2. */
+    RPC_METHOD_RETIRED,
     RPC_METHOD_UNKNOWN
 } rpc_method_t;
 
@@ -56,14 +49,12 @@ typedef struct {
     rpc_method_t method;
     char group[PROTOCOL_MAX_GROUP_LEN + 1];
     char message[PROTOCOL_MAX_HEX_LEN + 1];
-    char share[PROTOCOL_MAX_HEX_LEN + 1];
+    char key_package[PROTOCOL_KEY_PACKAGE_HEX + 1];
+    /* Set when a request carries the pre-protocol-2 `share` field. */
+    bool legacy_share;
+    uint16_t participants;
     char session_id[65];
-    char commitments[MAX_COMMITMENTS_SIZE];
-    uint8_t threshold;
-    uint8_t participant_count;
-    uint8_t our_index;
-    uint8_t peer_index;
-    char dkg_data[2048];
+    char signing_package[PROTOCOL_SIGNING_PACKAGE_HEX + 1];
     char psbt[PROTOCOL_MAX_PSBT_LEN];
     size_t input_idx;
     char policy_bundle[5120];

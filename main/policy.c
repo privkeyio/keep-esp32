@@ -180,8 +180,8 @@ int policy_save_bundle(const policy_bundle_t *bundle) {
     /* Before the new bundle can be in force, so nothing approved or started under the
      * old policy can continue under it, even if power is lost during the update. */
     sign_approval_clear();
-    ret = frost_signer_discard_sessions() == 0 ? store_bundle(bundle, &pin, pinned)
-                                               : POLICY_ERR_STORAGE;
+    frost_signer_discard_sessions();
+    ret = store_bundle(bundle, &pin, pinned);
     if (needs_confirm) {
         ux_report_warden_pin(ret == 0);
     }

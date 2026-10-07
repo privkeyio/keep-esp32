@@ -6,6 +6,7 @@
 #include "random_utils.h"
 #include "crypto_asm.h"
 #include "frost_tr.h"
+#include "frost_tr_task.h"
 #include "esp_partition.h"
 #include "esp_log.h"
 #include <secp256k1.h>
@@ -197,8 +198,13 @@ cleanup:
     return result;
 }
 
+static int selftest_job(void *unused) {
+    (void)unused;
+    return ftr_selftest();
+}
+
 int self_test_frost_tr(void) {
-    int ret = ftr_selftest();
+    int ret = ftr_task_run(selftest_job, NULL);
     if (ret != 0) {
         ESP_LOGE(TAG, "frost_tr self-test failed at check %d", ret);
     }

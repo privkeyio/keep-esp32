@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
@@ -14,7 +15,6 @@
 #include "storage.h"
 #include "storage_crypto.h"
 #include "frost_signer.h"
-#include "frost_dkg.h"
 #include "bitcoin_rpc.h"
 #include "policy.h"
 #include "secresult.h"
@@ -25,6 +25,7 @@
 #include "ux_interface.h"
 #include "self_test.h"
 #include "frost_tr.h"
+#include "frost_tr_task.h"
 #include "ui_test.h"
 
 #define TAG                  "main"
@@ -49,16 +50,19 @@ static void handle_get_status(const rpc_request_t *req, rpc_response_t *resp) {
     rng_get_health(&rng_stats);
     self_test_stats_t st_stats;
     self_test_get_stats(&st_stats);
-    char result[384];
+    char result[512];
     snprintf(result, sizeof(result),
              "{\"version\":\"%s\",\"rng_healthy\":%s,\"rng_entropy_source\":%s,\"rng_total_calls\":"
              "%lu,\"rng_failed_checks\":%lu,\"rng_retries\":%lu,\"self_test_passed\":%lu,"
-             "\"self_test_failed\":%lu,\"self_test_ok\":%s}",
+             "\"self_test_failed\":%lu,\"self_test_ok\":%s,\"frost_stack_free_min\":%lu,"
+             "\"heap_free_min\":%lu}",
              VERSION, rng_stats.healthy ? "true" : "false",
              rng_stats.entropy_source_verified ? "true" : "false",
              (unsigned long)rng_stats.total_calls, (unsigned long)rng_stats.failed_checks,
              (unsigned long)rng_stats.retries, (unsigned long)st_stats.passed,
-             (unsigned long)st_stats.failed, st_stats.all_required_passed ? "true" : "false");
+             (unsigned long)st_stats.failed, st_stats.all_required_passed ? "true" : "false",
+             (unsigned long)ftr_task_stack_free_min(),
+             (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
     protocol_success(resp, req->id, result);
 }
 
@@ -125,7 +129,16 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
         ESP_LOGW(TAG, "Storage migration warning: %d", migrate_ret);
     }
 
-    protocol_success(resp, req->id, "{\"unlocked\":true}");
+    int migrated = 0, removed = 0;
+    int shares_ret = frost_signer_migrate_shares(&migrated, &removed);
+    if (shares_ret != 0) {
+        ESP_LOGW(TAG, "Share migration incomplete: %d", shares_ret);
+    }
+
+    char result[96];
+    snprintf(result, sizeof(result),
+             "{\"unlocked\":true,\"shares_migrated\":%d,\"shares_removed\":%d}", migrated, removed);
+    protocol_success(resp, req->id, result);
 }
 
 static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
@@ -163,28 +176,13 @@ static void handle_list_shares(const rpc_request_t *req, rpc_response_t *resp) {
 }
 
 static void handle_import_share(const rpc_request_t *req, rpc_response_t *resp) {
-    int ret = storage_save_share(req->group, req->share);
-
-    switch (ret) {
-    case STORAGE_OK:
-        protocol_success(resp, req->id, "{\"ok\":true}");
-        break;
-    case STORAGE_ERR_CRYPTO_NOT_INIT:
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage crypto not initialized");
-        break;
-    case STORAGE_ERR_INVALID_GROUP:
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
-        break;
-    case STORAGE_ERR_INVALID_DATA:
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "Invalid share data");
-        break;
-    case STORAGE_ERR_NO_SLOT:
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "No free storage slot");
-        break;
-    default:
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Storage error");
-        break;
+    if (req->legacy_share) {
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS,
+                       "The share field is retired in protocol 2; send key_package and "
+                       "participants");
+        return;
     }
+    frost_import_share(req->group, req->key_package, req->participants, resp);
 }
 
 static void handle_delete_share(const rpc_request_t *req, rpc_response_t *resp) {
@@ -225,8 +223,15 @@ static void handle_export_share(const rpc_request_t *req, rpc_response_t *resp) 
         return;
     }
 
+    share_export_meta_t meta;
+    if (frost_signer_export_meta(req->group, &meta) != 0) {
+        storage_export_record_attempt(false);
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_SHARE, "Share not found");
+        return;
+    }
+
     share_export_t export_data;
-    int ret = storage_export_share(req->group, req->passphrase, &export_data);
+    int ret = storage_export_share(req->group, req->passphrase, &meta, &export_data);
     if (ret != STORAGE_OK) {
         storage_export_record_attempt(false);
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_STORAGE, "Export failed");
@@ -266,36 +271,6 @@ static void handle_export_share(const rpc_request_t *req, rpc_response_t *resp) 
     protocol_success(resp, req->id, result);
 }
 
-static void handle_dkg_checkpoint(const rpc_request_t *req, rpc_response_t *resp) {
-    size_t sid_len = strlen(req->session_id);
-    if (sid_len == 0) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "session_id required");
-        return;
-    }
-    if (sid_len > DKG_SESSION_ID_LEN) {
-        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_PARAMS, "session_id too long");
-        return;
-    }
-
-    dkg_state_t state = dkg_get_state();
-    if (state != DKG_ROUND1 && state != DKG_ROUND2) {
-        PROTOCOL_ERROR(resp, req->id, -1, "No active DKG session to checkpoint");
-        return;
-    }
-
-    int ret = dkg_checkpoint_save(req->session_id);
-    if (ret == STORAGE_ERR_CHECKPOINT_EXISTS) {
-        PROTOCOL_ERROR(resp, req->id, -1, "Checkpoint already exists");
-        return;
-    }
-    if (ret != 0) {
-        PROTOCOL_ERROR(resp, req->id, -1, "Failed to save checkpoint");
-        return;
-    }
-
-    protocol_success(resp, req->id, "{\"ok\":true}");
-}
-
 static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     resp->id = req->id;
     frost_signer_cleanup_stale();
@@ -314,7 +289,7 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         frost_commit(req->group, req->session_id, req->message, resp);
         break;
     case RPC_METHOD_FROST_SIGN:
-        frost_sign(req->group, req->session_id, req->commitments, resp);
+        frost_sign(req->group, req->session_id, req->signing_package, resp);
         break;
     case RPC_METHOD_IMPORT_SHARE:
         handle_import_share(req, resp);
@@ -324,30 +299,6 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
         break;
     case RPC_METHOD_LIST_SHARES:
         handle_list_shares(req, resp);
-        break;
-    case RPC_METHOD_DKG_INIT:
-        dkg_init(req, resp);
-        break;
-    case RPC_METHOD_DKG_ROUND1:
-        dkg_round1(req, resp);
-        break;
-    case RPC_METHOD_DKG_ROUND1_PEER:
-        dkg_round1_peer(req, resp);
-        break;
-    case RPC_METHOD_DKG_ROUND2:
-        dkg_round2(req, resp);
-        break;
-    case RPC_METHOD_DKG_RECEIVE_SHARE:
-        dkg_receive_share(req, resp);
-        break;
-    case RPC_METHOD_DKG_FINALIZE:
-        dkg_finalize(req, resp);
-        break;
-    case RPC_METHOD_DKG_RESUME:
-        dkg_resume(req, resp);
-        break;
-    case RPC_METHOD_DKG_CHECKPOINT:
-        handle_dkg_checkpoint(req, resp);
         break;
     case RPC_METHOD_BITCOIN_PARSE:
         bitcoin_rpc_parse(req, resp);
@@ -370,14 +321,11 @@ static void handle_request(const rpc_request_t *req, rpc_response_t *resp) {
     case RPC_METHOD_EXPORT_SHARE:
         handle_export_share(req, resp);
         break;
-    case RPC_METHOD_SESSION_RESUME:
-        frost_session_resume(req->session_id, resp);
-        break;
-    case RPC_METHOD_SESSION_LIST:
-        frost_session_list(resp);
-        break;
     case RPC_METHOD_UNLOCK:
         handle_unlock(req, resp);
+        break;
+    case RPC_METHOD_RETIRED:
+        PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not available in protocol 2");
         break;
     default:
         PROTOCOL_ERROR(resp, req->id, PROTOCOL_ERR_METHOD, "Method not found");
@@ -396,8 +344,8 @@ static void app_init(void) {
         ESP_LOGE(TAG, "RNG self-test failed, restarting");
         esp_restart();
     }
-    if (ftr_init(rng_fill_checked, rng_is_healthy_secure) != 0) {
-        ESP_LOGE(TAG, "FROST RNG registration failed, restarting");
+    if (ftr_init(rng_fill_checked, rng_is_healthy_secure) != 0 || ftr_task_start() != 0) {
+        ESP_LOGE(TAG, "FROST init failed, restarting");
         esp_restart();
     }
 

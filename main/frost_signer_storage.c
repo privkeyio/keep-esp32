@@ -2,86 +2,87 @@
 // SPDX-License-Identifier: MIT
 
 #include "frost_signer_storage.h"
-#include "storage.h"
-#include "frost.h"
 #include "hex_utils.h"
 #include "crypto_asm.h"
-#include <stdint.h>
 #include <string.h>
 
-static share_store_t default_store = {.load = storage_load_share,
-                                      .save = storage_save_share,
-                                      .delete_share = storage_delete_share,
-                                      .exists = storage_has_share};
+#define LEGACY_SHARE_LEN          102
+#define LEGACY_SHARE_LEN_WITH_MIN 104
 
-const share_store_t *share_store_default(void) {
-    return &default_store;
+int share_payload_encode(const share_key_t *key, uint8_t out[STORAGE_SHARE_LEN], size_t *out_len) {
+    if (!key || !out || !out_len || key->key_package_len == 0 ||
+        key->key_package_len > SHARE_KEY_PACKAGE_MAX) {
+        return SHARE_KEY_ERR_DECODE;
+    }
+    size_t len = SHARE_PAYLOAD_HEADER + key->key_package_len;
+    if (len == LEGACY_SHARE_LEN || len == LEGACY_SHARE_LEN_WITH_MIN) {
+        return SHARE_KEY_ERR_DECODE;
+    }
+    out[0] = SHARE_PAYLOAD_VERSION;
+    out[1] = (uint8_t)(key->participants >> 8);
+    out[2] = (uint8_t)key->participants;
+    memcpy(out + SHARE_PAYLOAD_HEADER, key->key_package, key->key_package_len);
+    *out_len = len;
+    return SHARE_KEY_OK;
 }
 
-share_store_t share_store_create(share_load_fn load, share_save_fn save,
-                                 share_delete_fn delete_share, share_exists_fn exists,
-                                 bool *valid) {
-    share_store_t store = {
-        .load = load, .save = save, .delete_share = delete_share, .exists = exists};
-    if (valid) {
-        *valid = (load != NULL && save != NULL && delete_share != NULL && exists != NULL);
+int share_payload_decode(const uint8_t *payload, size_t len, share_key_t *out) {
+    if (!payload || !out) {
+        return SHARE_KEY_ERR_DECODE;
     }
-    return store;
+    if (len == LEGACY_SHARE_LEN || len == LEGACY_SHARE_LEN_WITH_MIN) {
+        return SHARE_KEY_ERR_LEGACY;
+    }
+    if (len <= SHARE_PAYLOAD_HEADER || len > STORAGE_SHARE_LEN ||
+        payload[0] != SHARE_PAYLOAD_VERSION) {
+        return SHARE_KEY_ERR_DECODE;
+    }
+    out->participants = (uint16_t)((payload[1] << 8) | payload[2]);
+    out->key_package_len = len - SHARE_PAYLOAD_HEADER;
+    memcpy(out->key_package, payload + SHARE_PAYLOAD_HEADER, out->key_package_len);
+    return SHARE_KEY_OK;
 }
 
-int share_store_load_frost_state(const share_store_t *store, const char *group,
-                                 frost_state_t *state) {
-    if (!store || !store->load || !group || !state) {
-        return SHARE_STORE_ERR_NOT_FOUND;
+int share_raw_load(const char *group, uint8_t out[STORAGE_SHARE_LEN], size_t *out_len) {
+    char hex[STORAGE_SHARE_LEN * 2 + 1];
+    if (!group || !out || !out_len || storage_load_share(group, hex, sizeof(hex)) != 0) {
+        secure_memzero(hex, sizeof(hex));
+        return SHARE_KEY_ERR_NOT_FOUND;
     }
-
-    char share_hex[STORAGE_SHARE_LEN * 2 + 1];
-    if (store->load(group, share_hex, sizeof(share_hex)) != 0) {
-        return SHARE_STORE_ERR_NOT_FOUND;
+    int len = hex_to_bytes(hex, out, STORAGE_SHARE_LEN);
+    secure_memzero(hex, sizeof(hex));
+    if (len <= 0) {
+        secure_memzero(out, STORAGE_SHARE_LEN);
+        return SHARE_KEY_ERR_DECODE;
     }
-
-    uint8_t share_bytes[STORAGE_SHARE_LEN];
-    int share_len = hex_to_bytes(share_hex, share_bytes, sizeof(share_bytes));
-
-    secure_memzero(share_hex, sizeof(share_hex));
-
-    if (share_len < 0) {
-        secure_memzero(share_bytes, sizeof(share_bytes));
-        return SHARE_STORE_ERR_DECODE;
-    }
-
-    int ret = frost_init(state, share_bytes, (size_t)share_len);
-    secure_memzero(share_bytes, sizeof(share_bytes));
-
-    if (ret != 0) {
-        return SHARE_STORE_ERR_INIT;
-    }
-
-    return SHARE_STORE_OK;
+    *out_len = (size_t)len;
+    return SHARE_KEY_OK;
 }
 
-int share_store_load_share_bytes(const share_store_t *store, const char *group,
-                                 uint8_t *share_bytes, size_t max_len, size_t *out_len) {
-    if (!store || !store->load || !group || !share_bytes || !out_len) {
-        return SHARE_STORE_ERR_NOT_FOUND;
+int share_key_load(const char *group, share_key_t *out) {
+    uint8_t raw[STORAGE_SHARE_LEN];
+    size_t len = 0;
+    int ret = share_raw_load(group, raw, &len);
+    if (ret == SHARE_KEY_OK) {
+        ret = share_payload_decode(raw, len, out);
     }
-
-    *out_len = 0;
-
-    char share_hex[STORAGE_SHARE_LEN * 2 + 1];
-    if (store->load(group, share_hex, sizeof(share_hex)) != 0) {
-        return SHARE_STORE_ERR_NOT_FOUND;
+    secure_memzero(raw, sizeof(raw));
+    if (ret != SHARE_KEY_OK && out) {
+        secure_memzero(out, sizeof(*out));
     }
-    share_hex[sizeof(share_hex) - 1] = '\0';
+    return ret;
+}
 
-    int share_len = hex_to_bytes(share_hex, share_bytes, max_len);
-    secure_memzero(share_hex, sizeof(share_hex));
-
-    if (share_len < 0) {
-        secure_memzero(share_bytes, max_len);
-        return SHARE_STORE_ERR_DECODE;
+int share_key_save(const char *group, const share_key_t *key) {
+    uint8_t raw[STORAGE_SHARE_LEN];
+    char hex[STORAGE_SHARE_LEN * 2 + 1];
+    size_t len = 0;
+    int ret = share_payload_encode(key, raw, &len);
+    if (ret == SHARE_KEY_OK) {
+        bytes_to_hex(raw, len, hex, sizeof(hex));
+        ret = storage_save_share(group, hex);
     }
-
-    *out_len = (size_t)share_len;
-    return SHARE_STORE_OK;
+    secure_memzero(raw, sizeof(raw));
+    secure_memzero(hex, sizeof(hex));
+    return ret;
 }

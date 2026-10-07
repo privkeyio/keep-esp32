@@ -38,6 +38,33 @@ def test_ping(ser):
     print(f"    FAIL: {resp}")
     return False
 
+# Participant 1 of a public 2-of-3 test group (a frost-secp256k1-tr key package) and a
+# commitment from participant 3, enough for the device to complete a signing round.
+TEST_KEY_PACKAGE = (
+    "00230f8ab30000000000000000000000000000000000000000000000000000000000000001f9806efa"
+    "60670799c2f4accc8e28c108ba4655d23568c98f2995583874bd8b3302032ee7b831c0fd1f879e089f"
+    "08ed286249afe84edd191284a90b7dcab416b5c002a80c99f8a5ea6af8f238cb68f258125bea2c0d46"
+    "b6a3ce1eb75ef95ca899ac3d02"
+)
+TEST_PARTICIPANTS = 3
+PEER_INDEX = 3
+PEER_COMMITMENT = (
+    "00230f8ab302536c15dc7ffdcf7903717514864a043e130e1da4b56f77897648716d91c8861b03e422"
+    "e3fdb39dd5a3267f56229ebef45ebac6e541e03353ec265fc880624ea1f7"
+)
+
+
+def signing_package(message_hex, commitments):
+    """frost-core SigningPackage serialization: header, count, identifier and commitment
+    pairs in identifier order, then the length-prefixed message."""
+    header = bytes.fromhex(next(iter(commitments.values())))[:5]
+    out = header + bytes([len(commitments)])
+    for index in sorted(commitments):
+        out += index.to_bytes(32, "big") + bytes.fromhex(commitments[index])
+    message = bytes.fromhex(message_hex)
+    return (out + bytes([len(message)]) + message).hex()
+
+
 def test_list_shares(ser):
     print("\n[2] Testing list_shares...")
     resp = send_request(ser, "list_shares")
@@ -49,8 +76,8 @@ def test_list_shares(ser):
 
 def test_import_share(ser):
     print("\n[3] Testing import_share...")
-    share_hex = "ce3a74fcb3e3c96752b777f6d990583873de9f67c671a875ecd6d5ce0ec36a16024f97ec0982f0e803521baea6b44fcb79bcb5007e2cc0e4261b252dc67debb3b7020b9e63f59041acb806d910bd3814f19979737dbaef4c9e9b03add836e8899b22010003000200"
-    params = {"group": "test_group", "share": share_hex}
+    params = {"group": "test_group", "key_package": TEST_KEY_PACKAGE,
+              "participants": TEST_PARTICIPANTS}
     resp = send_request(ser, "import_share", params)
     if resp and "result" in resp:
         print(f"    PASS: {resp['result']}")
@@ -91,17 +118,16 @@ def test_frost_sign(ser, commit_result):
         print("    SKIP: No commitment from previous step")
         return False
 
+    package = signing_package("00" * 32, {commit_result["index"]: commit_result["commitment"],
+                                          PEER_INDEX: PEER_COMMITMENT})
     params = {
         "group": "test_group",
         "session_id": "aa" * 32,
-        "commitments": ""
+        "signing_package": package
     }
     resp = send_request(ser, "frost_sign", params)
-    if resp and "result" in resp:
+    if resp and "result" in resp and len(resp["result"].get("signature_share", "")) == 64:
         print(f"    PASS: signature share received")
-        return True
-    if resp and "error" in resp:
-        print(f"    Expected error (no other commitments): {resp['error']['message']}")
         return True
     print(f"    FAIL: {resp}")
     return False

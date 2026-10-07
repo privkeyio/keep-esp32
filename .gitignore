@@ -47,3 +47,4 @@ output/
 # frost_tr build outputs (scripts/build-frost-tr.sh)
 components/frost_tr/lib/
 components/frost_tr/rust/target/
+test/native/frost_tool/target/

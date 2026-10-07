@@ -1,0 +1,12 @@
+[package]
+name = "frost_tool"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "The host side of a FROST round for the native tests: dealer, peer signers, aggregator, on frost-secp256k1-tr as keep uses it"
+
+[dependencies]
+frost-secp256k1-tr = { version = "=3.0.0", default-features = false, features = ["serialization"] }
+rand_chacha = { version = "=0.3.1", default-features = false }
+rand_core = { version = "=0.6.4", default-features = false }

@@ -84,7 +84,6 @@ esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t off
 
 #include "hex_utils.h"
 #include "storage_crypto.h"
-#include "frost.h"
 #include "random_utils.h"
 #include "storage.h"
 #include "storage_internal.h"
@@ -797,96 +796,29 @@ static int test_metadata_not_found(void) {
     return 0;
 }
 
-static int test_checkpoint_read_fault_is_not_absence(void) {
-    TEST("a checkpoint read fault is an error, never taken as no checkpoint");
+static const share_export_meta_t export_meta = {
+    .threshold = 2, .participants = 3, .share_index = 1};
+
+static int test_export_records_metadata(void) {
+    TEST("export records the caller's share metadata and authenticates it");
     reset_flash();
     if (storage_init() != 0)
         FAIL("init failed");
-    uint8_t session_id[32];
-    memset(session_id, 0xAA, sizeof(session_id));
-    uint8_t data[128];
-    memset(data, 0xBB, sizeof(data));
-    if (storage_save_session_checkpoint(session_id, data, sizeof(data)) != 0)
-        FAIL("save checkpoint failed");
-
-    uint8_t ids[STORAGE_MAX_SESSION_CHECKPOINTS][STORAGE_SESSION_ID_LEN];
-    mock_read_fault_from = STORAGE_SESSION_CHECKPOINT_OFFSET;
-    int del = storage_delete_session_checkpoint(session_id);
-    int list = storage_list_session_checkpoints(ids, STORAGE_MAX_SESSION_CHECKPOINTS);
-    int save = storage_save_session_checkpoint(session_id, data, sizeof(data));
-    mock_read_fault_from = SIZE_MAX;
-    if (del != STORAGE_ERR_IO)
-        FAIL("delete must report an I/O error, not that the checkpoint is gone");
-    if (list >= 0)
-        FAIL("list must fail rather than skip an unreadable slot");
-    if (save != STORAGE_ERR_IO)
-        FAIL("save must not write a second copy past an unreadable slot");
-    if (!storage_has_session_checkpoint(session_id))
-        FAIL("the checkpoint must still be there");
-    PASS();
-    return 0;
-}
-
-static int test_session_checkpoint_save_load(void) {
-    TEST("session checkpoint save/load roundtrip");
-    reset_flash();
-    if (storage_init() != 0)
-        FAIL("init failed");
-
-    uint8_t session_id[32];
-    memset(session_id, 0xAA, sizeof(session_id));
-
-    uint8_t data[128];
-    memset(data, 0xBB, sizeof(data));
-
-    if (storage_save_session_checkpoint(session_id, data, sizeof(data)) != 0)
-        FAIL("save checkpoint failed");
-    if (!storage_has_session_checkpoint(session_id))
-        FAIL("checkpoint should exist");
-
-    uint8_t loaded[128];
-    if (storage_load_session_checkpoint(session_id, loaded, sizeof(loaded)) != 0)
-        FAIL("load checkpoint failed");
-    if (memcmp(data, loaded, sizeof(data)) != 0)
-        FAIL("data mismatch");
-
-    if (storage_count_session_checkpoints() != 1)
-        FAIL("count should be 1");
-
-    if (storage_delete_session_checkpoint(session_id) != 0)
-        FAIL("delete failed");
-    if (storage_has_session_checkpoint(session_id))
-        FAIL("checkpoint should not exist after delete");
-    if (storage_count_session_checkpoints() != 0)
-        FAIL("count should be 0 after delete");
-
-    PASS();
-    return 0;
-}
-
-static int test_session_checkpoint_list(void) {
-    TEST("session checkpoint list");
-    reset_flash();
-    if (storage_init() != 0)
-        FAIL("init failed");
-
-    uint8_t session_id1[32], session_id2[32];
-    memset(session_id1, 0x11, sizeof(session_id1));
-    memset(session_id2, 0x22, sizeof(session_id2));
-
-    uint8_t data[64];
-    memset(data, 0xCC, sizeof(data));
-
-    if (storage_save_session_checkpoint(session_id1, data, sizeof(data)) != 0)
-        FAIL("save first failed");
-    if (storage_save_session_checkpoint(session_id2, data, sizeof(data)) != 0)
-        FAIL("save second failed");
-
-    uint8_t ids[4][32];
-    int count = storage_list_session_checkpoints(ids, 4);
-    if (count != 2)
-        FAIL("should have 2 checkpoints");
-
+    mock_crypto_initialized = true;
+    if (storage_save_share("testgroup", "deadbeefcafe") != 0)
+        FAIL("save failed");
+    share_export_meta_t meta = {.threshold = 3, .participants = 5, .share_index = 4};
+    memset(meta.group_pubkey, 0x02, sizeof(meta.group_pubkey));
+    share_export_t out;
+    if (storage_export_share("testgroup", "password123", &meta, &out) != STORAGE_OK)
+        FAIL("export failed");
+    if (out.version != STORAGE_EXPORT_VERSION || out.threshold != 3 || out.participants != 5 ||
+        out.share_index != 4 || memcmp(out.group_pubkey, meta.group_pubkey, 33) != 0)
+        FAIL("metadata not recorded");
+    if (out.encrypted_len != 6 + 16)
+        FAIL("ciphertext should be the share plus the tag");
+    if (storage_export_share("testgroup", "password123", NULL, &out) != STORAGE_ERR_INVALID_DATA)
+        FAIL("missing metadata accepted");
     PASS();
     return 0;
 }
@@ -964,7 +896,7 @@ static int test_export_share_not_found(void) {
         FAIL("init failed");
 
     share_export_t export_data;
-    int ret = storage_export_share("nonexistent", "password123", &export_data);
+    int ret = storage_export_share("nonexistent", "password123", &export_meta, &export_data);
     if (ret != STORAGE_ERR_NOT_FOUND)
         FAIL("should return not found");
 
@@ -982,7 +914,7 @@ static int test_export_share_invalid_passphrase(void) {
         FAIL("save failed");
 
     share_export_t export_data;
-    int ret = storage_export_share("testgroup", "short", &export_data);
+    int ret = storage_export_share("testgroup", "short", &export_meta, &export_data);
     if (ret != STORAGE_ERR_INVALID_DATA)
         FAIL("should reject short passphrase");
 
@@ -1025,7 +957,7 @@ static int test_export_share_invalid_group(void) {
         FAIL("init failed");
 
     share_export_t export_data;
-    int ret = storage_export_share("bad/group", "password123", &export_data);
+    int ret = storage_export_share("bad/group", "password123", &export_meta, &export_data);
     if (ret != STORAGE_ERR_INVALID_GROUP)
         FAIL("should reject invalid group name");
 
@@ -1168,9 +1100,7 @@ int main(void) {
     failures += test_corrupt_format_version_zero();
     failures += test_metadata_save_load();
     failures += test_metadata_not_found();
-    failures += test_session_checkpoint_save_load();
-    failures += test_checkpoint_read_fault_is_not_absence();
-    failures += test_session_checkpoint_list();
+    failures += test_export_records_metadata();
     failures += test_export_rate_limit_initial();
     failures += test_export_rate_limit_after_attempts();
     failures += test_export_lockout_after_failures();

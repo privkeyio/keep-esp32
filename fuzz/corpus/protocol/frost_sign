@@ -1,1 +1,1 @@
-{"jsonrpc":"2.0","method":"frost_sign","params":{"group":"mygroup","message":"deadbeef","commitments":"abcd1234"},"id":3}
+{"jsonrpc":"2.0","method":"frost_sign","params":{"group":"mygroup","session_id":"abababababababababababababababababababababababababababababababab","signing_package":"00230f8ab301"},"id":3}

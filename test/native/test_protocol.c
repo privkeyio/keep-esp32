@@ -56,7 +56,7 @@ static int test_parse_frost_sign(void) {
 static int test_parse_import_share(void) {
     TEST("parse import_share");
     const char *json = "{\"id\":5,\"method\":\"import_share\",\"params\":{\"group\":\"npub1xyz\","
-                       "\"share\":\"aabbcc\"}}";
+                       "\"key_package\":\"aabbcc\",\"participants\":3}}";
     rpc_request_t req;
     int result = protocol_parse_request(json, &req);
     if (result != 0)
@@ -67,8 +67,10 @@ static int test_parse_import_share(void) {
         FAIL("wrong method");
     if (strcmp(req.group, "npub1xyz") != 0)
         FAIL("wrong group");
-    if (strcmp(req.share, "aabbcc") != 0)
-        FAIL("wrong share");
+    if (strcmp(req.key_package, "aabbcc") != 0 || req.participants != 3)
+        FAIL("wrong key_package or participants");
+    if (req.legacy_share)
+        FAIL("no share field was sent");
     protocol_free_request(&req);
     PASS();
     return 0;
@@ -215,12 +217,14 @@ static int test_all_methods(void) {
         {"{\"id\":1,\"method\":\"import_share\"}", RPC_METHOD_IMPORT_SHARE},
         {"{\"id\":1,\"method\":\"delete_share\"}", RPC_METHOD_DELETE_SHARE},
         {"{\"id\":1,\"method\":\"list_shares\"}", RPC_METHOD_LIST_SHARES},
-        {"{\"id\":1,\"method\":\"dkg_init\"}", RPC_METHOD_DKG_INIT},
-        {"{\"id\":1,\"method\":\"dkg_round1\"}", RPC_METHOD_DKG_ROUND1},
-        {"{\"id\":1,\"method\":\"dkg_round1_peer\"}", RPC_METHOD_DKG_ROUND1_PEER},
-        {"{\"id\":1,\"method\":\"dkg_round2\"}", RPC_METHOD_DKG_ROUND2},
-        {"{\"id\":1,\"method\":\"dkg_receive_share\"}", RPC_METHOD_DKG_RECEIVE_SHARE},
-        {"{\"id\":1,\"method\":\"dkg_finalize\"}", RPC_METHOD_DKG_FINALIZE},
+        {"{\"id\":1,\"method\":\"dkg_init\"}", RPC_METHOD_RETIRED},
+        {"{\"id\":1,\"method\":\"dkg_round1\"}", RPC_METHOD_RETIRED},
+        {"{\"id\":1,\"method\":\"dkg_checkpoint\"}", RPC_METHOD_RETIRED},
+        {"{\"id\":1,\"method\":\"frost_session_resume\"}", RPC_METHOD_RETIRED},
+        {"{\"id\":1,\"method\":\"frost_session_list\"}", RPC_METHOD_RETIRED},
+        {"{\"id\":1,\"method\":\"dkg\"}", RPC_METHOD_UNKNOWN},
+        {"{\"id\":1,\"method\":\"unlock\"}", RPC_METHOD_UNLOCK},
+        {"{\"id\":1,\"method\":\"export_share\"}", RPC_METHOD_EXPORT_SHARE},
         {"{\"id\":1,\"method\":\"bitcoin_parse\"}", RPC_METHOD_BITCOIN_PARSE},
         {"{\"id\":1,\"method\":\"bitcoin_sign\"}", RPC_METHOD_BITCOIN_SIGN},
         {"{\"id\":1,\"method\":\"policy_update\"}", RPC_METHOD_POLICY_UPDATE},
@@ -240,67 +244,72 @@ static int test_all_methods(void) {
     return 0;
 }
 
-static int test_threshold_boundary(void) {
-    TEST("threshold boundary");
+static int test_participants_boundary(void) {
+    TEST("participants boundary");
     rpc_request_t req;
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"threshold\":0}}",
-                               &req) != 0)
-        FAIL("0 should work");
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"import_share\",\"params\":{\"participants\":16}}", &req) != 0 ||
+        req.participants != 16)
+        FAIL("16 should be accepted");
     protocol_free_request(&req);
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"threshold\":16}}",
-                               &req) != 0)
-        FAIL("16 should work");
-    protocol_free_request(&req);
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"threshold\":17}}",
-                               &req) != PROTOCOL_ERR_PARAMS)
-        FAIL("17 should fail");
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"threshold\":-1}}",
-                               &req) != PROTOCOL_ERR_PARAMS)
-        FAIL("-1 should fail");
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"import_share\",\"params\":{\"participants\":17}}", &req) !=
+        ERR_PROTOCOL_PARAMS)
+        FAIL("17 should be rejected");
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"import_share\",\"params\":{\"participants\":-1}}", &req) !=
+        ERR_PROTOCOL_PARAMS)
+        FAIL("-1 should be rejected");
     PASS();
     return 0;
 }
 
-static int test_participant_count_boundary(void) {
-    TEST("participant_count boundary");
+static int hex_param_request(const char *method, const char *name, size_t len, rpc_request_t *req) {
+    static char json[PROTOCOL_SIGNING_PACKAGE_HEX + 256];
+    int n = snprintf(json, sizeof(json), "{\"id\":1,\"method\":\"%s\",\"params\":{\"%s\":\"",
+                     method, name);
+    memset(json + n, 'a', len);
+    snprintf(json + n + len, sizeof(json) - n - len, "\"}}");
+    return protocol_parse_request(json, req);
+}
+
+static int test_key_package_length(void) {
+    TEST("key_package longest accepted, longer refused rather than truncated");
     rpc_request_t req;
-    if (protocol_parse_request(
-            "{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"participant_count\":16}}", &req) != 0)
-        FAIL("16 should work");
+    if (hex_param_request("import_share", "key_package", PROTOCOL_KEY_PACKAGE_HEX, &req) != 0 ||
+        strlen(req.key_package) != PROTOCOL_KEY_PACKAGE_HEX)
+        FAIL("longest key_package should be kept whole");
     protocol_free_request(&req);
-    if (protocol_parse_request(
-            "{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"participant_count\":17}}", &req) !=
-        PROTOCOL_ERR_PARAMS)
-        FAIL("17 should fail");
+    if (hex_param_request("import_share", "key_package", PROTOCOL_KEY_PACKAGE_HEX + 1, &req) !=
+        ERR_PROTOCOL_PARAMS)
+        FAIL("overlong key_package should be refused");
     PASS();
     return 0;
 }
 
-static int test_our_index_boundary(void) {
-    TEST("our_index boundary");
+static int test_signing_package_length(void) {
+    TEST("signing_package longest accepted, longer refused rather than truncated");
     rpc_request_t req;
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"our_index\":16}}",
-                               &req) != 0)
-        FAIL("16 should work");
+    if (hex_param_request("frost_sign", "signing_package", PROTOCOL_SIGNING_PACKAGE_HEX, &req) !=
+            0 ||
+        strlen(req.signing_package) != PROTOCOL_SIGNING_PACKAGE_HEX)
+        FAIL("longest signing_package should be kept whole");
     protocol_free_request(&req);
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_init\",\"params\":{\"our_index\":17}}",
-                               &req) != PROTOCOL_ERR_PARAMS)
-        FAIL("17 should fail");
+    if (hex_param_request("frost_sign", "signing_package", PROTOCOL_SIGNING_PACKAGE_HEX + 1,
+                          &req) != ERR_PROTOCOL_PARAMS)
+        FAIL("overlong signing_package should be refused");
     PASS();
     return 0;
 }
 
-static int test_peer_index_boundary(void) {
-    TEST("peer_index boundary");
+static int test_legacy_share_field(void) {
+    TEST("a request with the retired share field is flagged");
     rpc_request_t req;
     if (protocol_parse_request(
-            "{\"id\":1,\"method\":\"dkg_round1_peer\",\"params\":{\"peer_index\":16}}", &req) != 0)
-        FAIL("16 should work");
+            "{\"id\":1,\"method\":\"import_share\",\"params\":{\"share\":\"aa\"}}", &req) != 0 ||
+        !req.legacy_share)
+        FAIL("share field not flagged");
     protocol_free_request(&req);
-    if (protocol_parse_request(
-            "{\"id\":1,\"method\":\"dkg_round1_peer\",\"params\":{\"peer_index\":17}}", &req) !=
-        PROTOCOL_ERR_PARAMS)
-        FAIL("17 should fail");
     PASS();
     return 0;
 }
@@ -335,22 +344,6 @@ static int test_psbt_allocation(void) {
     return 0;
 }
 
-static int test_dkg_params(void) {
-    TEST("dkg params");
-    rpc_request_t req;
-    if (protocol_parse_request("{\"id\":1,\"method\":\"dkg_round1\",\"params\":{\"group\":\"test\","
-                               "\"dkg_data\":\"abc123\"}}",
-                               &req) != 0)
-        FAIL("parse failed");
-    if (strcmp(req.group, "test") != 0)
-        FAIL("wrong group");
-    if (strcmp(req.dkg_data, "abc123") != 0)
-        FAIL("wrong dkg_data");
-    protocol_free_request(&req);
-    PASS();
-    return 0;
-}
-
 static int test_session_id_param(void) {
     TEST("session_id param");
     rpc_request_t req;
@@ -365,15 +358,15 @@ static int test_session_id_param(void) {
     return 0;
 }
 
-static int test_commitments_param(void) {
-    TEST("commitments param");
+static int test_signing_package_param(void) {
+    TEST("signing_package param");
     rpc_request_t req;
     if (protocol_parse_request(
-            "{\"id\":1,\"method\":\"frost_sign\",\"params\":{\"commitments\":\"aabbccdd\"}}",
+            "{\"id\":1,\"method\":\"frost_sign\",\"params\":{\"signing_package\":\"aabbccdd\"}}",
             &req) != 0)
         FAIL("parse failed");
-    if (strcmp(req.commitments, "aabbccdd") != 0)
-        FAIL("wrong commitments");
+    if (strcmp(req.signing_package, "aabbccdd") != 0)
+        FAIL("wrong signing_package");
     protocol_free_request(&req);
     PASS();
     return 0;
@@ -493,15 +486,14 @@ int main(void) {
     failures += test_format_error();
     failures += test_format_error_with_context();
     failures += test_all_methods();
-    failures += test_threshold_boundary();
-    failures += test_participant_count_boundary();
-    failures += test_our_index_boundary();
-    failures += test_peer_index_boundary();
+    failures += test_participants_boundary();
+    failures += test_key_package_length();
+    failures += test_signing_package_length();
+    failures += test_legacy_share_field();
     failures += test_psbt_too_long();
     failures += test_psbt_allocation();
-    failures += test_dkg_params();
     failures += test_session_id_param();
-    failures += test_commitments_param();
+    failures += test_signing_package_param();
     failures += test_policy_bundle_param();
     failures += test_input_idx_param();
     failures += test_format_buffer_too_small();

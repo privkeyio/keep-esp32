@@ -6,7 +6,6 @@
 #include "storage_internal.h"
 #include "hex_utils.h"
 #include "random_utils.h"
-#include "frost.h"
 #include "crypto_asm.h"
 #include <mbedtls/gcm.h>
 #include <mbedtls/hkdf.h>
@@ -114,14 +113,15 @@ void storage_export_record_attempt(bool success) {
     }
 }
 
-int storage_export_share(const char *group, const char *passphrase, share_export_t *export_out) {
+int storage_export_share(const char *group, const char *passphrase, const share_export_meta_t *meta,
+                         share_export_t *export_out) {
     if (!storage_is_initialized()) {
         return STORAGE_ERR_NOT_INIT;
     }
     if (!storage_crypto_is_initialized()) {
         return STORAGE_ERR_CRYPTO_NOT_INIT;
     }
-    if (!group || !passphrase || !export_out) {
+    if (!group || !passphrase || !meta || !export_out) {
         return STORAGE_ERR_INVALID_DATA;
     }
     if (!storage_validate_group_name(group)) {
@@ -148,19 +148,12 @@ int storage_export_share(const char *group, const char *passphrase, share_export
         return STORAGE_ERR_INVALID_DATA;
     }
 
-    frost_state_t frost_state;
-    if (frost_init(&frost_state, share_bytes, share_len) != 0) {
-        secure_memzero(share_bytes, sizeof(share_bytes));
-        return STORAGE_ERR_INVALID_DATA;
-    }
-
     memset(export_out, 0, sizeof(share_export_t));
     export_out->version = STORAGE_EXPORT_VERSION;
-    export_out->threshold = frost_state.threshold;
-    export_out->participants = frost_state.participants;
-    export_out->share_index = frost_state.share_index;
-    memcpy(export_out->group_pubkey, frost_state.group_pubkey, sizeof(export_out->group_pubkey));
-    frost_free(&frost_state);
+    export_out->threshold = meta->threshold;
+    export_out->participants = meta->participants;
+    export_out->share_index = meta->share_index;
+    memcpy(export_out->group_pubkey, meta->group_pubkey, sizeof(export_out->group_pubkey));
 
     if (rng_fill_checked(export_out->salt, STORAGE_EXPORT_SALT_LEN) != 0 ||
         rng_fill_checked(export_out->nonce, sizeof(export_out->nonce)) != 0) {

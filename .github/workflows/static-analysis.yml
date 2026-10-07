@@ -40,7 +40,6 @@ jobs:
           mkdir build && cd build
           cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
             -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
-            -DSECP256K1_ENABLE_MODULE_FROST=ON \
             -DSECP256K1_EXPERIMENTAL=ON
           make -j$(nproc)
 
@@ -79,7 +78,6 @@ jobs:
           mkdir build && cd build
           cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
             -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
-            -DSECP256K1_ENABLE_MODULE_FROST=ON \
             -DSECP256K1_EXPERIMENTAL=ON
           make -j$(nproc)
 
@@ -87,15 +85,14 @@ jobs:
         # Only analyze platform-independent files without external dependencies
         # Excluded: Files requiring ESP-IDF, cJSON, or libwally-core headers
         # -cert-err33-c: Embedded code commonly ignores return values for nvs/esp functions
-        # -misc-no-recursion: FROST protocol requires recursive structures
         # -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling: strncpy used safely with explicit null termination
         run: |
           cd keep-esp32
           clang-tidy \
             main/error_context.c \
-            main/frost_signer_core.c \
             main/frost_signer_storage.c \
-            -checks='-*,bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-bugprone-easily-swappable-parameters,-cert-err33-c,-misc-no-recursion,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' \
+            main/frost_tr_task.c \
+            -checks='-*,bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-bugprone-easily-swappable-parameters,-cert-err33-c,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' \
             --warnings-as-errors='bugprone-*,clang-analyzer-*' \
             -- \
             -I main \
@@ -128,7 +125,6 @@ jobs:
           mkdir build && cd build
           cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
             -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
-            -DSECP256K1_ENABLE_MODULE_FROST=ON \
             -DSECP256K1_EXPERIMENTAL=ON
           make -j$(nproc)
 

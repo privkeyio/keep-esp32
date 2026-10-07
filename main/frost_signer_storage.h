@@ -4,102 +4,38 @@
 #ifndef FROST_SIGNER_STORAGE_H
 #define FROST_SIGNER_STORAGE_H
 
-#include <stdint.h>
 #include <stddef.h>
-#include <stdbool.h>
-#include "frost.h"
+#include <stdint.h>
+#include "frost_tr.h"
 #include "storage.h"
 
-#define SHARE_STORE_OK            0
-#define SHARE_STORE_ERR_NOT_FOUND -1
-#define SHARE_STORE_ERR_DECODE    -2
-#define SHARE_STORE_ERR_INIT      -3
-#define SHARE_STORE_ERR_SAVE      -4
-#define SHARE_STORE_ERR_DELETE    -5
+#define SHARE_KEY_OK            0
+#define SHARE_KEY_ERR_NOT_FOUND -1
+#define SHARE_KEY_ERR_DECODE    -2
+#define SHARE_KEY_ERR_LEGACY    -3
+#define SHARE_KEY_ERR_SAVE      -4
 
-/**
- * @brief Function pointer type for loading share hex from storage.
- * @param group Group identifier
- * @param share_hex Output buffer for hex-encoded share
- * @param len Buffer size
- * @return 0 on success, negative on error
- */
-typedef int (*share_load_fn)(const char *group, char *share_hex, size_t len);
+/* Protocol 2 share payload, stored encrypted in the share slot:
+ * version 0x02 | participants u16 BE | frost-core KeyPackage serialization.
+ * Shares stored before protocol 2 are 102 or 104 bytes; no payload has those lengths. */
+#define SHARE_PAYLOAD_VERSION 0x02
+#define SHARE_PAYLOAD_HEADER  3
+#define SHARE_KEY_PACKAGE_MAX (STORAGE_SHARE_LEN - SHARE_PAYLOAD_HEADER)
 
-/**
- * @brief Function pointer type for saving share hex to storage.
- * @param group Group identifier
- * @param share_hex Hex-encoded share
- * @return 0 on success, negative on error
- */
-typedef int (*share_save_fn)(const char *group, const char *share_hex);
-
-/**
- * @brief Function pointer type for deleting a share.
- * @param group Group identifier
- * @return 0 on success, negative on error
- */
-typedef int (*share_delete_fn)(const char *group);
-
-/**
- * @brief Function pointer type for checking share existence.
- * @param group Group identifier
- * @return true if share exists
- */
-typedef bool (*share_exists_fn)(const char *group);
-
-/**
- * @brief Storage adapter with pluggable backends.
- *
- * Use share_store_default() for production or provide custom
- * callbacks for testing.
- */
 typedef struct {
-    share_load_fn load;
-    share_save_fn save;
-    share_delete_fn delete_share;
-    share_exists_fn exists;
-} share_store_t;
+    uint8_t key_package[SHARE_KEY_PACKAGE_MAX];
+    size_t key_package_len;
+    uint16_t participants;
+} share_key_t;
 
-/**
- * @brief Get default storage adapter using NVS backend.
- * @return Pointer to static default store
- */
-const share_store_t *share_store_default(void);
+int share_payload_encode(const share_key_t *key, uint8_t out[STORAGE_SHARE_LEN], size_t *out_len);
+/* SHARE_KEY_ERR_LEGACY for a pre-protocol-2 share. Only framing is checked; the key
+ * package itself is validated by frost_tr wherever it is used. */
+int share_payload_decode(const uint8_t *payload, size_t len, share_key_t *out);
 
-/**
- * @brief Create a custom storage adapter.
- * @param load Load callback (must not be NULL)
- * @param save Save callback (must not be NULL)
- * @param delete_share Delete callback (must not be NULL)
- * @param exists Exists callback (must not be NULL)
- * @param valid Output: set to true if all pointers valid, false otherwise
- * @return Initialized store struct (check valid before use)
- */
-share_store_t share_store_create(share_load_fn load, share_save_fn save,
-                                 share_delete_fn delete_share, share_exists_fn exists, bool *valid);
-
-/**
- * @brief Load and initialize FROST state from storage.
- * @param store Storage adapter
- * @param group Group identifier
- * @param state Output FROST state
- * @return 0 on success, negative on error
- * @note Caller must call frost_free() when done.
- */
-int share_store_load_frost_state(const share_store_t *store, const char *group,
-                                 frost_state_t *state);
-
-/**
- * @brief Load raw share bytes from storage.
- * @param store Storage adapter
- * @param group Group identifier
- * @param share_bytes Output buffer
- * @param max_len Buffer size
- * @param out_len Output: actual share length
- * @return 0 on success, negative on error
- */
-int share_store_load_share_bytes(const share_store_t *store, const char *group,
-                                 uint8_t *share_bytes, size_t max_len, size_t *out_len);
+int share_key_load(const char *group, share_key_t *out);
+int share_key_save(const char *group, const share_key_t *key);
+/* The stored bytes as they are, for migrating a pre-protocol-2 share. */
+int share_raw_load(const char *group, uint8_t out[STORAGE_SHARE_LEN], size_t *out_len);
 
 #endif

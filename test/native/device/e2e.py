@@ -3,8 +3,10 @@
 # SPDX-License-Identifier: MIT
 """End-to-end signing tests against the native device harness.
 
-Runs two keep_device processes holding shares 1 and 3 of a 2-of-3 group and drives
-them over JSON-RPC like the host does. Signatures are checked with BIP340.
+Runs keep_device processes holding shares of dealer-generated groups and drives them
+over JSON-RPC like the host does, with frost_tool (frost-secp256k1-tr, as keep uses it)
+building signing packages, standing in for other signers and aggregating. Signatures
+are checked with BIP340.
 
   e2e.py <build-dir>                        offline checks (what CI runs)
   KNOTS_BIN=<dir> e2e.py <build-dir>        also spend on a regtest node built from
@@ -151,28 +153,62 @@ class Device:
         self.proc.wait(timeout=10)
 
 
-def frost_sign(build, devices, group, message, psbt=None):
-    """Signs as the host does. With a PSBT, every signer approves it with bitcoin_sign
-    first, since each device enforces its own policy."""
+class Group:
+    """A dealer-generated group from frost_tool; signers are 1-based indices."""
+
+    def __init__(self, build, min_signers, participants, parity="even"):
+        self.tool = os.path.join(build, "frost_tool", "release", "frost_tool")
+        keys = json.loads(self.run("keygen", str(min_signers), str(participants), parity))
+        self.min, self.n = min_signers, participants
+        self.group33 = bytes.fromhex(keys["group_key"])
+        self.pubkeys = keys["public_key_package"]
+        self.kp = {p["index"]: p["key_package"] for p in keys["participants"]}
+
+    def run(self, *args):
+        return subprocess.check_output([self.tool, *args], text=True).strip()
+
+    def package(self, message, commitments):
+        return self.run("package", message.hex(), *[f"{i}:{c}" for i, c in sorted(commitments.items())])
+
+    def device(self, build, index, name=None, group="g"):
+        d = Device(os.path.join(build, "keep_device"), name or f"device{index}")
+        d.index = index
+        r = d.rpc("import_share", {"group": group, "key_package": self.kp[index], "participants": self.n})
+        check(f"{d.name} import reports index {index}, {self.min}-of-{self.n} and the group key",
+              r["index"] == index and r["threshold"] == self.min and r["participants"] == self.n
+              and r["pubkey"] == self.group33.hex())
+        return d
+
+
+def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
+    """Signs as the host does: every device commits, the full set of commitments goes back
+    to each as one signing package. `peers` are signer indices played by frost_tool. With a
+    PSBT, every device approves it with bitcoin_sign first, since each enforces its own
+    policy."""
     if psbt is not None:
         for d in devices:
             r = d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
             if bytes.fromhex(r["sighash"]) != message:
                 raise RuntimeError("device computed a different sighash")
     session = secrets.token_hex(32)
-    commits = {}
+    commits, nonces = {}, {}
     for d in devices:
-        r = d.rpc("frost_commit", {"group": group, "session_id": session, "message": message.hex()})
-        commits[d] = r["commitment"]
+        r = d.rpc("frost_commit", {"group": name, "session_id": session, "message": message.hex()})
+        if r["index"] != d.index:
+            raise RuntimeError("commitment from the wrong index")
+        commits[d.index] = r["commitment"]
+    for i in peers:
+        r = json.loads(group.run("commit", group.kp[i]))
+        commits[i], nonces[i] = r["commitment"], r["nonces"]
+    package = group.package(message, commits)
     shares = {}
     for d in devices:
-        others = "".join(c for o, c in commits.items() if o is not d)
-        shares[d] = d.rpc("frost_sign", {"group": group, "session_id": session,
-                                         "commitments": others})["signature_share"]
-    args = [os.path.join(build, "keep_device_aggregate"), message.hex()]
-    for d in sorted(devices, key=lambda d: d.index):
-        args += [d.share, commits[d], shares[d]]
-    return bytes.fromhex(subprocess.check_output(args, text=True).strip())
+        shares[d.index] = d.rpc("frost_sign", {"group": name, "session_id": session,
+                                               "signing_package": package})["signature_share"]
+    for i in peers:
+        shares[i] = group.run("sign", group.kp[i], nonces[i], package)
+    return bytes.fromhex(group.run("aggregate", group.pubkeys, package,
+                                   *[f"{i}:{s}" for i, s in sorted(shares.items())]))
 
 
 def check(label, cond):
@@ -182,34 +218,48 @@ def check(label, cond):
 
 
 def setup(build, parity="even"):
-    keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), parity]))
-    group33 = bytes.fromhex(keys["group33"])
-    devices = []
-    for share in (keys["shares"][0], keys["shares"][2]):
-        d = Device(os.path.join(build, "keep_device"), f"device{share['index']}")
-        d.index, d.share = share["index"], share["share"]
-        d.rpc("import_share", {"group": "g", "share": share["share"]})
-        check(f"device {share['index']} reports the group key",
-              d.rpc("get_share_pubkey", {"group": "g"})["pubkey"] == keys["group33"])
-        devices.append(d)
-    return devices, group33
+    group = Group(build, 2, 3, parity)
+    devices = [group.device(build, 1), group.device(build, 3)]
+    for d in devices:
+        check(f"{d.name} reports the group key",
+              d.rpc("get_share_pubkey", {"group": "g"})["pubkey"] == group.group33.hex())
+    return devices, group
 
 
 def offline(build):
-    devices, group33 = setup(build)
-    xonly = group33[1:]
-    msg = secrets.token_bytes(32)
-    sig = frost_sign(build, devices, "g", msg)
-    check("2-of-3 signature over a raw message verifies as BIP340", bip340_verify(xonly, msg, sig))
-    check("the verifier rejects that signature for a different message",
-          not bip340_verify(xonly, bytes([msg[0] ^ 1]) + msg[1:], sig))
+    for parity in ("even", "odd"):
+        devices, group = setup(build, parity)
+        xonly = group.group33[1:]
+        msg = secrets.token_bytes(32)
+        sig = frost_sign(group, devices, msg)
+        check(f"2-of-3 ({parity} group key) signature over a raw message verifies as BIP340",
+              bip340_verify(xonly, msg, sig))
+        check("the verifier rejects that signature for a different message",
+              not bip340_verify(xonly, bytes([msg[0] ^ 1]) + msg[1:], sig))
+        msg = secrets.token_bytes(32)
+        check(f"a device signs with a peer that is not a device ({parity})",
+              bip340_verify(xonly, msg, frost_sign(group, devices[:1], msg, peers=[2])))
+        msg = secrets.token_bytes(32)
+        check(f"three of a 2-of-3 group sign together ({parity})",
+              bip340_verify(xonly, msg, frost_sign(group, devices, msg, peers=[2])))
 
-    psbt = devices[0].rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": 100000})["psbt"]
-    r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
-    sighash = bytes.fromhex(r["sighash"])
-    sig = frost_sign(build, devices, "g", sighash)
-    check("2-of-3 signature over the device's PSBT sighash verifies as BIP340",
-          bip340_verify(xonly, sighash, sig))
+        psbt = devices[0].rpc("test_make_psbt", {"xonly": xonly.hex(), "amount": 100000})["psbt"]
+        r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
+        sighash = bytes.fromhex(r["sighash"])
+        sig = frost_sign(group, devices, sighash)
+        check(f"2-of-3 signature over the device's PSBT sighash verifies as BIP340 ({parity})",
+              bip340_verify(xonly, sighash, sig))
+        for d in devices:
+            d.close()
+
+    group = Group(build, 3, 5, "odd")
+    devices = [group.device(build, i) for i in (2, 4, 5)]
+    msg = secrets.token_bytes(32)
+    check("3-of-5 with three devices verifies as BIP340",
+          bip340_verify(group.group33[1:], msg, frost_sign(group, devices, msg)))
+    msg = secrets.token_bytes(32)
+    check("3-of-5 with two devices and a peer verifies as BIP340",
+          bip340_verify(group.group33[1:], msg, frost_sign(group, devices[1:], msg, peers=[1])))
     for d in devices:
         d.close()
 
@@ -281,9 +331,9 @@ def policy_pinning(build):
     check("a newer bundle from the pinned key replaces it without asking",
           in_force(d, 200) and got["warden_pubkey"] == warden.pubkey.hex() and prompts() == 2)
 
-    keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), "even"]))
-    d.rpc("import_share", {"group": "g", "share": keys["shares"][0]["share"]})
-    psbt = d.rpc("test_make_psbt", {"xonly": keys["group33"][2:], "amount": 20000})["psbt"]
+    group = Group(build, 2, 3)
+    d.rpc("import_share", {"group": "g", "key_package": group.kp[1], "participants": 3})
+    psbt = d.rpc("test_make_psbt", {"xonly": group.group33[1:].hex(), "amount": 20000})["psbt"]
     commit = lambda: d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
                                             "message": secrets.token_bytes(32).hex()})
     approve = lambda: d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
@@ -387,8 +437,8 @@ def policy_pinning(build):
 
 
 def signing_gate(build):
-    devices, group33 = setup(build)
-    xonly = group33[1:]
+    devices, group = setup(build)
+    xonly = group.group33[1:]
     a, b = devices
     warden = Warden()
     for d in devices:
@@ -407,7 +457,7 @@ def signing_gate(build):
                  lambda: commit(a, secrets.token_bytes(32)), "not approved")
 
     psbt, sighash = psbt_for(40000)
-    sig = frost_sign(build, devices, "g", sighash, psbt)
+    sig = frost_sign(group, devices, sighash, psbt)
     check("a PSBT within policy is signed by both devices and verifies",
           bip340_verify(xonly, sighash, sig))
     expect_error("the same sighash cannot be signed twice from one approval",
@@ -438,16 +488,15 @@ def signing_gate(build):
 
     session = secrets.token_hex(32)
     raw = secrets.token_bytes(32)
-    plain = Device(os.path.join(build, "keep_device"), "resume")
-    plain.rpc("import_share", {"group": "g", "share": a.share})
-    plain.rpc("frost_commit", {"group": "g", "session_id": session, "message": raw.hex()})
+    plain = group.device(build, 1, "open-session")
+    c = plain.rpc("frost_commit", {"group": "g", "session_id": session, "message": raw.hex()})
+    peer = json.loads(group.run("commit", group.kp[2]))
+    package = group.package(raw, {1: c["commitment"], 2: peer["commitment"]})
     plain.rpc("test_set_confirm", {"approve": True})
     plain.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000}, 100)})
     expect_error("the open session cannot be signed once a policy is installed",
                  lambda: plain.rpc("frost_sign", {"group": "g", "session_id": session,
-                                                  "commitments": ""}), "")
-    expect_error("and cannot be resumed from its checkpoint under the new policy",
-                 lambda: plain.rpc("frost_session_resume", {"session_id": session}), "")
+                                                  "signing_package": package}), "Session not found")
     plain.close()
 
     a.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "ALLOW_RAW": True}, 210)})
@@ -475,79 +524,146 @@ def signing_gate(build):
         d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 50000, "allow_raw": True}, 300)})
     msg = secrets.token_bytes(32)
     check("a policy with allow_raw lets a raw message through",
-          bip340_verify(xonly, msg, frost_sign(build, devices, "g", msg)))
+          bip340_verify(xonly, msg, frost_sign(group, devices, msg)))
     for d in devices:
         d.close()
 
 
-def session_safety(build):
-    keys = json.loads(subprocess.check_output([os.path.join(build, "keep_device_keygen"), "even"]))
-    share = keys["shares"][0]["share"]
-    warden = Warden()
-
-    d = Device(os.path.join(build, "keep_device"), "discard")
-    d.rpc("import_share", {"group": "g", "share": share})
-    d.rpc("test_set_confirm", {"approve": True})
-    session = secrets.token_hex(32)
-    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": secrets.token_bytes(32).hex()})
-    d.rpc("test_fail_next_checkpoint_delete")
-    expect_error("a policy update that cannot discard old sessions is refused",
-                 lambda: d.rpc("policy_update", {"bundle": warden.bundle({}, 100)}), "Storage error")
-    check("and installs nothing", d.rpc("policy_get")["has_policy"] is False)
+def protocol(build):
+    group = Group(build, 2, 3)
+    d = Device(os.path.join(build, "keep_device"), "protocol")
+    check("ping reports protocol 2", d.rpc("ping")["protocol_version"] == 2)
+    for method in ("dkg_init", "dkg_round1", "frost_session_resume", "frost_session_list"):
+        expect_error(f"{method} is retired", lambda: d.rpc(method, {"group": "g"}),
+                     "not available in protocol 2")
+    imp = lambda kp, n=3: d.rpc("import_share", {"group": "g", "key_package": kp, "participants": n})
+    expect_error("the pre-protocol-2 share field is refused",
+                 lambda: d.rpc("import_share", {"group": "g", "share": group.kp[1]}), "retired")
+    bad = bytearray.fromhex(group.kp[1])
+    bad[40] ^= 1
+    expect_error("a key package whose share does not match its verifying share is refused",
+                 lambda: imp(bad.hex()), "Invalid key_package (-5)")
+    expect_error("trailing bytes are refused", lambda: imp(group.kp[1] + "00"), "Invalid key_package (-4)")
+    expect_error("an empty key package is refused", lambda: imp(""), "Invalid key_package hex")
+    expect_error("a participant count below 2 is refused", lambda: imp(group.kp[1], 1), "participants")
+    expect_error("an index above the participant count is refused",
+                 lambda: d.rpc("import_share", {"group": "g", "key_package": group.kp[3],
+                                                "participants": 2}), "does not fit")
+    expect_error("nothing was stored", lambda: d.rpc("get_share_pubkey", {"group": "g"}), "Share not found")
+    r = imp(group.kp[2])
+    info = d.rpc("get_share_info", {"group": "g"})
+    check("get_share_info reports what import did",
+          info == {"pubkey": r["pubkey"], "index": 2, "threshold": 2, "participants": 3,
+                   "verifying_share": r["verifying_share"]})
     d.close()
 
-    d = Device(os.path.join(build, "keep_device"), "cut")
-    d.rpc("import_share", {"group": "g", "share": share})
+
+def session_safety(build):
+    group = Group(build, 2, 3)
+    warden = Warden()
+
+    def round_on(d, message, session=None):
+        session = session or secrets.token_hex(32)
+        c = d.rpc("frost_commit", {"group": "g", "session_id": session, "message": message.hex()})
+        peer = json.loads(group.run("commit", group.kp[2]))
+        return session, c["commitment"], peer
+
+    def sign(d, session, package):
+        return d.rpc("frost_sign", {"group": "g", "session_id": session, "signing_package": package})
+
+    d = group.device(build, 1, "discard")
+    d.rpc("test_set_confirm", {"approve": True})
+    msg = secrets.token_bytes(32)
+    session, mine, peer = round_on(d, msg)
+    d.rpc("policy_update", {"bundle": warden.bundle({}, 100)})
+    expect_error("installing a policy ends open sessions",
+                 lambda: sign(d, session, group.package(msg, {1: mine, 2: peer["commitment"]})),
+                 "Session not found")
+    d.close()
+
+    d = group.device(build, 1, "cut")
     d.rpc("test_set_confirm", {"approve": True})
     d.rpc("policy_update", {"bundle": warden.bundle({"allow_raw": True}, 100)})
-    session = secrets.token_hex(32)
-    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": secrets.token_bytes(32).hex()})
+    msg = secrets.token_bytes(32)
+    session, mine, peer = round_on(d, msg)
     d.rpc("test_cut_before_pin_raise")
     expect_error("power lost before the pin is raised", lambda: d.rpc(
         "policy_update", {"bundle": warden.bundle({"max_amount": 1}, 200)}), "Storage error")
     check("the stricter policy is already in force", d.rpc("policy_get")["created_at"] == 200)
-    expect_error("a session from the looser policy cannot be resumed after the cut",
-                 lambda: d.rpc("frost_session_resume", {"session_id": session}), "")
+    expect_error("a session from the looser policy cannot sign after the cut",
+                 lambda: sign(d, session, group.package(msg, {1: mine, 2: peer["commitment"]})),
+                 "Session not found")
     d.close()
 
-    a = Device(os.path.join(build, "keep_device"), "resume-a")
-    a.rpc("import_share", {"group": "g", "share": share})
-    a.index, a.share = keys["shares"][0]["index"], share
-    b = Device(os.path.join(build, "keep_device"), "resume-b")
-    b.rpc("import_share", {"group": "g", "share": keys["shares"][2]["share"]})
-    b.index, b.share = keys["shares"][2]["index"], keys["shares"][2]["share"]
-    session = secrets.token_hex(32)
+    d = group.device(build, 1, "reboot")
     msg = secrets.token_bytes(32)
-    ca = a.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()})["commitment"]
-    cb = b.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()})["commitment"]
-    a.rpc("test_reboot_signer")
-    check("a session survives a reboot through its checkpoint",
-          a.rpc("frost_session_resume", {"session_id": session}).get("resumed") is True)
-    sa = a.rpc("frost_sign", {"group": "g", "session_id": session, "commitments": cb})["signature_share"]
-    sb = b.rpc("frost_sign", {"group": "g", "session_id": session, "commitments": ca})["signature_share"]
-    args = [os.path.join(build, "keep_device_aggregate"), msg.hex(), a.share, ca, sa, b.share, cb, sb]
-    sig = bytes.fromhex(subprocess.check_output(args, text=True).strip())
-    check("and the resumed session signs a valid BIP340 signature",
-          bip340_verify(bytes.fromhex(keys["group33"])[1:], msg, sig))
-    a.close()
-    b.close()
+    session, mine, peer = round_on(d, msg)
+    d.rpc("test_reboot_signer")
+    expect_error("a reboot ends the round: nonces are never kept in flash",
+                 lambda: sign(d, session, group.package(msg, {1: mine, 2: peer["commitment"]})),
+                 "Session not found")
+    session, mine, peer = round_on(d, msg)
+    package = group.package(msg, {1: mine, 2: peer["commitment"]})
+    share = sign(d, session, package)["signature_share"]
+    sig = group.run("aggregate", group.pubkeys, package,
+                    f"1:{share}", f"2:{group.run('sign', group.kp[2], peer['nonces'], package)}")
+    check("a fresh commit after the reboot signs a valid BIP340 signature",
+          bip340_verify(group.group33[1:], msg, bytes.fromhex(sig)))
+    check("an identical retry returns the same share", sign(d, session, package)["signature_share"] == share)
+    other = group.package(msg, {1: mine, 3: json.loads(group.run("commit", group.kp[3]))["commitment"]})
+    expect_error("a retry with a different package gets nothing", lambda: sign(d, session, other),
+                 "already consumed")
+    expect_error("the session id cannot be committed again",
+                 lambda: d.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()}),
+                 "already")
 
-    d = Device(os.path.join(build, "keep_device"), "nonce")
-    d.rpc("import_share", {"group": "g", "share": share})
-    other = Device(os.path.join(build, "keep_device"), "peer")
-    other.rpc("import_share", {"group": "g", "share": keys["shares"][2]["share"]})
-    session = secrets.token_hex(32)
-    msg = secrets.token_bytes(32).hex()
-    d.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg})
-    peer = other.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg})
-    d.rpc("test_fail_next_checkpoint_delete")
-    expect_error("a share is not released if its checkpoint cannot be cleared",
-                 lambda: d.rpc("frost_sign", {"group": "g", "session_id": session,
-                                              "commitments": peer["commitment"]}), "checkpoint")
-    expect_error("nor returned on a retry", lambda: d.rpc(
-        "frost_sign", {"group": "g", "session_id": session, "commitments": peer["commitment"]}), "")
+    def refused(label, build_package, code):
+        msg = secrets.token_bytes(32)
+        session, mine, peer = round_on(d, msg)
+        expect_error(label, lambda: sign(d, session, build_package(msg, mine, peer)),
+                     f"Signing refused ({code})")
+        expect_error(f"{label}: the nonces are spent", lambda: sign(
+            d, session, group.package(msg, {1: mine, 2: peer["commitment"]})), "Session not found")
+
+    refused("a package for another message is refused",
+            lambda m, mine, peer: group.package(secrets.token_bytes(32), {1: mine, 2: peer["commitment"]}), -8)
+    refused("a package with this device's commitment altered is refused",
+            lambda m, mine, peer: group.package(m, {1: json.loads(group.run("commit", group.kp[1]))["commitment"],
+                                                    2: peer["commitment"]}), -10)
+    refused("a package without this device is refused",
+            lambda m, mine, peer: group.package(m, {2: peer["commitment"],
+                                                    3: json.loads(group.run("commit", group.kp[3]))["commitment"]}), -10)
+    refused("a package below the threshold is refused",
+            lambda m, mine, peer: group.package(m, {1: mine}), -9)
+    refused("a package with trailing bytes is refused",
+            lambda m, mine, peer: group.package(m, {1: mine, 2: peer["commitment"]}) + "00", -4)
     d.close()
-    other.close()
+
+
+def legacy_shares(build):
+    group = Group(build, 2, 3, "odd")
+    d = Device(os.path.join(build, "keep_device"), "legacy")
+    d.index = 3
+    d.rpc("test_plant_share", {"group": "g", "share": group.run("legacy", group.kp[3], "3")})
+    good = bytearray.fromhex(group.run("legacy", group.kp[1], "3"))
+    good[0] ^= 1
+    d.rpc("test_plant_share", {"group": "bad", "share": good.hex()})
+    expect_error("a share stored before protocol 2 is not used as it is",
+                 lambda: d.rpc("get_share_pubkey", {"group": "g"}), "predates protocol 2")
+    r = d.rpc("test_migrate_shares")
+    check("migration rebuilds the valid share and removes the one that does not check out",
+          r == {"status": 0, "migrated": 1, "removed": 1})
+    expect_error("the invalid share is gone", lambda: d.rpc("get_share_pubkey", {"group": "bad"}),
+                 "Share not found")
+    stored = d.rpc("test_read_share", {"group": "g"})["share"]
+    check("the migrated share is the protocol 2 payload of keep's own key package",
+          stored == "020003" + group.kp[3])
+    check("a second migration finds nothing to do",
+          d.rpc("test_migrate_shares") == {"status": 0, "migrated": 0, "removed": 0})
+    msg = secrets.token_bytes(32)
+    check("the migrated share signs with keep",
+          bip340_verify(group.group33[1:], msg, frost_sign(group, [d], msg, peers=[1])))
+    d.close()
 
 
 def regtest(build, knots_bin):
@@ -590,8 +706,8 @@ def regtest(build, knots_bin):
         cli("createwallet", "w")
         waddr = cli("getnewaddress", "", "bech32m")
         mine(155, waddr)
-        devices, group33 = setup(build)
-        xonly = group33[1:].hex()
+        devices, group = setup(build)
+        xonly = group.group33[1:].hex()
         warden = Warden()
         for d in devices:
             d.rpc("test_set_confirm", {"approve": True})
@@ -609,7 +725,7 @@ def regtest(build, knots_bin):
             if sighash_type is not None:
                 psbt = devices[0].rpc("test_set_sighash", {"psbt": psbt, "sighash": sighash_type})["psbt"]
             r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
-            sig = frost_sign(build, devices, "g", bytes.fromhex(r["sighash"]), psbt)
+            sig = frost_sign(group, devices, bytes.fromhex(r["sighash"]), psbt)
             if r["sighash_type"]:
                 sig += bytes([r["sighash_type"]])
             final = devices[0].rpc("test_finalize", {"psbt": psbt, "witness_sig": sig.hex()})["hex"]
@@ -631,9 +747,11 @@ def regtest(build, knots_bin):
 def main():
     build = sys.argv[1]
     offline(build)
+    protocol(build)
     policy_pinning(build)
     signing_gate(build)
     session_safety(build)
+    legacy_shares(build)
     if os.environ.get("KNOTS_BIN"):
         regtest(build, os.environ["KNOTS_BIN"])
     print("e2e: all checks passed")

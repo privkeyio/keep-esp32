@@ -16,7 +16,7 @@
 #define STORAGE_RELAY_LEN        128
 #define STORAGE_PUBKEY_LEN       32
 
-#define STORAGE_EXPORT_VERSION  1
+#define STORAGE_EXPORT_VERSION  2
 #define STORAGE_EXPORT_SALT_LEN 32
 #define STORAGE_EXPORT_MAX_LEN  1024
 
@@ -68,16 +68,6 @@ int storage_load_metadata(const char *group, group_metadata_t *metadata);
 
 bool storage_has_metadata(const char *group);
 
-#define STORAGE_MAX_SESSION_CHECKPOINTS 4
-#define STORAGE_SESSION_ID_LEN          32
-
-int storage_save_session_checkpoint(const uint8_t *session_id, const void *data, size_t len);
-int storage_load_session_checkpoint(const uint8_t *session_id, void *data, size_t len);
-int storage_delete_session_checkpoint(const uint8_t *session_id);
-int storage_list_session_checkpoints(uint8_t session_ids[][STORAGE_SESSION_ID_LEN], int max_count);
-int storage_count_session_checkpoints(void);
-bool storage_has_session_checkpoint(const uint8_t *session_id);
-
 #define STORAGE_CHECKPOINT_MAX_SIZE    24576
 #define STORAGE_ERR_CHECKPOINT_EXISTS  -11
 #define STORAGE_ERR_CHECKPOINT_EXPIRED -12
@@ -100,7 +90,17 @@ typedef struct {
     uint8_t checksum[32];
 } share_export_t;
 
-int storage_export_share(const char *group, const char *passphrase, share_export_t *export_out);
+/* What the export records in the clear (and authenticates) about the share, taken from
+ * the validated key package by the caller. */
+typedef struct {
+    uint16_t threshold;
+    uint16_t participants;
+    uint16_t share_index;
+    uint8_t group_pubkey[33];
+} share_export_meta_t;
+
+int storage_export_share(const char *group, const char *passphrase, const share_export_meta_t *meta,
+                         share_export_t *export_out);
 
 int storage_export_check_rate_limit(void);
 void storage_export_record_attempt(bool success);

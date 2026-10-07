@@ -16,7 +16,6 @@ idf_component_register(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
-    ENABLE_MODULE_FROST=1
     ENABLE_MODULE_SCHNORRSIG=1
     ENABLE_MODULE_EXTRAKEYS=1
     ENABLE_MODULE_ECDH=1

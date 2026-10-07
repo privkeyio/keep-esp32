@@ -9,6 +9,7 @@
 # installed, run it through Docker:
 #
 #   scripts/build-frost-tr.sh --docker          build the device archive
+#   scripts/build-frost-tr.sh --docker --host   build lib/host/ for the native tests
 #   scripts/build-frost-tr.sh --docker --test   run the crate's host tests
 #
 set -euo pipefail
@@ -22,13 +23,14 @@ for arg in "$@"; do
     case "$arg" in
         --docker) DOCKER=1 ;;
         --test) MODE=test ;;
-        *) echo "usage: $0 [--docker] [--test]" >&2; exit 2 ;;
+        --host) MODE=host ;;
+        *) echo "usage: $0 [--docker] [--test|--host]" >&2; exit 2 ;;
     esac
 done
 
 if [ "$DOCKER" = 1 ]; then
     inner=()
-    [ "$MODE" = test ] && inner=(--test)
+    [ "$MODE" = build ] || inner=(--"$MODE")
     mkdir -p "$ROOT/components/frost_tr/lib"
     # The source tree is mounted read-only and only lib/ is writable, so crate
     # build scripts running in the container cannot change the checkout. Runs
@@ -40,7 +42,7 @@ if [ "$DOCKER" = 1 ]; then
         -v "$ROOT/components/frost_tr/lib:/work/components/frost_tr/lib" \
         -w /work "$FROST_TR_IMAGE" \
         bash -c 'FROST_TR_TARGET_DIR=/tmp/frost_tr-target bash scripts/build-frost-tr.sh "$@"; rc=$?
-                 chown "$HOST_UID:$HOST_GID" components/frost_tr/lib/libfrost_tr.a 2>/dev/null
+                 chown -R "$HOST_UID:$HOST_GID" components/frost_tr/lib 2>/dev/null
                  exit $rc' _ ${inner[@]+"${inner[@]}"}
 fi
 
@@ -63,12 +65,19 @@ if [ "$MODE" = test ]; then
     exit 0
 fi
 
+OUT="$ROOT/components/frost_tr/lib"
+if [ "$MODE" = host ]; then
+    # The native tests link the same crate built for the machine running them.
+    TARGET="$(rustc +esp -vV | sed -n 's/^host: //p')"
+    OUT="$OUT/host"
+fi
+
 cargo +esp build --release --locked \
     -Z build-std=core,alloc \
     --target "$TARGET" \
     --manifest-path "$CRATE/Cargo.toml" \
     --target-dir "$TARGET_DIR"
 
-mkdir -p "$ROOT/components/frost_tr/lib"
-cp "$TARGET_DIR/$TARGET/release/libfrost_tr.a" "$ROOT/components/frost_tr/lib/libfrost_tr.a"
-sha256sum "$ROOT/components/frost_tr/lib/libfrost_tr.a"
+mkdir -p "$OUT"
+cp "$TARGET_DIR/$TARGET/release/libfrost_tr.a" "$OUT/libfrost_tr.a"
+sha256sum "$OUT/libfrost_tr.a"
