@@ -18,6 +18,8 @@
 #include "bitcoin_rpc.h"
 #include "esp_partition.h"
 #include "frost_signer.h"
+#include "frost_tr.h"
+#include "frost_tr_task.h"
 #include "policy.h"
 #include "protocol.h"
 #include "random_utils.h"
@@ -70,6 +72,16 @@ int storage_delete_share(const char *group) {
     return -1;
 }
 
+int storage_list_shares(char groups[][STORAGE_GROUP_LEN + 1], int max_groups) {
+    int n = 0;
+    for (int i = 0; i < STORAGE_MAX_SHARES && n < max_groups; i++) {
+        if (shares[i].used) {
+            strcpy(groups[n++], shares[i].group);
+        }
+    }
+    return n;
+}
+
 bool storage_has_share(const char *group) {
     char buf[STORAGE_SHARE_LEN * 2 + 1];
     return storage_load_share(group, buf, sizeof(buf)) == 0;
@@ -79,83 +91,6 @@ int storage_load_metadata(const char *group, group_metadata_t *metadata) {
     (void)group;
     (void)metadata;
     return -1;
-}
-
-/* Session checkpoints live in a flash partition on the device; here they are in memory
- * so frost_session_resume runs exactly as it does there. */
-static struct {
-    uint8_t id[STORAGE_SESSION_ID_LEN];
-    uint8_t data[STORAGE_CHECKPOINT_MAX_SIZE];
-    size_t len;
-    bool used;
-} checkpoints[STORAGE_MAX_SESSION_CHECKPOINTS];
-
-static int find_checkpoint(const uint8_t *id) {
-    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
-        if (checkpoints[i].used && memcmp(checkpoints[i].id, id, STORAGE_SESSION_ID_LEN) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int storage_save_session_checkpoint(const uint8_t *id, const void *d, size_t l) {
-    int i = find_checkpoint(id);
-    for (int j = 0; i < 0 && j < STORAGE_MAX_SESSION_CHECKPOINTS; j++) {
-        if (!checkpoints[j].used) {
-            i = j;
-        }
-    }
-    if (i < 0 || l > STORAGE_CHECKPOINT_MAX_SIZE) {
-        return -1;
-    }
-    memcpy(checkpoints[i].id, id, STORAGE_SESSION_ID_LEN);
-    memcpy(checkpoints[i].data, d, l);
-    checkpoints[i].len = l;
-    checkpoints[i].used = true;
-    return 0;
-}
-
-int storage_load_session_checkpoint(const uint8_t *id, void *d, size_t l) {
-    int i = find_checkpoint(id);
-    if (i < 0 || checkpoints[i].len != l) {
-        return -1;
-    }
-    memcpy(d, checkpoints[i].data, l);
-    return 0;
-}
-
-static bool fail_next_checkpoint_delete = false;
-
-int storage_delete_session_checkpoint(const uint8_t *id) {
-    if (fail_next_checkpoint_delete) {
-        fail_next_checkpoint_delete = false;
-        return -1;
-    }
-    int i = find_checkpoint(id);
-    if (i < 0) {
-        return STORAGE_ERR_NOT_FOUND;
-    }
-    memset(&checkpoints[i], 0, sizeof(checkpoints[i]));
-    return 0;
-}
-
-int storage_list_session_checkpoints(uint8_t ids[][STORAGE_SESSION_ID_LEN], int m) {
-    int n = 0;
-    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS && n < m; i++) {
-        if (checkpoints[i].used) {
-            memcpy(ids[n++], checkpoints[i].id, STORAGE_SESSION_ID_LEN);
-        }
-    }
-    return n;
-}
-
-int storage_count_session_checkpoints(void) {
-    int n = 0;
-    for (int i = 0; i < STORAGE_MAX_SESSION_CHECKPOINTS; i++) {
-        n += checkpoints[i].used;
-    }
-    return n;
 }
 
 #define PARTITION_SIZE 65536
@@ -365,12 +300,37 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
         fail_next_flash_write = true;
         protocol_success(resp, id, "{\"ok\":true}");
     } else if (strcmp(m, "test_reboot_signer") == 0) {
-        /* RAM sessions are lost on a reboot; checkpoints in flash are not. */
+        /* Signing sessions live only in RAM, so a reboot ends them. */
         frost_signer_cleanup();
         protocol_success(resp, id, "{\"ok\":true}");
-    } else if (strcmp(m, "test_fail_next_checkpoint_delete") == 0) {
-        fail_next_checkpoint_delete = true;
-        protocol_success(resp, id, "{\"ok\":true}");
+    } else if (strcmp(m, "test_plant_share") == 0 && params) {
+        /* Bytes written as they are, as firmware before protocol 2 stored them. */
+        cJSON *group = cJSON_GetObjectItem(params, "group");
+        cJSON *hex = cJSON_GetObjectItem(params, "share");
+        if (cJSON_IsString(group) && cJSON_IsString(hex) &&
+            storage_save_share(group->valuestring, hex->valuestring) == STORAGE_OK) {
+            protocol_success(resp, id, "{\"ok\":true}");
+        } else {
+            protocol_error(resp, id, PROTOCOL_ERR_PARAMS, "bad share");
+        }
+    } else if (strcmp(m, "test_read_share") == 0 && params) {
+        cJSON *group = cJSON_GetObjectItem(params, "group");
+        static char hex[STORAGE_SHARE_LEN * 2 + 1], result[STORAGE_SHARE_LEN * 2 + 32];
+        if (cJSON_IsString(group) &&
+            storage_load_share(group->valuestring, hex, sizeof(hex)) == 0) {
+            snprintf(result, sizeof(result), "{\"share\":\"%s\"}", hex);
+            protocol_success(resp, id, result);
+        } else {
+            protocol_error(resp, id, PROTOCOL_ERR_SHARE, "Share not found");
+        }
+    } else if (strcmp(m, "test_migrate_shares") == 0) {
+        /* What unlock runs on the device. */
+        int migrated = 0, unmigratable = 0;
+        int ret = frost_signer_migrate_shares(&migrated, &unmigratable);
+        char result[96];
+        snprintf(result, sizeof(result), "{\"status\":%d,\"migrated\":%d,\"unmigratable\":%d}", ret,
+                 migrated, unmigratable);
+        protocol_success(resp, id, result);
     } else if (strcmp(m, "test_cut_before_pin_raise") == 0) {
         /* Power lost after the bundle is written and before the pin is raised. */
         fail_next_pin_write = true;
@@ -428,7 +388,8 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     memset(policy_flash, 0xFF, sizeof(policy_flash));
-    if (rng_init() != 0 || policy_init() != 0 || frost_signer_init() != 0 ||
+    if (rng_init() != 0 || ftr_init(rng_fill_checked, rng_is_healthy_secure) != 0 ||
+        ftr_task_start() != 0 || policy_init() != 0 || frost_signer_init() != 0 ||
         bitcoin_rpc_init() != 0) {
         fprintf(stderr, "device init failed\n");
         return 1;
@@ -455,27 +416,36 @@ int main(void) {
             handle_test_method(line, req.id, &resp);
         } else {
             switch (req.method) {
-            case RPC_METHOD_PING:
-                protocol_success(&resp, req.id, "{\"version\":\"native\"}");
+            case RPC_METHOD_PING: {
+                char result[64];
+                snprintf(result, sizeof(result), "{\"version\":\"native\",\"protocol_version\":%d}",
+                         PROTOCOL_API_VERSION);
+                protocol_success(&resp, req.id, result);
                 break;
+            }
             case RPC_METHOD_IMPORT_SHARE:
-                if (storage_save_share(req.group, req.share) == STORAGE_OK) {
-                    protocol_success(&resp, req.id, "{\"ok\":true}");
+                if (req.legacy_share) {
+                    protocol_error(&resp, req.id, PROTOCOL_ERR_PARAMS,
+                                   "The share field is retired in protocol 2");
                 } else {
-                    protocol_error(&resp, req.id, PROTOCOL_ERR_STORAGE, "Storage error");
+                    frost_import_share(req.group, req.key_package, req.participants, &resp);
                 }
                 break;
             case RPC_METHOD_GET_SHARE_PUBKEY:
                 frost_get_pubkey(req.group, &resp);
                 break;
+            case RPC_METHOD_GET_SHARE_INFO:
+                frost_get_share_info(req.group, &resp);
+                break;
             case RPC_METHOD_FROST_COMMIT:
                 frost_commit(req.group, req.session_id, req.message, &resp);
                 break;
             case RPC_METHOD_FROST_SIGN:
-                frost_sign(req.group, req.session_id, req.commitments, &resp);
+                frost_sign(req.group, req.session_id, req.signing_package, &resp);
                 break;
-            case RPC_METHOD_SESSION_RESUME:
-                frost_session_resume(req.session_id, &resp);
+            case RPC_METHOD_RETIRED:
+                protocol_error(&resp, req.id, PROTOCOL_ERR_METHOD,
+                               "Method not available in protocol 2");
                 break;
             case RPC_METHOD_BITCOIN_PARSE:
                 bitcoin_rpc_parse(&req, &resp);

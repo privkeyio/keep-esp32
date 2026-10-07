@@ -141,7 +141,7 @@ jobs:
         run: |
           cd secp256k1-frost
           mkdir build && cd build
-          cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON -DSECP256K1_ENABLE_MODULE_FROST=ON -DSECP256K1_EXPERIMENTAL=ON
+          cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON -DSECP256K1_EXPERIMENTAL=ON
           make -j$(nproc)
 
       - name: Build libwally-core
@@ -164,6 +164,12 @@ jobs:
         run: |
           python3 scripts/gen-frost-tr-vectors.py --check
           scripts/build-frost-tr.sh --docker --test
+
+      # The device harness links frost_tr built for the runner; frost_tool, the host
+      # side of a FROST round, is built by the native CMake with the runner's cargo.
+      - name: Build frost_tr for the native tests
+        working-directory: keep-esp32
+        run: scripts/build-frost-tr.sh --docker --host
 
       - name: Run native tests
         timeout-minutes: 15

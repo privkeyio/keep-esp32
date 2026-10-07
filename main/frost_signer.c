@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "frost_signer.h"
-#include "frost_signer_core.h"
 #include "frost_signer_storage.h"
+#include "frost_tr.h"
+#include "frost_tr_task.h"
 #include "storage.h"
-#include "frost.h"
-#include "session.h"
 #include "policy.h"
 #include "sign_approval.h"
 #include "hex_utils.h"
@@ -15,6 +14,7 @@
 #include "secresult.h"
 #include "anti_glitch.h"
 #include "log_compat.h"
+#include <mbedtls/sha256.h>
 #include <string.h>
 
 #ifdef ESP_PLATFORM
@@ -39,6 +39,9 @@ static uint32_t elapsed_ms(uint32_t start, uint32_t now) {
 #define TAG                        "frost_signer"
 #define MAX_SESSIONS               4
 #define CONSUMED_SESSION_RING_SIZE 64
+#define SESSION_ID_LEN             32
+#define SESSION_ID_HEX_LEN         64
+#define SESSION_TIMEOUT_MS         30000
 
 static uint8_t consumed_sessions[CONSUMED_SESSION_RING_SIZE][SESSION_ID_LEN];
 static uint8_t consumed_count = 0;
@@ -75,14 +78,23 @@ static void record_consumed_session(const uint8_t *session_id) {
 #define FROST_LOGW(tag, ...) ESP_LOGW(tag, __VA_ARGS__)
 #endif
 
+/* A signing round lives only in RAM. The nonces are never written to flash: after a reset
+ * the host starts the round again with a fresh commit, so no stored nonce can be rolled
+ * back and used for a second message. */
 typedef struct {
     bool active;
+    bool released;
     uint8_t session_id[SESSION_ID_LEN];
-    session_t session;
-    frost_state_t frost_state;
     char group[STORAGE_GROUP_LEN + 1];
+    uint8_t message[FTR_MESSAGE_LEN];
+    uint8_t nonces[FTR_NONCES_LEN];
+    uint16_t index;
+    uint8_t verifying_share[33];
     bool has_policy;
     uint8_t policy_hash[32];
+    uint32_t created_at;
+    uint8_t package_hash[32];
+    uint8_t share[FTR_SIGNATURE_SHARE_LEN];
 } signing_session_t;
 
 static signing_session_t sessions[MAX_SESSIONS];
@@ -98,24 +110,130 @@ static signing_session_t *find_session(const uint8_t *session_id) {
     return NULL;
 }
 
+/* A free slot, or else the oldest session whose share was already released: its nonces
+ * are gone and only the answer to a retry is lost. Rounds still waiting to sign are never
+ * displaced. */
 static signing_session_t *alloc_session(const uint8_t *session_id) {
-    for (int i = 0; i < MAX_SESSIONS; i++) {
+    signing_session_t *slot = NULL;
+    uint32_t now = get_time_ms(), oldest = 0;
+    for (int i = 0; i < MAX_SESSIONS && (slot == NULL || slot->active); i++) {
         if (!sessions[i].active) {
-            memset(&sessions[i], 0, sizeof(signing_session_t));
-            sessions[i].active = true;
-            memcpy(sessions[i].session_id, session_id, SESSION_ID_LEN);
-            return &sessions[i];
+            slot = &sessions[i];
+        } else if (sessions[i].released && elapsed_ms(sessions[i].created_at, now) >= oldest) {
+            oldest = elapsed_ms(sessions[i].created_at, now);
+            slot = &sessions[i];
         }
     }
-    return NULL;
+    if (slot != NULL) {
+        secure_memzero(slot, sizeof(signing_session_t));
+        slot->active = true;
+        memcpy(slot->session_id, session_id, SESSION_ID_LEN);
+    }
+    return slot;
 }
 
 static void free_session(signing_session_t *s) {
     if (s) {
-        frost_free(&s->frost_state);
-        session_destroy(&s->session);
         secure_memzero(s, sizeof(signing_session_t));
     }
+}
+
+typedef struct {
+    const uint8_t *kp;
+    size_t kp_len;
+    ftr_key_info_t *info;
+} import_job_t;
+
+static int import_job(void *arg) {
+    import_job_t *j = arg;
+    return ftr_key_package_import(j->kp, j->kp_len, j->info);
+}
+
+typedef struct {
+    const uint8_t *legacy;
+    size_t legacy_len;
+    uint8_t *kp;
+    size_t *kp_len;
+    uint16_t *participants;
+} legacy_job_t;
+
+static int legacy_job(void *arg) {
+    legacy_job_t *j = arg;
+    return ftr_key_package_from_legacy(j->legacy, j->legacy_len, j->kp, j->kp_len, j->participants);
+}
+
+typedef struct {
+    const uint8_t *kp;
+    size_t kp_len;
+    uint8_t *nonces;
+    uint8_t *commitments;
+} commit_job_t;
+
+static int commit_job(void *arg) {
+    commit_job_t *j = arg;
+    return ftr_commit(j->kp, j->kp_len, j->nonces, j->commitments);
+}
+
+typedef struct {
+    const uint8_t *kp;
+    size_t kp_len;
+    uint8_t *nonces;
+    const uint8_t *package;
+    size_t package_len;
+    const uint8_t *message;
+    uint8_t *share;
+} sign_job_t;
+
+static int sign_job(void *arg) {
+    sign_job_t *j = arg;
+    return ftr_sign(j->kp, j->kp_len, j->nonces, j->package, j->package_len, j->message, j->share);
+}
+
+#define LOAD_KEY_INVALID -10
+
+/* Loads and validates the stored key package for `group`. On success the caller owns
+ * `key` and must wipe it. */
+static int load_key_checked(const char *group, share_key_t *key, ftr_key_info_t *info) {
+    int ret = share_key_load(group, key);
+    if (ret != SHARE_KEY_OK) {
+        return ret;
+    }
+    import_job_t job = {.kp = key->key_package, .kp_len = key->key_package_len, .info = info};
+    if (ftr_task_run(import_job, &job) != FTR_OK || info->index > key->participants ||
+        info->min_signers > key->participants) {
+        secure_memzero(key, sizeof(*key));
+        return LOAD_KEY_INVALID;
+    }
+    return SHARE_KEY_OK;
+}
+
+static int load_key(const char *group, share_key_t *key, ftr_key_info_t *info,
+                    rpc_response_t *resp) {
+    int ret = load_key_checked(group, key, info);
+    if (ret == SHARE_KEY_ERR_LEGACY) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE,
+                       "Share predates protocol 2 and was not migrated; unlock, or delete and "
+                       "import it again");
+    } else if (ret == LOAD_KEY_INVALID) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Stored share is invalid");
+    } else if (ret != SHARE_KEY_OK) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+    }
+    return ret == SHARE_KEY_OK ? 0 : -1;
+}
+
+int frost_signer_export_meta(const char *group, share_export_meta_t *meta) {
+    share_key_t key;
+    ftr_key_info_t info;
+    if (!group || !meta || load_key_checked(group, &key, &info) != SHARE_KEY_OK) {
+        return -1;
+    }
+    meta->threshold = info.min_signers;
+    meta->participants = key.participants;
+    meta->share_index = info.index;
+    memcpy(meta->group_pubkey, info.group_key, sizeof(meta->group_pubkey));
+    secure_memzero(&key, sizeof(key));
+    return 0;
 }
 
 static secresult_t capture_policy_snapshot_secure(bool *has_policy, uint8_t policy_hash[32]) {
@@ -162,6 +280,16 @@ static secresult_t verify_policy_unchanged_secure(bool has_policy, const uint8_t
     return policy_changed ? SECRESULT_ERR_POLICY_CHANGED : SECRESULT_TRUE;
 }
 
+static bool is_session_id_valid(const uint8_t *session_id) {
+    uint8_t all_or = 0;
+    uint8_t all_and = 0xFF;
+    for (int i = 0; i < SESSION_ID_LEN; i++) {
+        all_or |= session_id[i];
+        all_and &= session_id[i];
+    }
+    return all_or != 0 && all_and != 0xFF;
+}
+
 static int parse_session_id(const char *hex, uint8_t *out, rpc_response_t *resp) {
     if (strlen(hex) != SESSION_ID_HEX_LEN) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "session_id must be 32 bytes");
@@ -171,7 +299,7 @@ static int parse_session_id(const char *hex, uint8_t *out, rpc_response_t *resp)
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id hex");
         return -1;
     }
-    if (!frost_is_session_id_valid(out)) {
+    if (!is_session_id_valid(out)) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid session_id value");
         return -1;
     }
@@ -197,45 +325,161 @@ void frost_signer_cleanup(void) {
     }
 }
 
-void frost_get_pubkey(const char *group, rpc_response_t *resp) {
-    const share_store_t *store = share_store_default();
-    frost_state_t state;
+void frost_import_share(const char *group, const char *key_package_hex, uint16_t participants,
+                        rpc_response_t *resp) {
+    KEEP_ASSERT_VOID(group != NULL);
+    KEEP_ASSERT_VOID(key_package_hex != NULL);
+    KEEP_ASSERT_VOID(resp != NULL);
 
-    if (share_store_load_frost_state(store, group, &state) != 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
+    if (participants < 2 || participants > FTR_MAX_SIGNERS) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "participants must be 2 to 16");
         return;
     }
 
-    char pubkey_hex[67];
-    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
+    share_key_t key = {.participants = participants};
+    int len = hex_to_bytes(key_package_hex, key.key_package, sizeof(key.key_package));
+    if (len <= 0) {
+        secure_memzero(&key, sizeof(key));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid key_package hex");
+        return;
+    }
+    key.key_package_len = (size_t)len;
 
-    char result[128];
-    snprintf(result, sizeof(result), "{\"pubkey\":\"%s\",\"index\":%d}", pubkey_hex,
-             state.share_index);
+    ftr_key_info_t info;
+    import_job_t job = {.kp = key.key_package, .kp_len = key.key_package_len, .info = &info};
+    int ret = ftr_task_run(import_job, &job);
+    if (ret != FTR_OK) {
+        secure_memzero(&key, sizeof(key));
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Invalid key_package (%d)", ret);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, msg);
+        return;
+    }
+    if (info.index > participants || info.min_signers > participants) {
+        secure_memzero(&key, sizeof(key));
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS,
+                       "key_package does not fit the participant count");
+        return;
+    }
+
+    ret = share_key_save(group, &key);
+    secure_memzero(&key, sizeof(key));
+    switch (ret) {
+    case STORAGE_OK:
+        break;
+    case STORAGE_ERR_CRYPTO_NOT_INIT:
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_STORAGE, "Storage crypto not initialized");
+        return;
+    case STORAGE_ERR_INVALID_GROUP:
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid group name");
+        return;
+    case STORAGE_ERR_NO_SLOT:
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_STORAGE, "No free storage slot");
+        return;
+    default:
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_STORAGE, "Storage error");
+        return;
+    }
+
+    char group_key_hex[67], verifying_share_hex[67];
+    bytes_to_hex(info.group_key, sizeof(info.group_key), group_key_hex, sizeof(group_key_hex));
+    bytes_to_hex(info.verifying_share, sizeof(info.verifying_share), verifying_share_hex,
+                 sizeof(verifying_share_hex));
+    char result[256];
+    snprintf(result, sizeof(result),
+             "{\"ok\":true,\"index\":%u,\"threshold\":%u,\"participants\":%u,\"pubkey\":\"%s\","
+             "\"verifying_share\":\"%s\"}",
+             info.index, info.min_signers, participants, group_key_hex, verifying_share_hex);
     protocol_success(resp, resp->id, result);
+}
 
-    frost_free(&state);
+int frost_signer_migrate_shares(int *migrated, int *unmigratable) {
+    *migrated = 0;
+    *unmigratable = 0;
+    char groups[STORAGE_MAX_SHARES][STORAGE_GROUP_LEN + 1];
+    int count = storage_list_shares(groups, STORAGE_MAX_SHARES);
+    if (count < 0) {
+        return count;
+    }
+    int status = 0;
+    for (int i = 0; i < count; i++) {
+        uint8_t raw[STORAGE_SHARE_LEN];
+        size_t raw_len = 0;
+        share_key_t probe;
+        if (share_raw_load(groups[i], raw, &raw_len) != SHARE_KEY_OK ||
+            share_payload_decode(raw, raw_len, &probe) != SHARE_KEY_ERR_LEGACY) {
+            secure_memzero(raw, sizeof(raw));
+            secure_memzero(&probe, sizeof(probe));
+            continue;
+        }
+        share_key_t key = {0};
+        uint8_t kp[FTR_KEY_PACKAGE_MAX];
+        legacy_job_t job = {.legacy = raw,
+                            .legacy_len = raw_len,
+                            .kp = kp,
+                            .kp_len = &key.key_package_len,
+                            .participants = &key.participants};
+        int ret = ftr_task_run(legacy_job, &job);
+        secure_memzero(raw, sizeof(raw));
+        if (ret == FTR_OK && key.key_package_len <= sizeof(key.key_package)) {
+            memcpy(key.key_package, kp, key.key_package_len);
+            ret = share_key_save(groups[i], &key);
+            if (ret == STORAGE_OK) {
+                (*migrated)++;
+                FROST_LOGI(TAG, "Migrated share for group %s to protocol 2", groups[i]);
+            } else {
+                status = ret;
+                ESP_LOGE(TAG, "Could not store migrated share for group %s: %d", groups[i], ret);
+            }
+        } else if (ret == FTR_E_LENGTH || ret == FTR_E_DESERIALIZE || ret == FTR_E_NONCANONICAL ||
+                   ret == FTR_E_SHARE_MISMATCH || ret == FTR_E_IDENTIFIER ||
+                   ret == FTR_E_THRESHOLD) {
+            /* Left as it is: only an explicit delete_share removes a share. */
+            (*unmigratable)++;
+            FROST_LOGW(TAG, "Share for group %s cannot be rebuilt as a key package (%d)", groups[i],
+                       ret);
+        } else {
+            status = ret;
+            ESP_LOGE(TAG, "Could not migrate share for group %s: %d", groups[i], ret);
+        }
+        secure_memzero(kp, sizeof(kp));
+        secure_memzero(&key, sizeof(key));
+    }
+    return status;
+}
+
+static void respond_key_info(const char *group, bool full, rpc_response_t *resp) {
+    share_key_t key;
+    ftr_key_info_t info;
+    if (load_key(group, &key, &info, resp) != 0) {
+        return;
+    }
+    uint16_t participants = key.participants;
+    secure_memzero(&key, sizeof(key));
+
+    char group_key_hex[67], verifying_share_hex[67];
+    bytes_to_hex(info.group_key, sizeof(info.group_key), group_key_hex, sizeof(group_key_hex));
+    bytes_to_hex(info.verifying_share, sizeof(info.verifying_share), verifying_share_hex,
+                 sizeof(verifying_share_hex));
+    char result[256];
+    if (full) {
+        snprintf(result, sizeof(result),
+                 "{\"pubkey\":\"%s\",\"index\":%u,\"threshold\":%u,\"participants\":%u,"
+                 "\"verifying_share\":\"%s\"}",
+                 group_key_hex, info.index, info.min_signers, participants, verifying_share_hex);
+    } else {
+        snprintf(result, sizeof(result), "{\"pubkey\":\"%s\",\"index\":%u}", group_key_hex,
+                 info.index);
+    }
+    protocol_success(resp, resp->id, result);
+}
+
+void frost_get_pubkey(const char *group, rpc_response_t *resp) {
+    respond_key_info(group, false, resp);
 }
 
 void frost_get_share_info(const char *group, rpc_response_t *resp) {
-    const share_store_t *store = share_store_default();
-    frost_state_t state;
-
-    if (share_store_load_frost_state(store, group, &state) != 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
-        return;
-    }
-
-    char pubkey_hex[67];
-    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
-
-    char result[192];
-    snprintf(result, sizeof(result),
-             "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d}", pubkey_hex,
-             state.share_index, state.threshold, state.participants);
-    protocol_success(resp, resp->id, result);
-
-    frost_free(&state);
+    respond_key_info(group, true, resp);
 }
 
 static int frost_commit_validate(const char *session_id_hex, const char *message_hex,
@@ -252,12 +496,12 @@ static int frost_commit_validate(const char *session_id_hex, const char *message
         return -1;
     }
 
-    if (strlen(message_hex) != SESSION_ID_HEX_LEN) {
+    if (strlen(message_hex) != FTR_MESSAGE_LEN * 2) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "message must be 32 bytes");
         return -1;
     }
 
-    if (hex_to_bytes(message_hex, message, SESSION_ID_LEN) != SESSION_ID_LEN) {
+    if (hex_to_bytes(message_hex, message, FTR_MESSAGE_LEN) != FTR_MESSAGE_LEN) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid message hex");
         return -1;
     }
@@ -275,9 +519,9 @@ static int frost_commit_validate(const char *session_id_hex, const char *message
     return 0;
 }
 
-static int frost_commit_generate(const char *group, const char *session_id_hex,
-                                 const uint8_t *session_id, const uint8_t *message,
-                                 rpc_response_t *resp) {
+static void frost_commit_generate(const char *group, const char *session_id_hex,
+                                  const uint8_t *session_id, const uint8_t *message,
+                                  rpc_response_t *resp) {
     ag_random_delay_us(100, 1000);
 
     bool has_policy = false;
@@ -287,76 +531,71 @@ static int frost_commit_generate(const char *group, const char *session_id_hex,
     if (!SECRESULT_IS_TRUE(policy_ret)) {
         secure_memzero(policy_hash, sizeof(policy_hash));
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy bundle verification failed");
-        return -1;
+        return;
     }
 
     secresult_t raw_ok = ag_verify_condition_secure(policy_allows_raw_secure());
 
+    share_key_t key;
+    ftr_key_info_t info;
+    if (load_key(group, &key, &info, resp) != 0) {
+        secure_memzero(policy_hash, sizeof(policy_hash));
+        return;
+    }
+
     signing_session_t *s = alloc_session(session_id);
     if (!s) {
+        secure_memzero(&key, sizeof(key));
         secure_memzero(policy_hash, sizeof(policy_hash));
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "No free session slots");
-        return -1;
+        return;
     }
 
     s->has_policy = has_policy;
     memcpy(s->policy_hash, policy_hash, 32);
     secure_memzero(policy_hash, sizeof(policy_hash));
-
-    const share_store_t *store = share_store_default();
-    if (share_store_load_frost_state(store, group, &s->frost_state) != 0) {
-        free_session(s);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
-        return -1;
-    }
-
     strncpy(s->group, group, STORAGE_GROUP_LEN);
     s->group[STORAGE_GROUP_LEN] = '\0';
+    memcpy(s->message, message, FTR_MESSAGE_LEN);
+    s->index = info.index;
+    memcpy(s->verifying_share, info.verifying_share, sizeof(s->verifying_share));
+    s->created_at = get_time_ms();
 
-    uint16_t threshold = s->frost_state.threshold > 0 ? s->frost_state.threshold : 2;
-    if (frost_init_signing_session(&s->session, session_id, message, s->frost_state.share_index,
-                                   threshold) != 0) {
-        free_session(s);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to init session");
-        return -1;
-    }
-
-    /* Consumed only now, so a failure setting up the session does not use up a valid
-     * approval. */
+    /* Consumed only now, so a missing share or a full session table does not use up a
+     * valid approval. */
     if (!SECRESULT_IS_TRUE(raw_ok)) {
         secresult_t approved = ag_verify_condition_secure(
             sign_approval_consume_secure(message, sign_approval_now_ms()));
         if (!SECRESULT_IS_TRUE(approved)) {
+            secure_memzero(&key, sizeof(key));
             free_session(s);
             PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN,
                            "Message not approved by bitcoin_sign under the installed policy");
-            return -1;
+            return;
         }
     }
 
-    frost_commitment_result_t commit_result;
-    if (frost_create_commitment_pure(&s->frost_state, &s->session, &commit_result) != 0) {
+    uint8_t commitments[FTR_COMMITMENTS_LEN];
+    commit_job_t job = {.kp = key.key_package,
+                        .kp_len = key.key_package_len,
+                        .nonces = s->nonces,
+                        .commitments = commitments};
+    int ret = ftr_task_run(commit_job, &job);
+    secure_memzero(&key, sizeof(key));
+    if (ret != FTR_OK) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to create commitment");
-        return -1;
+        return;
     }
 
-    int cp_ret = session_checkpoint_save(&s->session, s->session.our_nonce, s->group);
-    if (cp_ret != 0) {
-        FROST_LOGW(TAG, "Failed to checkpoint session: %d", cp_ret);
-    }
-
-    char commitment_hex[COMMITMENT_HEX_LEN + 1];
-    bytes_to_hex(commit_result.commitment, commit_result.commitment_len, commitment_hex,
-                 sizeof(commitment_hex));
-
-    char result[512];
-    snprintf(result, sizeof(result), "{\"commitment\":\"%s\",\"index\":%d}", commitment_hex,
-             commit_result.index);
+    char commitments_hex[FTR_COMMITMENTS_LEN * 2 + 1];
+    bytes_to_hex(commitments, sizeof(commitments), commitments_hex, sizeof(commitments_hex));
+    char result[256];
+    snprintf(result, sizeof(result), "{\"commitment\":\"%s\",\"index\":%u}", commitments_hex,
+             s->index);
     protocol_success(resp, resp->id, result);
 
     FROST_LOGI(TAG, "Created commitment for session %.16s...", session_id_hex);
-    return 0;
 }
 
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex,
@@ -368,7 +607,7 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     KEEP_ASSERT_VOID(group[0] != '\0');
 
     uint8_t session_id[SESSION_ID_LEN];
-    uint8_t message[SESSION_ID_LEN];
+    uint8_t message[FTR_MESSAGE_LEN];
 
     if (frost_commit_validate(session_id_hex, message_hex, session_id, message, resp) != 0) {
         return;
@@ -377,20 +616,19 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
     frost_commit_generate(group, session_id_hex, session_id, message, resp);
 }
 
-static int frost_sign_validate_rng(rpc_response_t *resp) {
-    secresult_t rng_health = rng_is_healthy_secure();
-    rng_health = ag_verify_condition_secure(rng_health);
-    if (!SECRESULT_IS_TRUE(rng_health)) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL,
-                       "RNG health check failed, device in safe mode");
-        return -1;
-    }
-    return 0;
+static void respond_share(const signing_session_t *s, rpc_response_t *resp) {
+    char share_hex[FTR_SIGNATURE_SHARE_LEN * 2 + 1];
+    bytes_to_hex(s->share, sizeof(s->share), share_hex, sizeof(share_hex));
+    char result[128];
+    snprintf(result, sizeof(result), "{\"signature_share\":\"%s\",\"index\":%u}", share_hex,
+             s->index);
+    protocol_success(resp, resp->id, result);
 }
 
-static int frost_sign_check_policy(signing_session_t *s, const char *session_id_hex,
-                                   const uint8_t *session_id, const char *commitments_hex,
-                                   rpc_response_t *resp) {
+static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
+                               const uint8_t *session_id, const uint8_t *package,
+                               size_t package_len, const uint8_t package_hash[32],
+                               rpc_response_t *resp) {
     ag_random_delay_us(100, 1000);
 
     secresult_t policy_check = verify_policy_unchanged_secure(s->has_policy, s->policy_hash);
@@ -398,134 +636,79 @@ static int frost_sign_check_policy(signing_session_t *s, const char *session_id_
     if (!SECRESULT_IS_TRUE(policy_check)) {
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during session");
-        return -1;
-    }
-
-    ag_random_delay_us(100, 1000);
-
-    int parsed = frost_parse_commitments(commitments_hex, &s->session);
-    if (parsed < 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid commitments format");
-        return -1;
-    }
-
-    uint8_t total_participants = s->session.commitment_count + 1;
-    if (total_participants < s->frost_state.threshold) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough commitments for threshold");
-        return -1;
-    }
-    s->session.participant_count = total_participants;
-    s->session.state = SESSION_AWAITING_SHARES;
-
-    uint16_t our_index = s->frost_state.share_index;
-
-    if (is_session_consumed(session_id)) {
-        for (uint8_t i = 0; i < s->session.sig_share_count && i < MAX_PARTICIPANTS; i++) {
-            if (s->session.sig_share_indices[i] == our_index) {
-                char cached_share_hex[73];
-                bytes_to_hex(s->session.sig_shares[i], s->session.sig_share_lens[i],
-                             cached_share_hex, sizeof(cached_share_hex));
-
-                char result[192];
-                snprintf(result, sizeof(result), "{\"signature_share\":\"%s\",\"index\":%d}",
-                         cached_share_hex, our_index);
-                protocol_success(resp, resp->id, result);
-                FROST_LOGI(TAG, "Returning cached signature share for session %.16s... (retry)",
-                           session_id_hex);
-                return 1;
-            }
-        }
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already consumed");
-        return -1;
-    }
-
-    return 0;
-}
-
-static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
-                               const uint8_t *session_id, rpc_response_t *resp) {
-    ag_random_delay_us(100, 1000);
-
-    bool policy_snapshot = s->has_policy;
-    uint8_t policy_hash_snapshot[32];
-    memcpy(policy_hash_snapshot, s->policy_hash, 32);
-
-    frost_sign_result_t sign_result;
-    /* The nonce is wiped once a share is released; never sign with it again. */
-    uint8_t nonce_bits = 0;
-    for (size_t i = 0; i < sizeof(s->session.our_nonce); i++) {
-        nonce_bits |= s->session.our_nonce[i];
-    }
-    if (nonce_bits == 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session nonce already used");
         return;
     }
 
-    if (frost_sign_share_pure(&s->frost_state, &s->session, s->session.message,
-                              s->session.message_len, &sign_result) != 0) {
-        secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
+    share_key_t key;
+    ftr_key_info_t info;
+    if (load_key(s->group, &key, &info, resp) != 0) {
         free_session(s);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Signing failed");
+        return;
+    }
+    if (info.index != s->index ||
+        ct_compare(info.verifying_share, s->verifying_share, sizeof(s->verifying_share)) != 0) {
+        secure_memzero(&key, sizeof(key));
+        free_session(s);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share changed during session");
         return;
     }
 
     ag_random_delay_us(100, 1000);
 
-    secresult_t post_sign_check =
-        verify_policy_unchanged_secure(policy_snapshot, policy_hash_snapshot);
-    secure_memzero(policy_hash_snapshot, sizeof(policy_hash_snapshot));
+    uint8_t share[FTR_SIGNATURE_SHARE_LEN];
+    sign_job_t job = {.kp = key.key_package,
+                      .kp_len = key.key_package_len,
+                      .nonces = s->nonces,
+                      .package = package,
+                      .package_len = package_len,
+                      .message = s->message,
+                      .share = share};
+    int ret = ftr_task_run(sign_job, &job);
+    secure_memzero(&key, sizeof(key));
+    /* frost_tr zeroes the nonces whatever the outcome; the session is spent either way. */
+    secure_memzero(s->nonces, sizeof(s->nonces));
+    if (ret != FTR_OK) {
+        secure_memzero(share, sizeof(share));
+        free_session(s);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Signing refused (%d)", ret);
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, msg);
+        return;
+    }
+
+    ag_random_delay_us(100, 1000);
+
+    secresult_t post_sign_check = verify_policy_unchanged_secure(s->has_policy, s->policy_hash);
     post_sign_check = ag_verify_condition_secure(post_sign_check);
     if (!SECRESULT_IS_TRUE(post_sign_check)) {
+        secure_memzero(share, sizeof(share));
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy changed during signing");
         return;
     }
 
-    int share_idx = s->session.sig_share_count;
-    if (share_idx >= MAX_PARTICIPANTS) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Maximum signature shares reached");
-        return;
-    }
-
-    /* The checkpoint still holds this nonce. If it cannot be removed, release nothing: a
-     * resume after a reboot could otherwise sign a second message with the same nonce. */
-    int clear_ret = session_checkpoint_clear(session_id);
-    if (clear_ret != 0 && clear_ret != STORAGE_ERR_NOT_FOUND) {
-        secure_memzero(&sign_result, sizeof(sign_result));
-        free_session(s);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to clear session checkpoint");
-        return;
-    }
-
     record_consumed_session(session_id);
+    s->released = true;
+    memcpy(s->share, share, sizeof(share));
+    memcpy(s->package_hash, package_hash, 32);
+    secure_memzero(share, sizeof(share));
 
-    memcpy(s->session.sig_shares[share_idx], sign_result.sig_share, sign_result.sig_share_len);
-    s->session.sig_share_lens[share_idx] = sign_result.sig_share_len;
-    s->session.sig_share_indices[share_idx] = sign_result.index;
-    s->session.sig_share_count++;
-    secure_memzero(s->session.our_nonce, sizeof(s->session.our_nonce));
-
-    char sig_share_hex[73];
-    bytes_to_hex(sign_result.sig_share, sign_result.sig_share_len, sig_share_hex,
-                 sizeof(sig_share_hex));
-
-    char result[192];
-    snprintf(result, sizeof(result), "{\"signature_share\":\"%s\",\"index\":%d}", sig_share_hex,
-             sign_result.index);
-    protocol_success(resp, resp->id, result);
-
+    respond_share(s, resp);
     FROST_LOGI(TAG, "Created signature share for session %.16s...", session_id_hex);
 }
 
-void frost_sign(const char *group, const char *session_id_hex, const char *commitments_hex,
+void frost_sign(const char *group, const char *session_id_hex, const char *signing_package_hex,
                 rpc_response_t *resp) {
     KEEP_ASSERT_VOID(group != NULL);
     KEEP_ASSERT_VOID(session_id_hex != NULL);
-    KEEP_ASSERT_VOID(commitments_hex != NULL);
+    KEEP_ASSERT_VOID(signing_package_hex != NULL);
     KEEP_ASSERT_VOID(resp != NULL);
     KEEP_ASSERT_VOID(group[0] != '\0');
 
-    if (frost_sign_validate_rng(resp) != 0) {
+    secresult_t rng_health = ag_verify_condition_secure(rng_is_healthy_secure());
+    if (!SECRESULT_IS_TRUE(rng_health)) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL,
+                       "RNG health check failed, device in safe mode");
         return;
     }
 
@@ -545,337 +728,48 @@ void frost_sign(const char *group, const char *session_id_hex, const char *commi
         return;
     }
 
-    int policy_ret = frost_sign_check_policy(s, session_id_hex, session_id, commitments_hex, resp);
-    if (policy_ret != 0) {
+    static uint8_t package[FTR_SIGNING_PACKAGE_MAX];
+    int package_len = hex_to_bytes(signing_package_hex, package, sizeof(package));
+    if (package_len <= 0) {
+        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signing_package hex");
+        return;
+    }
+    /* Only identifies a retry of the same package; at worst a failed hash makes a retry
+     * return the share already released for this session. */
+    uint8_t package_hash[32] = {0};
+    mbedtls_sha256(package, (size_t)package_len, package_hash, 0);
+
+    /* A host that lost the response may ask again; it gets the same share for the same
+     * package, and nothing for any other. */
+    if (s->released) {
+        if (ct_compare(s->package_hash, package_hash, sizeof(package_hash)) == 0) {
+            respond_share(s, resp);
+            FROST_LOGI(TAG, "Returning signature share for session %.16s... (retry)",
+                       session_id_hex);
+        } else {
+            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already consumed");
+        }
         return;
     }
 
-    frost_sign_execute(s, session_id_hex, session_id, resp);
+    frost_sign_execute(s, session_id_hex, session_id, package, (size_t)package_len, package_hash,
+                       resp);
 }
 
 void frost_signer_cleanup_stale(void) {
     uint32_t now = get_time_ms();
     for (int i = 0; i < MAX_SESSIONS; i++) {
-        if (sessions[i].active &&
-            elapsed_ms(sessions[i].session.created_at, now) > SESSION_TIMEOUT_MS) {
+        if (sessions[i].active && elapsed_ms(sessions[i].created_at, now) > SESSION_TIMEOUT_MS) {
             FROST_LOGW(TAG, "Cleaning up stale session");
             free_session(&sessions[i]);
         }
     }
 }
 
-int frost_signer_discard_sessions(void) {
+void frost_signer_discard_sessions(void) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
         if (sessions[i].active) {
             free_session(&sessions[i]);
         }
     }
-    uint8_t ids[STORAGE_MAX_SESSION_CHECKPOINTS][SESSION_ID_LEN];
-    int count = session_checkpoint_list(ids, STORAGE_MAX_SESSION_CHECKPOINTS);
-    if (count < 0) {
-        return -1;
-    }
-    int ret = 0;
-    for (int i = 0; i < count; i++) {
-        int clear_ret = session_checkpoint_clear(ids[i]);
-        if (clear_ret != 0 && clear_ret != STORAGE_ERR_NOT_FOUND) {
-            ret = -1;
-        }
-    }
-    return ret;
-}
-
-void frost_add_share(const char *session_id_hex, const char *sig_share_hex, uint16_t share_index,
-                     rpc_response_t *resp) {
-    uint8_t session_id[SESSION_ID_LEN];
-    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
-        return;
-    }
-
-    signing_session_t *s = find_session(session_id);
-    if (!s) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
-        return;
-    }
-
-    if (s->session.state != SESSION_AWAITING_SHARES) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not awaiting shares");
-        return;
-    }
-
-    uint8_t share_bytes[SIG_SHARE_LEN];
-    size_t share_len;
-    if (frost_parse_sig_share(sig_share_hex, share_bytes, &share_len) != 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_PARAMS, "Invalid signature share");
-        return;
-    }
-
-    int idx = s->session.sig_share_count;
-    if (idx >= MAX_PARTICIPANTS) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Too many signature shares");
-        return;
-    }
-
-    memcpy(s->session.sig_shares[idx], share_bytes, share_len);
-    s->session.sig_share_lens[idx] = share_len;
-    s->session.sig_share_indices[idx] = share_index;
-    s->session.sig_share_count++;
-
-    char result[64];
-    snprintf(result, sizeof(result), "{\"shares_collected\":%d}", s->session.sig_share_count);
-    protocol_success(resp, resp->id, result);
-}
-
-void frost_aggregate_shares(const char *session_id_hex, rpc_response_t *resp) {
-    uint8_t session_id[SESSION_ID_LEN];
-    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
-        return;
-    }
-
-    signing_session_t *s = find_session(session_id);
-    if (!s) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session not found");
-        return;
-    }
-
-    if (s->session.sig_share_count < s->session.threshold) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Not enough shares");
-        return;
-    }
-
-    frost_aggregate_result_t agg_result;
-    if (frost_aggregate_pure(&s->frost_state, &s->session, s->session.message,
-                             s->session.message_len, &agg_result) != 0) {
-        free_session(s);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Aggregation failed");
-        return;
-    }
-
-    char sig_hex[SIGNATURE_LEN * 2 + 1];
-    bytes_to_hex(agg_result.signature, SIGNATURE_LEN, sig_hex, sizeof(sig_hex));
-
-    char result[192];
-    snprintf(result, sizeof(result), "{\"signature\":\"%s\"}", sig_hex);
-    protocol_success(resp, resp->id, result);
-
-    s->session.state = SESSION_COMPLETE;
-    memcpy(s->session.final_signature, agg_result.signature, SIGNATURE_LEN);
-    s->session.has_signature = true;
-
-    FROST_LOGI(TAG, "Aggregated signature for session %.16s...", session_id_hex);
-
-    free_session(s);
-}
-
-void frost_export_share(const char *group, rpc_response_t *resp) {
-    const share_store_t *store = share_store_default();
-    frost_state_t state;
-
-    if (share_store_load_frost_state(store, group, &state) != 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found");
-        return;
-    }
-
-    char pubkey_hex[67];
-    bytes_to_hex(state.group_pubkey, sizeof(state.group_pubkey), pubkey_hex, sizeof(pubkey_hex));
-
-    group_metadata_t metadata;
-    bool has_metadata = storage_load_metadata(group, &metadata) == 0;
-
-    char result[1024];
-    int len;
-
-    if (has_metadata && metadata.has_coordinator) {
-        char coord_hex[65];
-        bytes_to_hex(metadata.coordinator_npub, STORAGE_PUBKEY_LEN, coord_hex, sizeof(coord_hex));
-        len = snprintf(result, sizeof(result),
-                       "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d,"
-                       "\"created_at\":%llu,\"coordinator\":\"%s\"}",
-                       pubkey_hex, state.share_index, state.threshold, state.participants,
-                       (unsigned long long)metadata.created_at, coord_hex);
-    } else if (has_metadata) {
-        len = snprintf(result, sizeof(result),
-                       "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d,"
-                       "\"created_at\":%llu}",
-                       pubkey_hex, state.share_index, state.threshold, state.participants,
-                       (unsigned long long)metadata.created_at);
-    } else {
-        len = snprintf(result, sizeof(result),
-                       "{\"pubkey\":\"%s\",\"index\":%d,\"threshold\":%d,\"participants\":%d}",
-                       pubkey_hex, state.share_index, state.threshold, state.participants);
-    }
-
-    if (len < 0 || (size_t)len >= sizeof(result)) {
-        frost_free(&state);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
-        return;
-    }
-
-    protocol_success(resp, resp->id, result);
-    frost_free(&state);
-}
-
-static int frost_session_resume_load(const uint8_t *session_id, session_t *restored_session,
-                                     uint8_t *nonce_backup, char *restored_group,
-                                     rpc_response_t *resp) {
-    if (find_session(session_id) != NULL) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already active");
-        return -1;
-    }
-
-    if (is_session_consumed(session_id)) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Session already used");
-        return -1;
-    }
-
-    if (session_checkpoint_load(session_id, restored_session, nonce_backup, restored_group,
-                                STORAGE_GROUP_LEN + 1) != 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "No checkpoint found");
-        return -1;
-    }
-
-    if (restored_group[0] == '\0') {
-        session_destroy(restored_session);
-        secure_memzero(nonce_backup, SIGNATURE_LEN);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Checkpoint missing group");
-        return -1;
-    }
-
-    uint32_t now = get_time_ms();
-    uint32_t extended_timeout = SESSION_TIMEOUT_MS * 3;
-
-    if (elapsed_ms(restored_session->created_at, now) > extended_timeout) {
-        session_checkpoint_clear(session_id);
-        session_destroy(restored_session);
-        secure_memzero(nonce_backup, SIGNATURE_LEN);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Checkpoint expired");
-        return -1;
-    }
-
-    return 0;
-}
-
-static int frost_session_resume_reconstruct(const uint8_t *session_id, session_t *restored_session,
-                                            uint8_t *nonce_backup, const char *restored_group,
-                                            const char *session_id_hex, rpc_response_t *resp) {
-    signing_session_t *s = alloc_session(session_id);
-    if (!s) {
-        session_destroy(restored_session);
-        secure_memzero(nonce_backup, SIGNATURE_LEN);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "No free session slots");
-        return -1;
-    }
-
-    const share_store_t *store = share_store_default();
-    if (share_store_load_frost_state(store, restored_group, &s->frost_state) != 0) {
-        free_session(s);
-        session_destroy(restored_session);
-        secure_memzero(nonce_backup, SIGNATURE_LEN);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share not found for group");
-        return -1;
-    }
-
-    strncpy(s->group, restored_group, STORAGE_GROUP_LEN);
-    s->group[STORAGE_GROUP_LEN] = '\0';
-
-    bool has_policy = false;
-    uint8_t policy_hash[32];
-    secresult_t policy_ret = capture_policy_snapshot_secure(&has_policy, policy_hash);
-    if (!SECRESULT_IS_TRUE(policy_ret)) {
-        free_session(s);
-        session_destroy(restored_session);
-        secure_memzero(nonce_backup, SIGNATURE_LEN);
-        secure_memzero(policy_hash, sizeof(policy_hash));
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Policy verification failed");
-        return -1;
-    }
-    s->has_policy = has_policy;
-    memcpy(s->policy_hash, policy_hash, 32);
-    secure_memzero(policy_hash, sizeof(policy_hash));
-
-    int clear_ret = session_checkpoint_clear(session_id);
-    if (clear_ret != 0) {
-        free_session(s);
-        secure_memzero(restored_session, sizeof(session_t));
-        secure_memzero(nonce_backup, SIGNATURE_LEN);
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SIGN, "Failed to clear checkpoint");
-        return -1;
-    }
-
-    memcpy(&s->session, restored_session, sizeof(session_t));
-    memcpy(s->session.our_nonce, nonce_backup, SIGNATURE_LEN);
-    secure_memzero(restored_session, sizeof(session_t));
-    secure_memzero(nonce_backup, SIGNATURE_LEN);
-
-    s->session.created_at = get_time_ms();
-
-    char result[256];
-    snprintf(result, sizeof(result),
-             "{\"resumed\":true,\"state\":%d,\"commitment_count\":%d,\"sig_share_count\":%d}",
-             (int)s->session.state, s->session.commitment_count, s->session.sig_share_count);
-    protocol_success(resp, resp->id, result);
-
-    FROST_LOGI(TAG, "Resumed session %.16s...", session_id_hex);
-    return 0;
-}
-
-void frost_session_resume(const char *session_id_hex, rpc_response_t *resp) {
-    KEEP_ASSERT_VOID(session_id_hex != NULL);
-    KEEP_ASSERT_VOID(resp != NULL);
-
-    uint8_t session_id[SESSION_ID_LEN];
-    if (parse_session_id(session_id_hex, session_id, resp) != 0) {
-        return;
-    }
-
-    session_t restored_session;
-    uint8_t nonce_backup[SIGNATURE_LEN];
-    char restored_group[STORAGE_GROUP_LEN + 1];
-
-    if (frost_session_resume_load(session_id, &restored_session, nonce_backup, restored_group,
-                                  resp) != 0) {
-        return;
-    }
-
-    frost_session_resume_reconstruct(session_id, &restored_session, nonce_backup, restored_group,
-                                     session_id_hex, resp);
-}
-
-void frost_session_list(rpc_response_t *resp) {
-    uint8_t session_ids[STORAGE_MAX_SESSION_CHECKPOINTS][SESSION_ID_LEN];
-    int count = session_checkpoint_list(session_ids, STORAGE_MAX_SESSION_CHECKPOINTS);
-
-    if (count < 0) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Failed to list checkpoints");
-        return;
-    }
-
-    char result[512];
-    size_t offset = 0;
-    int ret = snprintf(result, sizeof(result), "{\"checkpoints\":[");
-    if (ret < 0 || (size_t)ret >= sizeof(result)) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
-        return;
-    }
-    offset = (size_t)ret;
-
-    for (int i = 0; i < count; i++) {
-        char id_hex[SESSION_ID_HEX_LEN + 1];
-        bytes_to_hex(session_ids[i], SESSION_ID_LEN, id_hex, sizeof(id_hex));
-        ret = snprintf(result + offset, sizeof(result) - offset, "%s\"%s\"", (i > 0) ? "," : "",
-                       id_hex);
-        if (ret < 0 || (size_t)ret >= sizeof(result) - offset) {
-            PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
-            return;
-        }
-        offset += (size_t)ret;
-    }
-
-    ret = snprintf(result + offset, sizeof(result) - offset, "],\"count\":%d}", count);
-    if (ret < 0 || (size_t)ret >= sizeof(result) - offset) {
-        PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_INTERNAL, "Buffer overflow");
-        return;
-    }
-
-    protocol_success(resp, resp->id, result);
 }

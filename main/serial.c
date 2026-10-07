@@ -3,6 +3,7 @@
 
 #include "serial.h"
 #include "protocol.h"
+#include "crypto_asm.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
 #include "driver/usb_serial_jtag.h"
@@ -46,6 +47,8 @@ int serial_read_line(char *buf, size_t len) {
                 size_t copy_len = rx_pos < len - 1 ? rx_pos : len - 1;
                 memcpy(buf, rx_buf, copy_len);
                 buf[copy_len] = '\0';
+                /* The line may carry a key package or PIN; keep no copy of it here. */
+                secure_memzero(rx_buf, rx_pos);
                 rx_pos = 0;
                 return (int)copy_len;
             }

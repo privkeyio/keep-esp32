@@ -1,1 +1,1 @@
-{"jsonrpc":"2.0","method":"import_share","params":{"group":"group1","share":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"id":4}
+{"jsonrpc":"2.0","method":"import_share","params":{"group":"group1","key_package":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","participants":3},"id":4}

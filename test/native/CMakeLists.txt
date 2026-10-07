@@ -11,8 +11,8 @@ set(SECP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../secp256k1-frost)
 # cJSON comes from managed_components/, which the IDF component manager generates
 # and .gitignore excludes. A fresh checkout therefore does not have it, so every
 # test gated on it configured itself away with a STATUS message and CI reported
-# success having built neither test_protocol, test_coordinator, nor
-# test_coordinator_race. Nothing was red; three suites simply did not exist.
+# success having built neither test_protocol nor the device harness. Nothing
+# was red; the suites simply did not exist.
 #
 # Prefer the vendored copy when a build has produced it, so tests compile the
 # same cJSON the firmware does. Otherwise fall back to a system cJSON, which is
@@ -47,21 +47,43 @@ endif()
 
 if(NOT CJSON_AVAILABLE AND REQUIRE_ALL_TESTS)
     message(FATAL_ERROR
-        "cJSON not found, and REQUIRE_ALL_TESTS is ON. test_protocol, "
-        "test_integration_full, test_coordinator and test_coordinator_race "
-        "would be skipped. Install libcjson-dev, or run an IDF build first to "
-        "populate managed_components/.")
+        "cJSON not found, and REQUIRE_ALL_TESTS is ON. test_protocol and the "
+        "device harness would be skipped. Install libcjson-dev, or run an IDF "
+        "build first to populate managed_components/.")
 endif()
 set(MAIN_DIR ${CMAKE_CURRENT_LIST_DIR}/../../main)
+set(FROST_TR_DIR ${CMAKE_CURRENT_LIST_DIR}/../../components/frost_tr)
+# protocol.h sizes its buffers from frost_tr.h.
+include_directories(${FROST_TR_DIR}/include)
 
-add_executable(test_frost test_frost.c)
-target_include_directories(test_frost PRIVATE ${SECP_DIR}/include)
-target_link_directories(test_frost PRIVATE ${SECP_DIR}/build/src)
-target_link_libraries(test_frost secp256k1)
-set_target_properties(test_frost PROPERTIES
-    BUILD_RPATH ${SECP_DIR}/build/src
-    INSTALL_RPATH ${SECP_DIR}/build/src
+# The frost_tr crate built for this machine (scripts/build-frost-tr.sh --host) and
+# the Rust host side of a FROST round (frost_tool/), both needed by the device harness.
+set(FROST_TR_HOST_LIB ${FROST_TR_DIR}/lib/host/libfrost_tr.a)
+find_program(CARGO cargo)
+if(EXISTS ${FROST_TR_HOST_LIB} AND CARGO)
+    set(FROST_TR_AVAILABLE TRUE)
+    add_custom_target(frost_tool ALL
+        COMMAND ${CARGO} build --release --locked --quiet
+            --manifest-path ${CMAKE_CURRENT_LIST_DIR}/frost_tool/Cargo.toml
+            --target-dir ${CMAKE_BINARY_DIR}/frost_tool
+        COMMENT "Building frost_tool")
+else()
+    set(FROST_TR_AVAILABLE FALSE)
+    if(REQUIRE_ALL_TESTS)
+        message(FATAL_ERROR
+            "REQUIRE_ALL_TESTS is ON but the device harness cannot be built: it needs "
+            "${FROST_TR_HOST_LIB} (scripts/build-frost-tr.sh --host) and cargo.")
+    endif()
+    message(STATUS "Skipping keep_device (frost_tr host library or cargo not found)")
+endif()
+
+add_executable(test_share_payload test_share_payload.c ${MAIN_DIR}/frost_signer_storage.c)
+target_include_directories(test_share_payload PRIVATE
+    ${MAIN_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
+    ${FROST_TR_DIR}/include
 )
+target_compile_definitions(test_share_payload PRIVATE NATIVE_TEST=1)
 
 if(CJSON_AVAILABLE)
     add_executable(test_protocol test_protocol.c ${CJSON_SOURCES} ${MAIN_DIR}/protocol.c ${MAIN_DIR}/error_context.c ${MAIN_DIR}/error_codes.c)
@@ -85,13 +107,6 @@ target_include_directories(test_storage PRIVATE
 )
 target_compile_definitions(test_storage PRIVATE NATIVE_TEST=1)
 
-add_executable(test_session test_session.c)
-target_include_directories(test_session PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-    ${MAIN_DIR}
-)
-target_compile_definitions(test_session PRIVATE NATIVE_TEST=1)
-
 add_executable(test_secure_element test_secure_element.c)
 target_include_directories(test_secure_element PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mocks
@@ -99,50 +114,15 @@ target_include_directories(test_secure_element PRIVATE
 )
 target_compile_definitions(test_secure_element PRIVATE NATIVE_TEST=1 SE_MOCK_SKIP_IMPL=1)
 
-add_executable(test_frost_signer_core test_frost_signer_core.c ${MAIN_DIR}/frost_signer_core.c ${MAIN_DIR}/frost.c ${MAIN_DIR}/random_utils.c ${MAIN_DIR}/hw_entropy.c)
-# main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
-# TUs that include it from test/native/, and its static inline rng_* bind ahead of
-# the random_utils.c compiled into the same target.
-target_include_directories(test_frost_signer_core PRIVATE
-    ${MAIN_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-    ${SECP_DIR}/include
-)
-target_link_directories(test_frost_signer_core PRIVATE ${SECP_DIR}/build/src)
-target_link_libraries(test_frost_signer_core secp256k1)
-set_target_properties(test_frost_signer_core PROPERTIES
-    BUILD_RPATH ${SECP_DIR}/build/src
-    INSTALL_RPATH ${SECP_DIR}/build/src
-)
-target_compile_definitions(test_frost_signer_core PRIVATE NATIVE_TEST=1)
-
 add_executable(test_secresult test_secresult.c)
 target_include_directories(test_secresult PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mocks
 )
 target_compile_definitions(test_secresult PRIVATE NATIVE_TEST=1)
 
-add_executable(test_integration test_integration.c)
-target_include_directories(test_integration PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-    ${MAIN_DIR}
-)
-target_compile_definitions(test_integration PRIVATE NATIVE_TEST=1)
-
-if(CJSON_AVAILABLE)
-    add_executable(test_integration_full test_integration.c ${CJSON_SOURCES} ${MAIN_DIR}/error_codes.c)
-    target_link_libraries(test_integration_full ${CJSON_LIBS})
-    target_include_directories(test_integration_full PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-        ${MAIN_DIR}
-        ${CJSON_INCLUDE}
-    )
-    target_compile_definitions(test_integration_full PRIVATE NATIVE_TEST=1 HAS_CJSON=1)
-endif()
-
 find_package(MbedTLS QUIET)
 if(MbedTLS_FOUND)
-    add_executable(test_self_test test_self_test.c)
+    add_executable(test_self_test test_self_test.c ${MAIN_DIR}/frost_tr_task.c)
     target_include_directories(test_self_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/mocks
         ${MAIN_DIR}
@@ -153,7 +133,7 @@ if(MbedTLS_FOUND)
 else()
     find_library(MBEDCRYPTO_LIB mbedcrypto)
     if(MBEDCRYPTO_LIB)
-        add_executable(test_self_test test_self_test.c)
+        add_executable(test_self_test test_self_test.c ${MAIN_DIR}/frost_tr_task.c)
         target_include_directories(test_self_test PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/mocks
             ${MAIN_DIR}
@@ -223,7 +203,7 @@ else()
     message(STATUS "Skipping test_psbt_fraud_integration and test_psbt_unified_sighash (libwally-core not found)")
 endif()
 
-if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE)
+if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE AND FROST_TR_AVAILABLE)
     find_library(MBEDCRYPTO_LIBRARY mbedcrypto)
     add_executable(keep_device
         device/device_main.c
@@ -235,10 +215,8 @@ if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE)
         ${MAIN_DIR}/policy.c
         ${MAIN_DIR}/protocol.c
         ${MAIN_DIR}/frost_signer.c
-        ${MAIN_DIR}/frost_signer_core.c
         ${MAIN_DIR}/frost_signer_storage.c
-        ${MAIN_DIR}/frost.c
-        ${MAIN_DIR}/session.c
+        ${MAIN_DIR}/frost_tr_task.c
         ${MAIN_DIR}/random_utils.c
         ${MAIN_DIR}/hw_entropy.c
         ${MAIN_DIR}/anti_glitch.c
@@ -249,27 +227,18 @@ if(EXISTS ${WALLY_DIR}/include/wally_psbt.h AND CJSON_AVAILABLE)
         ${CMAKE_CURRENT_SOURCE_DIR}/device/shim
         ${MAIN_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/../../components/crypto_asm/include
+        ${FROST_TR_DIR}/include
         ${WALLY_DIR}/include
         ${SECP_DIR}/include
         ${CJSON_INCLUDE}
     )
     target_link_directories(keep_device PRIVATE ${WALLY_DIR}/src/.libs ${SECP_DIR}/build/src)
-    target_link_libraries(keep_device wallycore secp256k1 ${MBEDCRYPTO_LIBRARY} ${CJSON_LIBS})
+    target_link_libraries(keep_device wallycore secp256k1 ${FROST_TR_HOST_LIB} ${MBEDCRYPTO_LIBRARY}
+                          ${CJSON_LIBS})
     set_target_properties(keep_device PROPERTIES
         BUILD_RPATH "${WALLY_DIR}/src/.libs;${SECP_DIR}/build/src"
     )
-
-    add_executable(keep_device_keygen device/keygen.c)
-    target_include_directories(keep_device_keygen PRIVATE ${SECP_DIR}/include)
-    target_link_directories(keep_device_keygen PRIVATE ${SECP_DIR}/build/src)
-    target_link_libraries(keep_device_keygen secp256k1)
-    set_target_properties(keep_device_keygen PROPERTIES BUILD_RPATH ${SECP_DIR}/build/src)
-
-    add_executable(keep_device_aggregate device/aggregate.c)
-    target_include_directories(keep_device_aggregate PRIVATE ${SECP_DIR}/include)
-    target_link_directories(keep_device_aggregate PRIVATE ${SECP_DIR}/build/src)
-    target_link_libraries(keep_device_aggregate secp256k1)
-    set_target_properties(keep_device_aggregate PROPERTIES BUILD_RPATH ${SECP_DIR}/build/src)
+    add_dependencies(keep_device frost_tool)
 endif()
 
 add_executable(test_sign_approval test_sign_approval.c ${MAIN_DIR}/sign_approval.c)
@@ -281,66 +250,6 @@ target_include_directories(test_anti_glitch PRIVATE
     ${MAIN_DIR}
 )
 target_compile_definitions(test_anti_glitch PRIVATE NATIVE_TEST=1)
-
-if(CJSON_AVAILABLE)
-    add_executable(test_coordinator
-        test_coordinator.c
-        ${MAIN_DIR}/frost_coordinator.c
-        ${MAIN_DIR}/random_utils.c
-        ${MAIN_DIR}/hw_entropy.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/ws_transport_mock.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
-        ${CJSON_SOURCES}
-    )
-        # main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
-    # TUs that include it from test/native/, and its static inline rng_* bind ahead of
-    # the random_utils.c compiled into the same target.
-target_include_directories(test_coordinator PRIVATE
-        ${MAIN_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CJSON_INCLUDE}
-    )
-    target_compile_definitions(test_coordinator PRIVATE NATIVE_TEST=1)
-    find_package(Threads REQUIRED)
-    target_link_libraries(test_coordinator Threads::Threads ${CJSON_LIBS})
-else()
-    message(STATUS "Skipping test_coordinator (cJSON not found)")
-endif()
-
-if(CJSON_AVAILABLE)
-    add_executable(test_coordinator_race
-        test_coordinator_race.c
-        ${MAIN_DIR}/frost_coordinator.c
-        ${MAIN_DIR}/random_utils.c
-        ${MAIN_DIR}/hw_entropy.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/ws_transport_mock.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks/nostr_frost_stubs.c
-        ${CJSON_SOURCES}
-    )
-        # main/ before mocks/: mocks/random_utils.h otherwise shadows the real header for
-    # TUs that include it from test/native/, and its static inline rng_* bind ahead of
-    # the random_utils.c compiled into the same target.
-target_include_directories(test_coordinator_race PRIVATE
-        ${MAIN_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mocks
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CJSON_INCLUDE}
-    )
-    target_compile_definitions(test_coordinator_race PRIVATE NATIVE_TEST=1)
-    set_target_properties(test_coordinator_race PROPERTIES C_STANDARD 11)
-    find_package(Threads REQUIRED)
-    target_link_libraries(test_coordinator_race Threads::Threads ${CJSON_LIBS})
-
-    include(CheckCCompilerFlag)
-    check_c_compiler_flag(-fsanitize=thread HAVE_TSAN)
-    if(HAVE_TSAN)
-        target_compile_options(test_coordinator_race PRIVATE -fsanitize=thread -g)
-        target_link_options(test_coordinator_race PRIVATE -fsanitize=thread)
-    else()
-        message(STATUS "test_coordinator_race: ThreadSanitizer unavailable")
-    endif()
-endif()
 
 find_library(MBEDCRYPTO_LIB mbedcrypto)
 if(MBEDCRYPTO_LIB)

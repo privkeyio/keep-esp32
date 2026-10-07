@@ -49,11 +49,18 @@ ESP32-S3 FROST threshold signing device security documentation.
 
 ### Nonce Reuse Prevention
 
-- Session-based nonce management with strict state machine
-- 30-second session timeout
-- Terminal states (COMPLETE, FAILED, EXPIRED) trigger immediate zeroization
-- Session IDs validated against all-zero and all-ones patterns
-- Duplicate commitment/share detection per session
+- Signing nonces are drawn by frost_tr (frost-secp256k1-tr) from the health-checked
+  RNG and live only in RAM; they are never written to flash, so a reset ends the round
+  and the host must commit again
+- The nonces are zeroed before signing starts, on every path including refusals, so a
+  session can produce at most one signature share
+- A session signs only the message fixed at `frost_commit`, and only a canonical
+  signing package holding the device's own unaltered commitment and at least the
+  threshold of signers
+- Each share is verified against the key package before it is released
+- Resending the identical package (same SHA-256) returns the share already released;
+  any other package for that session is refused
+- Session IDs are validated against all-zero and all-ones patterns and recorded once used
 
 ### Policy Enforcement
 
@@ -67,8 +74,9 @@ ESP32-S3 FROST threshold signing device security documentation.
 ### Zeroization
 
 - `secure_memzero()` for sensitive data (Xtensa assembly, compiler-safe)
-- Session secrets cleared on state transitions
-- DKG secrets cleared after finalize
+- frost_tr frees through an allocator that wipes every block, and runs on its own task
+  whose stack is refilled after each call
+- Key packages, nonces and serial request buffers are cleared after use
 - Storage buffers cleared after read/write
 
 ### Constant-Time Operations
@@ -110,23 +118,17 @@ behavior rather than certification compliance.
 ### Failure Mode
 
 - RNG failure aborts signing operations
-- DKG round1 checks `rng_is_healthy()` before proceeding
+- An RNG failure while frost_tr draws a nonce restarts the device rather than
+  returning predictable output
 
 ## Session Isolation
 
 ### Signing Sessions
 
-- Maximum 4 concurrent sessions
-- Sessions bound to specific message and participants
-- Constant-time participant validation
-- Commitments and shares deduplicated by signer index
-
-### DKG Sessions
-
-- Single global session (no concurrent DKG)
-- State machine: IDLE -> ROUND1 -> ROUND2 -> COMPLETE
-- Peer index validation with deduplication
-- ZK proof verification for round1 commitments
+- Maximum 4 concurrent sessions; a released session's slot is reused before any open round
+- Sessions bound to the message, the group and the key package they committed under
+- Discarded when a policy is installed
+- DKG is not available in protocol 2
 
 ## Attack Surface
 
@@ -146,18 +148,14 @@ behavior rather than certification compliance.
 - Maximum 4 concurrent sessions (bounded resource usage)
 - Consumed session ring buffer prevents replay
 
-### Nostr Event Security
-
-- NIP-44 encryption for share transport
-- Event kind separation (DKG vs signing)
-- Relay trust model: relays see encrypted blobs only
-
 ### Input Validation
 
 - Group names: alphanumeric, underscore, hyphen only
-- Hex strings: strict character validation
-- Threshold/participants: 2-16 range
-- Index: 1 to participant_count
+- Hex strings: strict character validation; over-long parameters are refused, never truncated
+- Key packages: canonical frost-core encoding, verifying share equal to the signing
+  share's, identifier 1-16, threshold 2-16, participants 2-16 and covering both
+- Shares stored by firmware before protocol 2 are rebuilt into key packages at unlock;
+  one that does not validate is kept and refused, never deleted automatically
 
 ### Storage
 
@@ -170,12 +168,11 @@ behavior rather than certification compliance.
 
 | Operation | Library | Purpose |
 |-----------|---------|---------|
-| FROST signing | secp256k1-frost | Threshold Schnorr signatures |
+| FROST signing | frost-secp256k1-tr 3.0.0 (frost_tr) | Threshold Schnorr signatures (BIP-340) |
 | AES-256-GCM | mbedtls | Share encryption at rest |
 | HKDF-SHA256 | mbedtls | Storage key derivation |
 | SHA256 | mbedtls | Message hashing |
 | Schnorr verify | secp256k1 | Policy signature verification |
-| NIP-44 | noscrypt | Nostr event encryption |
 
 ## Self-Test Framework
 
@@ -184,6 +181,7 @@ At boot, the following self-tests run before the device accepts commands:
 - **RNG self-test**: 3 rounds, requires 2/3 pass (device restarts on failure)
 - **Storage init**: Verifies partition access
 - **Crypto init**: Derives storage key from device ID
+- **frost_tr**: Replays the Zcash Foundation test vectors byte for byte (device restarts on failure)
 
 Failure modes:
 - RNG failure: Device restarts automatically
@@ -224,6 +222,8 @@ idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.secureboot" b
   hardware root of trust.
 - The PIN brick treats any decrypt failure (including flash corruption) as a failed
   attempt, so storage corruption can contribute to bricking a device
+- Share slots are rewritten in place: power lost during an import, delete or the unlock
+  migration of an older share can lose the shares stored on the device
 - Single-threaded, no concurrent request handling
 - Secure boot requires careful key management (key loss = bricked device)
 

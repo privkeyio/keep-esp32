@@ -9,7 +9,6 @@
 - [Sign with Hardware](#sign-with-hardware)
 - [Bitcoin PSBT Signing](#bitcoin-psbt-signing)
 - [Policy Enforcement](#policy-enforcement)
-- [Distributed Key Generation (DKG)](#distributed-key-generation-dkg)
 - [JSON-RPC API](#json-rpc-api)
 - [Testing](#testing)
 
@@ -106,6 +105,8 @@ keep frost list
 # Export share #1 to hardware device
 keep frost hardware import --device /dev/ttyACM0 --group mygroup --share 1
 ```
+
+This firmware speaks device protocol 2 (`ping` reports `protocol_version`): the host sends the share as its frost-core `KeyPackage` and needs a keep release that supports protocol 2. A share imported by earlier firmware is rewritten in the new format at the next unlock. One that cannot be rebuilt is left in place and counted in the unlock result as `shares_unmigratable` (`migration_complete` is false if a share could not be processed this time and will be retried at the next unlock); the device refuses to sign with it until it is deleted and imported again.
 
 ---
 
@@ -246,43 +247,6 @@ See [Warden documentation](https://github.com/privkeyio/warden) for policy creat
 
 ---
 
-## Distributed Key Generation (DKG)
-
-Generate threshold keys without any single party knowing the full private key. Each participant runs the command on their own device:
-
-```bash
-# Participant 1
-keep frost network dkg \
-  --group mygroup \
-  --threshold 2 \
-  --participants 3 \
-  --index 1 \
-  --relay wss://nos.lol \
-  --hardware /dev/ttyACM0
-
-# Participant 2 (on second device)
-keep frost network dkg \
-  --group mygroup \
-  --threshold 2 \
-  --participants 3 \
-  --index 2 \
-  --relay wss://nos.lol \
-  --hardware /dev/ttyACM0
-
-# Participant 3 (on third device)
-keep frost network dkg \
-  --group mygroup \
-  --threshold 2 \
-  --participants 3 \
-  --index 3 \
-  --relay wss://nos.lol \
-  --hardware /dev/ttyACM0
-```
-
-All participants must start within 5 minutes. On success, each device stores its share and displays the group public key.
-
----
-
 ## JSON-RPC API
 
 ### Core Methods
@@ -291,7 +255,7 @@ All participants must start within 5 minutes. On success, each device stores its
 |--------|-------------|
 | `ping` | Health check, returns version |
 | `list_shares` | List stored group identifiers |
-| `import_share` | Import FROST share for a group |
+| `import_share` | Import a share: `group`, `key_package` (frost-core `KeyPackage`, hex), `participants` |
 | `export_share` | Export encrypted share for backup (requires passphrase) |
 | `delete_share` | Remove share from storage |
 | `get_share_pubkey` | Get public key for stored share |
@@ -301,19 +265,12 @@ All participants must start within 5 minutes. On success, each device stores its
 
 | Method | Description |
 |--------|-------------|
-| `frost_commit` | Round 1: Generate nonce commitment |
-| `frost_sign` | Round 2: Generate signature share |
+| `frost_commit` | Round 1: `group`, `session_id`, 32-byte `message`; returns this signer's `SigningCommitments` |
+| `frost_sign` | Round 2: `group`, `session_id`, `signing_package` (frost-core `SigningPackage` with every signer's commitments); returns the `SignatureShare` |
 
-### DKG (Distributed Key Generation)
+The device signs only the message given at `frost_commit`, and only a package that contains its own commitment unchanged and at least the threshold of signers. Signing nonces live in RAM: after a reset the round starts again with a fresh `frost_commit`. Resending the same package returns the same share; any other package for that session is refused.
 
-| Method | Description |
-|--------|-------------|
-| `dkg_init` | Initialize DKG session |
-| `dkg_round1` | Generate commitment and ZK proof |
-| `dkg_round1_peer` | Receive and validate peer commitment |
-| `dkg_round2` | Generate shares for all participants |
-| `dkg_receive_share` | Receive encrypted share from peer |
-| `dkg_finalize` | Derive final share and store |
+DKG and session resume (`dkg_*`, `frost_session_resume`, `frost_session_list`) are not available in protocol 2.
 
 ### Bitcoin
 
@@ -353,22 +310,21 @@ python3 scripts/monitor_serial.py
 
 ### Native Tests (no device needed)
 
-Requires secp256k1-frost to be built first:
+Requires secp256k1-frost and libwally-core built as siblings, Docker (for frost_tr) and cargo (for the test tool):
 
 ```bash
 # Build secp256k1-frost
 cd ~/projects/secp256k1-frost
 mkdir -p build && cd build
-cmake .. && make
+cmake .. -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON && make
 
-# Run native tests
-cd ~/projects/keep-esp32/test/native
-mkdir -p build && cd build
+# frost_tr for this machine, then every native test and the device end-to-end tests
+cd ~/projects/keep-esp32
+scripts/build-frost-tr.sh --docker --host
+cd test/native && mkdir -p build && cd build
 cmake .. && make
-./test_frost
-./test_session
-./test_storage
-./test_secure_element
+for t in ./test_*; do $t || echo "FAILED: $t"; done
+python3 ../device/e2e.py .
 ```
 
 Or with just:

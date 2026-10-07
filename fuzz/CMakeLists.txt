@@ -32,13 +32,11 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${FUZZ_LINK_FLAGS}")
 add_compile_definitions(NATIVE_TEST=1)
 
 add_executable(fuzz_protocol fuzz_protocol.c ${CJSON_DIR}/cJSON.c ${MAIN_DIR}/protocol.c ${MAIN_DIR}/error_context.c ${MAIN_DIR}/error_codes.c)
-target_include_directories(fuzz_protocol PRIVATE ${CJSON_DIR} ${MAIN_DIR} ${MOCKS_DIR})
+target_include_directories(fuzz_protocol PRIVATE ${CJSON_DIR} ${MAIN_DIR} ${MOCKS_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/../components/frost_tr/include)
 
 add_executable(fuzz_hex fuzz_hex.c)
 target_include_directories(fuzz_hex PRIVATE ${MAIN_DIR})
-
-add_executable(fuzz_dkg fuzz_dkg.c)
-target_include_directories(fuzz_dkg PRIVATE ${MAIN_DIR})
 
 find_package(PkgConfig)
 pkg_check_modules(WALLYCORE wallycore)
@@ -56,9 +54,6 @@ endif()
 
 add_executable(fuzz_policy fuzz_policy.c ${CJSON_DIR}/cJSON.c)
 target_include_directories(fuzz_policy PRIVATE ${CJSON_DIR})
-
-add_executable(fuzz_nostr fuzz_nostr.c ${CJSON_DIR}/cJSON.c)
-target_include_directories(fuzz_nostr PRIVATE ${MAIN_DIR} ${CJSON_DIR})
 
 if(MBEDTLS_FOUND)
     pkg_check_modules(MBEDCRYPTO mbedcrypto)

@@ -8,17 +8,16 @@
 
 ## About
 
-keep-esp32 is an ESP32-S3 firmware that turns a devkit into an air-gapped hardware signer. It stores FROST threshold key shares, signs via USB serial JSON-RPC, and never exposes private keys. The device supports Bitcoin PSBT signing, distributed key generation, and Warden policy enforcement.
+keep-esp32 is an ESP32-S3 firmware that turns a devkit into an air-gapped hardware signer. It stores FROST threshold key shares, signs via USB serial JSON-RPC, and never exposes private keys. The device supports Bitcoin PSBT signing and Warden policy enforcement.
 
 ## Features
 
-- **FROST Threshold Signatures** — Two-round Schnorr threshold signing (secp256k1)
+- **FROST Threshold Signatures** — FROST(secp256k1, Taproot) with the Zcash Foundation's `frost-secp256k1-tr`, the implementation keep uses
 - **Bitcoin PSBT** — Parse PSBTs and compute Taproot sighashes (BIP-174, BIP-341)
 - **Policy Enforcement** — Warden-signed policy bundles with Schnorr signature verification
 - **Air-Gapped** — No network, USB serial JSON-RPC only
 - **Secure Storage** — Direct partition-backed share storage (persists across firmware updates)
 - **Multi-Group** — Store up to 8 signing shares for different groups
-- **Nostr Coordination** — NIP-44 encrypted event protocol for DKG and signing
 
 ## Quick Start
 
@@ -70,7 +69,7 @@ just flash-monitor
 just test
 ```
 
-See [`docs/USAGE.md`](docs/USAGE.md) for full CLI usage, JSON-RPC API reference, Bitcoin PSBT signing, policy enforcement, and DKG setup.
+See [`docs/USAGE.md`](docs/USAGE.md) for full CLI usage, JSON-RPC API reference, Bitcoin PSBT signing and policy enforcement.
 
 ## Security
 

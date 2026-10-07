@@ -33,16 +33,18 @@ flash-monitor:
 test:
     #!/usr/bin/env bash
     set -euo pipefail
+    scripts/build-frost-tr.sh --docker --host
     cd test/native
     mkdir -p build && cd build
     cmake ..
     make -j$(nproc)
-    for t in test_frost test_session test_storage test_secure_element test_secresult \
-             test_integration test_self_test test_hw_entropy test_anti_glitch test_psbt_fraud \
-             test_frost_signer_core test_protocol test_integration_full test_psbt_fraud_integration \
-             test_coordinator test_coordinator_race test_pin_attempt_limit; do
-        [ ! -f "./$t" ] || ./$t
+    failed=""
+    for t in ./test_*; do
+        [ -f "$t" ] && [ -x "$t" ] || continue
+        "$t" || failed="$failed $t"
     done
+    [ -z "$failed" ] || { echo "failing native tests:$failed" >&2; exit 1; }
+    [ ! -x ./keep_device ] || python3 ../device/e2e.py .
 
 fuzz target="" duration="30":
     #!/usr/bin/env bash
@@ -62,7 +64,7 @@ fuzz target="" duration="30":
     if [ -n "{{target}}" ]; then
         ./fuzz_{{target}} ../corpus/{{target}} -max_total_time={{duration}}
     else
-        for fuzzer in fuzz_hex fuzz_protocol fuzz_dkg fuzz_policy fuzz_nostr; do
+        for fuzzer in fuzz_hex fuzz_protocol fuzz_policy; do
             if [ -f "./$fuzzer" ]; then
                 corpus="${fuzzer#fuzz_}"
                 echo "Running $fuzzer..."

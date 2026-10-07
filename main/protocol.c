@@ -50,22 +50,6 @@ static rpc_method_t parse_method(const char *method) {
         return RPC_METHOD_DELETE_SHARE;
     if (strcmp(method, "list_shares") == 0)
         return RPC_METHOD_LIST_SHARES;
-    if (strcmp(method, "dkg_init") == 0)
-        return RPC_METHOD_DKG_INIT;
-    if (strcmp(method, "dkg_round1") == 0)
-        return RPC_METHOD_DKG_ROUND1;
-    if (strcmp(method, "dkg_round1_peer") == 0)
-        return RPC_METHOD_DKG_ROUND1_PEER;
-    if (strcmp(method, "dkg_round2") == 0)
-        return RPC_METHOD_DKG_ROUND2;
-    if (strcmp(method, "dkg_receive_share") == 0)
-        return RPC_METHOD_DKG_RECEIVE_SHARE;
-    if (strcmp(method, "dkg_finalize") == 0)
-        return RPC_METHOD_DKG_FINALIZE;
-    if (strcmp(method, "dkg_resume") == 0)
-        return RPC_METHOD_DKG_RESUME;
-    if (strcmp(method, "dkg_checkpoint") == 0)
-        return RPC_METHOD_DKG_CHECKPOINT;
     if (strcmp(method, "bitcoin_parse") == 0)
         return RPC_METHOD_BITCOIN_PARSE;
     if (strcmp(method, "bitcoin_sign") == 0)
@@ -80,12 +64,11 @@ static rpc_method_t parse_method(const char *method) {
         return RPC_METHOD_RESTART;
     if (strcmp(method, "export_share") == 0)
         return RPC_METHOD_EXPORT_SHARE;
-    if (strcmp(method, "frost_session_resume") == 0)
-        return RPC_METHOD_SESSION_RESUME;
-    if (strcmp(method, "frost_session_list") == 0)
-        return RPC_METHOD_SESSION_LIST;
     if (strcmp(method, "unlock") == 0)
         return RPC_METHOD_UNLOCK;
+    if (strncmp(method, "dkg_", 4) == 0 || strcmp(method, "frost_session_resume") == 0 ||
+        strcmp(method, "frost_session_list") == 0)
+        return RPC_METHOD_RETIRED;
     return RPC_METHOD_UNKNOWN;
 }
 
@@ -124,54 +107,41 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         if (message && cJSON_IsString(message)) {
             snprintf(req->message, sizeof(req->message), "%s", message->valuestring);
         }
-        cJSON *share = cJSON_GetObjectItem(params, "share");
-        if (share && cJSON_IsString(share)) {
-            snprintf(req->share, sizeof(req->share), "%s", share->valuestring);
+        req->legacy_share = cJSON_GetObjectItem(params, "share") != NULL;
+        cJSON *key_package = cJSON_GetObjectItem(params, "key_package");
+        if (key_package && cJSON_IsString(key_package)) {
+            size_t len = strlen(key_package->valuestring);
+            if (len > PROTOCOL_KEY_PACKAGE_HEX) {
+                cJSON_Delete(root);
+                return ERR_PROTOCOL_PARAMS;
+            }
+            memcpy(req->key_package, key_package->valuestring, len + 1);
+        }
+        cJSON *participants = cJSON_GetObjectItem(params, "participants");
+        if (participants && cJSON_IsNumber(participants)) {
+            if (participants->valueint < 0 || participants->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+                cJSON_Delete(root);
+                return ERR_PROTOCOL_PARAMS;
+            }
+            req->participants = (uint16_t)participants->valueint;
         }
         cJSON *session_id = cJSON_GetObjectItem(params, "session_id");
         if (session_id && cJSON_IsString(session_id)) {
-            snprintf(req->session_id, sizeof(req->session_id), "%s", session_id->valuestring);
-        }
-        cJSON *commitments = cJSON_GetObjectItem(params, "commitments");
-        if (commitments && cJSON_IsString(commitments)) {
-            snprintf(req->commitments, sizeof(req->commitments), "%s", commitments->valuestring);
-        }
-        cJSON *threshold = cJSON_GetObjectItem(params, "threshold");
-        if (threshold && cJSON_IsNumber(threshold)) {
-            if (threshold->valueint < 0 || threshold->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+            size_t len = strlen(session_id->valuestring);
+            if (len >= sizeof(req->session_id)) {
                 cJSON_Delete(root);
                 return ERR_PROTOCOL_PARAMS;
             }
-            req->threshold = (uint8_t)threshold->valueint;
+            memcpy(req->session_id, session_id->valuestring, len + 1);
         }
-        cJSON *participant_count = cJSON_GetObjectItem(params, "participant_count");
-        if (participant_count && cJSON_IsNumber(participant_count)) {
-            if (participant_count->valueint < 0 ||
-                participant_count->valueint > PROTOCOL_MAX_PARTICIPANTS) {
+        cJSON *signing_package = cJSON_GetObjectItem(params, "signing_package");
+        if (signing_package && cJSON_IsString(signing_package)) {
+            size_t len = strlen(signing_package->valuestring);
+            if (len > PROTOCOL_SIGNING_PACKAGE_HEX) {
                 cJSON_Delete(root);
                 return ERR_PROTOCOL_PARAMS;
             }
-            req->participant_count = (uint8_t)participant_count->valueint;
-        }
-        cJSON *our_index = cJSON_GetObjectItem(params, "our_index");
-        if (our_index && cJSON_IsNumber(our_index)) {
-            if (our_index->valueint < 0 || our_index->valueint > PROTOCOL_MAX_PARTICIPANTS) {
-                cJSON_Delete(root);
-                return ERR_PROTOCOL_PARAMS;
-            }
-            req->our_index = (uint8_t)our_index->valueint;
-        }
-        cJSON *peer_index = cJSON_GetObjectItem(params, "peer_index");
-        if (peer_index && cJSON_IsNumber(peer_index)) {
-            if (peer_index->valueint < 0 || peer_index->valueint > PROTOCOL_MAX_PARTICIPANTS) {
-                cJSON_Delete(root);
-                return ERR_PROTOCOL_PARAMS;
-            }
-            req->peer_index = (uint8_t)peer_index->valueint;
-        }
-        cJSON *dkg_data = cJSON_GetObjectItem(params, "dkg_data");
-        if (dkg_data && cJSON_IsString(dkg_data)) {
-            snprintf(req->dkg_data, sizeof(req->dkg_data), "%s", dkg_data->valuestring);
+            memcpy(req->signing_package, signing_package->valuestring, len + 1);
         }
         cJSON *psbt = cJSON_GetObjectItem(params, "psbt");
         if (psbt && cJSON_IsString(psbt)) {
@@ -218,8 +188,7 @@ void protocol_free_request(rpc_request_t *req) {
         secure_memzero(req->passphrase, sizeof(req->passphrase));
         secure_memzero(req->pin, sizeof(req->pin));
         secure_memzero(req->psbt, sizeof(req->psbt));
-        secure_memzero(req->share, sizeof(req->share));
-        secure_memzero(req->dkg_data, sizeof(req->dkg_data));
+        secure_memzero(req->key_package, sizeof(req->key_package));
     }
 }
 

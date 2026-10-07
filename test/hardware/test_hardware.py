@@ -8,7 +8,7 @@ import secrets
 
 DEVICE = os.environ.get("DEVICE", "/dev/ttyACM0")
 BAUD = int(os.environ.get("BAUD", "115200"))
-TIMEOUT = int(os.environ.get("TIMEOUT", "5"))
+TIMEOUT = int(os.environ.get("TIMEOUT", "30"))
 
 def send_receive(ser, request, timeout=TIMEOUT):
     ser.reset_input_buffer()
@@ -26,8 +26,32 @@ def send_receive(ser, request, timeout=TIMEOUT):
                 continue
     return None
 
-def generate_test_share():
-    return "ae0b3900b19a1f5de719ac0b14311770b5fbe499be512f80144e092e1740ac9d02930950a722fc8b79610e9d5f00ed8a1407fee195b8914d97233c5c8767c81bdd03dd00fe90614f9628d8db944334a6e82867d69896c5995470e17f39273332188e0100030002000000"
+# Participant 1 of a public 2-of-3 test group (a frost-secp256k1-tr key package) and a
+# commitment from participant 3, enough for the device to complete a signing round.
+TEST_KEY_PACKAGE = (
+    "00230f8ab30000000000000000000000000000000000000000000000000000000000000001f9806efa"
+    "60670799c2f4accc8e28c108ba4655d23568c98f2995583874bd8b3302032ee7b831c0fd1f879e089f"
+    "08ed286249afe84edd191284a90b7dcab416b5c002a80c99f8a5ea6af8f238cb68f258125bea2c0d46"
+    "b6a3ce1eb75ef95ca899ac3d02"
+)
+TEST_PARTICIPANTS = 3
+PEER_INDEX = 3
+PEER_COMMITMENT = (
+    "00230f8ab302536c15dc7ffdcf7903717514864a043e130e1da4b56f77897648716d91c8861b03e422"
+    "e3fdb39dd5a3267f56229ebef45ebac6e541e03353ec265fc880624ea1f7"
+)
+
+
+def signing_package(message_hex, commitments):
+    """frost-core SigningPackage serialization: header, count, identifier and commitment
+    pairs in identifier order, then the length-prefixed message."""
+    header = bytes.fromhex(next(iter(commitments.values())))[:5]
+    out = header + bytes([len(commitments)])
+    for index in sorted(commitments):
+        out += index.to_bytes(32, "big") + bytes.fromhex(commitments[index])
+    message = bytes.fromhex(message_hex)
+    return (out + bytes([len(message)]) + message).hex()
+
 
 def test_ping(ser):
     print("TEST: ping")
@@ -43,11 +67,11 @@ def test_import_list_delete(ser):
     print("TEST: import/list/delete")
 
     test_group = "npub1test"
-    test_share = generate_test_share()
 
     resp = send_receive(ser, {
         "id": 2, "method": "import_share",
-        "params": {"group": test_group, "share": test_share}
+        "params": {"group": test_group, "key_package": TEST_KEY_PACKAGE,
+                   "participants": TEST_PARTICIPANTS}
     })
     assert resp is not None, "no response to import"
     assert "result" in resp, f"import failed: {resp}"
@@ -74,11 +98,11 @@ def test_get_pubkey(ser):
     print("TEST: get_share_pubkey")
 
     test_group = "npub1pubkey"
-    test_share = generate_test_share()
 
     send_receive(ser, {
         "id": 10, "method": "import_share",
-        "params": {"group": test_group, "share": test_share}
+        "params": {"group": test_group, "key_package": TEST_KEY_PACKAGE,
+                   "participants": TEST_PARTICIPANTS}
     })
 
     resp = send_receive(ser, {
@@ -102,13 +126,13 @@ def test_frost_commit(ser):
     print("TEST: frost_commit")
 
     test_group = "npub1commit"
-    test_share = generate_test_share()
     message = "b" * 64
     session_id = secrets.token_hex(32)
 
     send_receive(ser, {
         "id": 20, "method": "import_share",
-        "params": {"group": test_group, "share": test_share}
+        "params": {"group": test_group, "key_package": TEST_KEY_PACKAGE,
+                   "participants": TEST_PARTICIPANTS}
     })
 
     resp = send_receive(ser, {
@@ -129,16 +153,16 @@ def test_frost_commit(ser):
     return True
 
 def test_frost_sign(ser):
-    print("TEST: frost_sign (partial)")
+    print("TEST: frost_sign")
 
     test_group = "npub1sign"
-    test_share = generate_test_share()
     message = "d" * 64
     session_id = secrets.token_hex(32)
 
     send_receive(ser, {
         "id": 30, "method": "import_share",
-        "params": {"group": test_group, "share": test_share}
+        "params": {"group": test_group, "key_package": TEST_KEY_PACKAGE,
+                   "participants": TEST_PARTICIPANTS}
     })
 
     commit_resp = send_receive(ser, {
@@ -148,18 +172,30 @@ def test_frost_sign(ser):
     assert commit_resp is not None, "no commit response"
     assert "result" in commit_resp, f"commit failed: {commit_resp}"
 
+    mine = commit_resp["result"]["commitment"]
     resp = send_receive(ser, {
         "id": 32, "method": "frost_sign",
-        "params": {"group": test_group, "session_id": session_id, "commitments": ""}
+        "params": {"group": test_group, "session_id": session_id,
+                   "signing_package": signing_package(message, {1: mine})}
     })
     assert resp is not None, "no response"
-    # With empty commitments, we expect threshold error (need 2-of-3)
-    if "error" in resp:
-        assert "threshold" in resp["error"]["message"].lower(), f"unexpected error: {resp}"
-        print("  PASS (expected threshold error)")
-    else:
-        assert "signature_share" in resp["result"], "no signature_share in result"
-        print("  PASS")
+    assert "error" in resp and "(-9)" in resp["error"]["message"], f"below threshold accepted: {resp}"
+
+    session_id = secrets.token_hex(32)
+    commit_resp = send_receive(ser, {
+        "id": 34, "method": "frost_commit",
+        "params": {"group": test_group, "session_id": session_id, "message": message}
+    })
+    assert commit_resp is not None and "result" in commit_resp, f"commit failed: {commit_resp}"
+    package = signing_package(message, {1: commit_resp["result"]["commitment"],
+                                        PEER_INDEX: PEER_COMMITMENT})
+    resp = send_receive(ser, {
+        "id": 35, "method": "frost_sign",
+        "params": {"group": test_group, "session_id": session_id, "signing_package": package}
+    }, timeout=30)
+    assert resp is not None and "result" in resp, f"sign failed: {resp}"
+    assert len(resp["result"]["signature_share"]) == 64, "share must be 32 bytes"
+    print("  PASS (below-threshold package refused, full package signed)")
 
     send_receive(ser, {
         "id": 33, "method": "delete_share",
@@ -172,13 +208,13 @@ def test_session_replay_protection(ser):
     print("TEST: session_id replay protection")
 
     test_group = "npub1replay"
-    test_share = generate_test_share()
     message = "e" * 64
     session_id = secrets.token_hex(32)
 
     send_receive(ser, {
         "id": 40, "method": "import_share",
-        "params": {"group": test_group, "share": test_share}
+        "params": {"group": test_group, "key_package": TEST_KEY_PACKAGE,
+                   "participants": TEST_PARTICIPANTS}
     })
 
     # First commit should succeed

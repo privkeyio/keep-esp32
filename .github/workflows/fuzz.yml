@@ -41,7 +41,7 @@ jobs:
       - name: Run fuzzers (30s each)
         run: |
           cd fuzz/build
-          for fuzzer in fuzz_hex fuzz_protocol fuzz_dkg fuzz_psbt fuzz_policy fuzz_nostr fuzz_storage_crypto; do
+          for fuzzer in fuzz_hex fuzz_protocol fuzz_psbt fuzz_policy fuzz_storage_crypto; do
             if [ -f "./$fuzzer" ]; then
               corpus="${fuzzer#fuzz_}"
               echo "Running $fuzzer..."
