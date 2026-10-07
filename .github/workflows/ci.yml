@@ -54,6 +54,13 @@ jobs:
           cp dependencies.lock "$RUNNER_TEMP/dependencies.lock.before"
           echo "sha=$(sha256sum dependencies.lock | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
+      # components/frost_tr is Rust, built for the ESP32-S3 in the pinned
+      # Espressif toolchain image (the digest lives in the script) before the
+      # IDF build links it.
+      - name: Build frost_tr
+        working-directory: keep-esp32
+        run: scripts/build-frost-tr.sh --docker
+
       - uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1.2.0
         with:
           esp_idf_version: v5.4.4
@@ -84,6 +91,16 @@ jobs:
             exit 1
           fi
           echo "dependencies.lock unchanged ($after): built the committed component set."
+
+  frost-tr-deny:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          manifest-path: components/frost_tr/rust/Cargo.toml
+          arguments: ""
 
   native-tests:
     runs-on: ubuntu-latest
@@ -137,6 +154,12 @@ jobs:
         # build, so that directory does not exist here and every cJSON-gated test
         # configured itself away silently.
         run: sudo apt-get update && sudo apt-get install -y libcjson-dev
+
+      - name: frost_tr host tests and vectors
+        working-directory: keep-esp32
+        run: |
+          python3 scripts/gen-frost-tr-vectors.py --check
+          scripts/build-frost-tr.sh --docker --test
 
       - name: Run native tests
         timeout-minutes: 15

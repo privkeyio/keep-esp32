@@ -43,3 +43,7 @@ fuzz/corpus/*/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0
 fuzz/build/
 
 output/
+
+# frost_tr build outputs (scripts/build-frost-tr.sh)
+components/frost_tr/lib/
+components/frost_tr/rust/target/

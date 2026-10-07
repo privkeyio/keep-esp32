@@ -12,3 +12,6 @@ test/native/build/
 fuzz/build/
 .git/
 .beads/
+# frost_tr is built inside the image; never take a host-built archive.
+components/frost_tr/lib/
+components/frost_tr/rust/target/

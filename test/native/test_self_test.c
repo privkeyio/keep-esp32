@@ -105,6 +105,11 @@ int secp256k1_ec_pubkey_create(const secp256k1_context *ctx, secp256k1_pubkey *p
     return 1;
 }
 
+static int mock_ftr_result = 0;
+int ftr_selftest(void) {
+    return mock_ftr_result;
+}
+
 #include <mbedtls/gcm.h>
 #include "self_test.h"
 #include "self_test.c"
@@ -125,6 +130,7 @@ static void reset_state(void) {
     mock_secp256k1_ctx_fails = false;
     mock_crypto_initialized = true;
     mock_rng_fails = false;
+    mock_ftr_result = 0;
 }
 
 static int test_storage_crypto_pass(void) {
@@ -254,6 +260,22 @@ static int test_run_all_fail_required(void) {
     return 0;
 }
 
+static int test_frost_tr_failure_fails_boot(void) {
+    TEST("a frost_tr self-test failure fails the required checks");
+    reset_state();
+    mock_ftr_result = 9;
+    if (self_test_frost_tr() != 9)
+        FAIL("should report the failing check");
+    if (self_test_run_all() == 0)
+        FAIL("run_all should fail");
+    self_test_stats_t stats;
+    self_test_get_stats(&stats);
+    if (stats.all_required_passed)
+        FAIL("frost_tr must be required");
+    PASS();
+    return 0;
+}
+
 static int test_stats_populated(void) {
     TEST("stats are populated after run_all");
     reset_state();
@@ -282,6 +304,7 @@ int main(void) {
     failures += test_storage_slots_with_valid_data();
     failures += test_run_all_pass();
     failures += test_run_all_fail_required();
+    failures += test_frost_tr_failure_fails_boot();
     failures += test_stats_populated();
 
     printf("\n");

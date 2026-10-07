@@ -125,6 +125,18 @@ run_probe main/probe_comment.c '/* esp_wifi_start() is named here in prose only 
 void f(void){ int x = 1; (void)x; }
 ' pass "a banned token inside a comment is not code"
 
+run_probe components/frost_tr/rust/src/probe_osrng.rs 'fn f() { let mut r = rand_core::OsRng; }
+' fail "an OS RNG in Rust bypasses the firmware RNG"
+
+run_probe main/Cargo.lock '[[package]]
+name = "getrandom"
+version = "0.2.15"
+' fail "getrandom in a Cargo.lock is the same bypass as a dependency"
+
+run_probe components/frost_tr/rust/src/probe_ok.rs '// OsRng is not used here: draws go through the registered firmware RNG.
+fn f() { let x = 1; }
+' pass "a comment naming a banned RNG is not a draw"
+
 run_probe main/probe_dead.c '#if 0
 void f(void){ esp_wifi_start(); }
 #endif

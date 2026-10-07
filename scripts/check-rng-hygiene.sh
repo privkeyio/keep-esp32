@@ -269,7 +269,25 @@ if [ -n "$contend_bad" ]; then
   echo "    (see docs/SECURITY.md) rather than by adding a call site."
 fi
 
+# ------------------------------- 6. Rust draws only from the firmware RNG ----
+# components/frost_tr draws every FROST nonce through the RNG main/ registers
+# with ftr_init(). An OS or thread-local RNG, or a generator seeded from
+# "entropy", would bypass the health checks and, on the device, the entropy
+# source; getrandom in a lockfile is the same bypass arriving as a dependency.
+rust_bad=$(git ls-files '*.rs' | grep -vE '^(test|fuzz)/' | while read -r f; do
+  grep -nHE '(getrandom|OsRng|thread_rng|ThreadRng|from_entropy|from_os_rng|rand::rng\()' "$f" \
+    | grep -vE '^[^:]*:[0-9]+:[[:space:]]*//' | grep -vF "$OPT_OUT" || true
+done)
+lock_bad=$(git ls-files 'Cargo.lock' '*/Cargo.lock' | while read -r f; do
+  grep -nHE '^name = "getrandom"' "$f" || true
+done)
+if [ -n "$rust_bad$lock_bad" ]; then
+  fail "Rust randomness that bypasses the firmware RNG:"
+  printf '%s\n' "$rust_bad" "$lock_bad" | grep -v '^$' | sed 's/^/  /'
+  echo "  → draw through the RNG registered with ftr_init() (rng_fill_checked)"
+fi
+
 if [ "$status" -eq 0 ]; then
-  echo "RNG hygiene: OK (entropy source enabled once in ${ENTROPY_INIT}() and never disabled or contended, raw draws confined to $ENTROPY_MODULE, no libc PRNG)"
+  echo "RNG hygiene: OK (entropy source enabled once in ${ENTROPY_INIT}() and never disabled or contended, raw draws confined to $ENTROPY_MODULE, no libc PRNG, Rust draws only from the firmware RNG)"
 fi
 exit "$status"

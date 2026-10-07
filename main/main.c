@@ -24,6 +24,7 @@
 #include "crypto_asm.h"
 #include "ux_interface.h"
 #include "self_test.h"
+#include "frost_tr.h"
 #include "ui_test.h"
 
 #define TAG                  "main"
@@ -393,6 +394,10 @@ static void app_init(void) {
 
     if (rng_init() != 0) {
         ESP_LOGE(TAG, "RNG self-test failed, restarting");
+        esp_restart();
+    }
+    if (ftr_init(rng_fill_checked, rng_is_healthy_secure) != 0) {
+        ESP_LOGE(TAG, "FROST RNG registration failed, restarting");
         esp_restart();
     }
 
