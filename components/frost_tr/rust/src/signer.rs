@@ -160,7 +160,10 @@ fn nonces_from(bytes: &[u8; NONCES_LEN]) -> Result<SigningNonces, i32> {
         return Err(E_NONCES);
     }
     let mut h = Nonce::deserialize(&bytes[..32]).map_err(|_| E_NONCES)?;
-    let mut b = Nonce::deserialize(&bytes[32..]).map_err(|_| E_NONCES)?;
+    let Ok(mut b) = Nonce::deserialize(&bytes[32..]) else {
+        h.zeroize();
+        return Err(E_NONCES);
+    };
     let n = SigningNonces::from_nonces(h, b);
     h.zeroize();
     b.zeroize();

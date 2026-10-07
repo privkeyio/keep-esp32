@@ -44,6 +44,8 @@ typedef struct {
 
 int storage_init(void);
 
+/* Run after unlock: upgrades share slots from older formats and erases the regions older
+ * firmware used for signing and DKG checkpoints, which protocol 2 never reads. */
 int storage_migrate_if_needed(void);
 
 void storage_cleanup(void);
@@ -67,15 +69,6 @@ int storage_save_metadata(const char *group, const group_metadata_t *metadata);
 int storage_load_metadata(const char *group, group_metadata_t *metadata);
 
 bool storage_has_metadata(const char *group);
-
-#define STORAGE_CHECKPOINT_MAX_SIZE    24576
-#define STORAGE_ERR_CHECKPOINT_EXISTS  -11
-#define STORAGE_ERR_CHECKPOINT_EXPIRED -12
-
-int storage_checkpoint_save(const char *session_id, const uint8_t *data, size_t len);
-int storage_checkpoint_load(const char *session_id, uint8_t *data, size_t max_len, size_t *out_len);
-int storage_checkpoint_clear(const char *session_id);
-bool storage_checkpoint_exists(const char *session_id);
 
 typedef struct {
     uint8_t version;

@@ -14,9 +14,10 @@ void frost_signer_cleanup_stale(void);
 /* Drops every signing session, so none started under an older policy can continue under
  * a new one. */
 void frost_signer_discard_sessions(void);
-/* Rewrites every share stored before protocol 2 in the protocol 2 format, and removes any
- * that cannot be rebuilt into a valid key package. Run after each unlock. */
-int frost_signer_migrate_shares(int *migrated, int *removed);
+/* Rewrites every share stored before protocol 2 in the protocol 2 format. One that cannot
+ * be rebuilt into a valid key package is left in place and counted, never deleted. Run
+ * after each unlock. */
+int frost_signer_migrate_shares(int *migrated, int *unmigratable);
 /* The validated metadata storage_export_share() records for `group`'s share. */
 int frost_signer_export_meta(const char *group, share_export_meta_t *meta);
 void frost_import_share(const char *group, const char *key_package_hex, uint16_t participants,

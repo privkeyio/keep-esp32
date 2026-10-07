@@ -1,5 +1,5 @@
 set(SRCS
-    "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c" "storage_checkpoint.c" "storage_metadata.c" "storage_export.c"
+    "main.c" "protocol.c" "serial.c" "storage.c" "storage_crypto.c" "storage_metadata.c" "storage_export.c"
     "frost_signer.c" "frost_signer_storage.c" "frost_tr_task.c"
     "psbt.c" "psbt_fraud.c" "policy.c" "policy_pin.c" "bitcoin_rpc.c" "sign_approval.c"
     "error_context.c" "error_codes.c" "random_utils.c" "hw_entropy.c" "ux_manager.c" "ux_serial.c" "self_test.c" "anti_glitch.c"

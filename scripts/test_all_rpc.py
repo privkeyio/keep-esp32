@@ -17,7 +17,8 @@ def send_request(ser, method, params=None, req_id=1):
     ser.flush()
     time.sleep(0.2)
 
-    deadline = time.time() + 3
+    # A commit draws two 32-byte blocks from the checked RNG, about 1.5 s each.
+    deadline = time.time() + 30
     while time.time() < deadline:
         if ser.in_waiting:
             raw = ser.readline().decode('utf-8', errors='replace').strip()

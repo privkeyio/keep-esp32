@@ -325,11 +325,11 @@ static void handle_test_method(const char *line, int id, rpc_response_t *resp) {
         }
     } else if (strcmp(m, "test_migrate_shares") == 0) {
         /* What unlock runs on the device. */
-        int migrated = 0, removed = 0;
-        int ret = frost_signer_migrate_shares(&migrated, &removed);
+        int migrated = 0, unmigratable = 0;
+        int ret = frost_signer_migrate_shares(&migrated, &unmigratable);
         char result[96];
-        snprintf(result, sizeof(result), "{\"status\":%d,\"migrated\":%d,\"removed\":%d}", ret,
-                 migrated, removed);
+        snprintf(result, sizeof(result), "{\"status\":%d,\"migrated\":%d,\"unmigratable\":%d}", ret,
+                 migrated, unmigratable);
         protocol_success(resp, id, result);
     } else if (strcmp(m, "test_cut_before_pin_raise") == 0) {
         /* Power lost after the bundle is written and before the pin is raised. */

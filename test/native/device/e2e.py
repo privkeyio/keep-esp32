@@ -617,6 +617,16 @@ def session_safety(build):
                  lambda: d.rpc("frost_commit", {"group": "g", "session_id": session, "message": msg.hex()}),
                  "already")
 
+    for i in range(6):
+        msg = secrets.token_bytes(32)
+        session, mine, peer = round_on(d, msg)
+        package = group.package(msg, {1: mine, 2: peer["commitment"]})
+        check(f"round {i + 1} of six back to back signs", "signature_share" in sign(d, session, package))
+    open_sessions = [round_on(d, secrets.token_bytes(32)) for _ in range(4)]
+    expect_error("with four rounds open and unsigned a fifth commit is refused",
+                 lambda: round_on(d, secrets.token_bytes(32)), "No free session slots")
+    d.rpc("test_reboot_signer")
+
     def refused(label, build_package, code):
         msg = secrets.token_bytes(32)
         session, mine, peer = round_on(d, msg)
@@ -650,16 +660,19 @@ def legacy_shares(build):
     d.rpc("test_plant_share", {"group": "bad", "share": good.hex()})
     expect_error("a share stored before protocol 2 is not used as it is",
                  lambda: d.rpc("get_share_pubkey", {"group": "g"}), "predates protocol 2")
+    bad_before = d.rpc("test_read_share", {"group": "bad"})["share"]
     r = d.rpc("test_migrate_shares")
-    check("migration rebuilds the valid share and removes the one that does not check out",
-          r == {"status": 0, "migrated": 1, "removed": 1})
-    expect_error("the invalid share is gone", lambda: d.rpc("get_share_pubkey", {"group": "bad"}),
-                 "Share not found")
+    check("migration rebuilds the valid share and leaves the one that does not check out",
+          r == {"status": 0, "migrated": 1, "unmigratable": 1})
+    check("the unmigratable share is kept byte for byte",
+          d.rpc("test_read_share", {"group": "bad"})["share"] == bad_before)
+    expect_error("and is refused for signing", lambda: d.rpc("get_share_pubkey", {"group": "bad"}),
+                 "predates protocol 2")
     stored = d.rpc("test_read_share", {"group": "g"})["share"]
     check("the migrated share is the protocol 2 payload of keep's own key package",
           stored == "020003" + group.kp[3])
-    check("a second migration finds nothing to do",
-          d.rpc("test_migrate_shares") == {"status": 0, "migrated": 0, "removed": 0})
+    check("a second migration only finds the unmigratable share again",
+          d.rpc("test_migrate_shares") == {"status": 0, "migrated": 0, "unmigratable": 1})
     msg = secrets.token_bytes(32)
     check("the migrated share signs with keep",
           bip340_verify(group.group33[1:], msg, frost_sign(group, [d], msg, peers=[1])))

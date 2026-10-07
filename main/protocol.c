@@ -127,7 +127,12 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         }
         cJSON *session_id = cJSON_GetObjectItem(params, "session_id");
         if (session_id && cJSON_IsString(session_id)) {
-            snprintf(req->session_id, sizeof(req->session_id), "%s", session_id->valuestring);
+            size_t len = strlen(session_id->valuestring);
+            if (len >= sizeof(req->session_id)) {
+                cJSON_Delete(root);
+                return ERR_PROTOCOL_PARAMS;
+            }
+            memcpy(req->session_id, session_id->valuestring, len + 1);
         }
         cJSON *signing_package = cJSON_GetObjectItem(params, "signing_package");
         if (signing_package && cJSON_IsString(signing_package)) {

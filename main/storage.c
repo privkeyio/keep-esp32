@@ -346,6 +346,49 @@ clear_slot:;
     return (err == ESP_OK) ? STORAGE_OK : STORAGE_ERR_IO;
 }
 
+/* Written by firmware before protocol 2 and never read now: session checkpoints holding
+ * encrypted signing nonces after the metadata slots, and DKG round state in the
+ * "checkpoint" partition. */
+#define RETIRED_SESSION_CHECKPOINT_OFFSET \
+    (STORAGE_METADATA_SECTOR_OFFSET + STORAGE_METADATA_SLOT_SIZE * STORAGE_MAX_SHARES)
+#define RETIRED_SESSION_CHECKPOINT_SIZE (4 * STORAGE_SECTOR_SIZE)
+#define RETIRED_CHECKPOINT_PARTITION    "checkpoint"
+
+/* Erases [offset, offset + size) only if any byte is still written, so an unlock does not
+ * wear the flash once the region is clean. */
+static int erase_if_written(const esp_partition_t *partition, size_t offset, size_t size) {
+    for (size_t at = offset; at < offset + size; at += STORAGE_SECTOR_SIZE) {
+        if (esp_partition_read(partition, at, sector_buf, STORAGE_SECTOR_SIZE) != ESP_OK) {
+            secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
+            return STORAGE_ERR_IO;
+        }
+        bool written = false;
+        for (size_t i = 0; i < STORAGE_SECTOR_SIZE && !written; i++) {
+            written = sector_buf[i] != 0xFF;
+        }
+        secure_memzero(sector_buf, STORAGE_SECTOR_SIZE);
+        if (written) {
+            return esp_partition_erase_range(partition, offset, size) == ESP_OK ? STORAGE_OK
+                                                                                : STORAGE_ERR_IO;
+        }
+    }
+    return STORAGE_OK;
+}
+
+static int erase_retired_checkpoints(void) {
+    int ret = erase_if_written(storage_partition, RETIRED_SESSION_CHECKPOINT_OFFSET,
+                               RETIRED_SESSION_CHECKPOINT_SIZE);
+    const esp_partition_t *checkpoints = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, RETIRED_CHECKPOINT_PARTITION);
+    if (checkpoints != NULL && checkpoints->size % STORAGE_SECTOR_SIZE == 0) {
+        int part_ret = erase_if_written(checkpoints, 0, checkpoints->size);
+        if (ret == STORAGE_OK) {
+            ret = part_ret;
+        }
+    }
+    return ret;
+}
+
 int storage_migrate_if_needed(void) {
     if (!initialized) {
         return STORAGE_ERR_NOT_INIT;
@@ -398,6 +441,11 @@ int storage_migrate_if_needed(void) {
 
     if (migrated > 0) {
         ESP_LOGI(TAG, "Migrated %d slot(s) to V2 format", migrated);
+    }
+    /* A failed erase must not cost the user the unlock; the next unlock tries again. */
+    int erase_ret = erase_retired_checkpoints();
+    if (erase_ret != STORAGE_OK) {
+        ESP_LOGW(TAG, "Could not erase retired checkpoints: %d", erase_ret);
     }
     return STORAGE_OK;
 }
@@ -767,7 +815,6 @@ void storage_cleanup(void) {
     secure_memzero(sector_buf, sizeof(sector_buf));
     secure_memzero(&work_slot, sizeof(work_slot));
     storage_export_cleanup();
-    storage_checkpoint_cleanup();
     initialized = false;
     storage_partition = NULL;
 }

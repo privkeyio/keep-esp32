@@ -8,7 +8,7 @@ import secrets
 
 DEVICE = os.environ.get("DEVICE", "/dev/ttyACM0")
 BAUD = int(os.environ.get("BAUD", "115200"))
-TIMEOUT = int(os.environ.get("TIMEOUT", "5"))
+TIMEOUT = int(os.environ.get("TIMEOUT", "30"))
 
 def send_receive(ser, request, timeout=TIMEOUT):
     ser.reset_input_buffer()

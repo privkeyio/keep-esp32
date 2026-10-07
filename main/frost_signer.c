@@ -89,6 +89,7 @@ typedef struct {
     uint8_t message[FTR_MESSAGE_LEN];
     uint8_t nonces[FTR_NONCES_LEN];
     uint16_t index;
+    uint8_t verifying_share[33];
     bool has_policy;
     uint8_t policy_hash[32];
     uint32_t created_at;
@@ -109,16 +110,26 @@ static signing_session_t *find_session(const uint8_t *session_id) {
     return NULL;
 }
 
+/* A free slot, or else the oldest session whose share was already released: its nonces
+ * are gone and only the answer to a retry is lost. Rounds still waiting to sign are never
+ * displaced. */
 static signing_session_t *alloc_session(const uint8_t *session_id) {
-    for (int i = 0; i < MAX_SESSIONS; i++) {
+    signing_session_t *slot = NULL;
+    uint32_t now = get_time_ms(), oldest = 0;
+    for (int i = 0; i < MAX_SESSIONS && (slot == NULL || slot->active); i++) {
         if (!sessions[i].active) {
-            memset(&sessions[i], 0, sizeof(signing_session_t));
-            sessions[i].active = true;
-            memcpy(sessions[i].session_id, session_id, SESSION_ID_LEN);
-            return &sessions[i];
+            slot = &sessions[i];
+        } else if (sessions[i].released && elapsed_ms(sessions[i].created_at, now) >= oldest) {
+            oldest = elapsed_ms(sessions[i].created_at, now);
+            slot = &sessions[i];
         }
     }
-    return NULL;
+    if (slot != NULL) {
+        secure_memzero(slot, sizeof(signing_session_t));
+        slot->active = true;
+        memcpy(slot->session_id, session_id, SESSION_ID_LEN);
+    }
+    return slot;
 }
 
 static void free_session(signing_session_t *s) {
@@ -201,7 +212,8 @@ static int load_key(const char *group, share_key_t *key, ftr_key_info_t *info,
     int ret = load_key_checked(group, key, info);
     if (ret == SHARE_KEY_ERR_LEGACY) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE,
-                       "Share predates protocol 2; unlock again to migrate it");
+                       "Share predates protocol 2 and was not migrated; unlock, or delete and "
+                       "import it again");
     } else if (ret == LOAD_KEY_INVALID) {
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Stored share is invalid");
     } else if (ret != SHARE_KEY_OK) {
@@ -381,9 +393,9 @@ void frost_import_share(const char *group, const char *key_package_hex, uint16_t
     protocol_success(resp, resp->id, result);
 }
 
-int frost_signer_migrate_shares(int *migrated, int *removed) {
+int frost_signer_migrate_shares(int *migrated, int *unmigratable) {
     *migrated = 0;
-    *removed = 0;
+    *unmigratable = 0;
     char groups[STORAGE_MAX_SHARES][STORAGE_GROUP_LEN + 1];
     int count = storage_list_shares(groups, STORAGE_MAX_SHARES);
     if (count < 0) {
@@ -409,9 +421,6 @@ int frost_signer_migrate_shares(int *migrated, int *removed) {
                             .participants = &key.participants};
         int ret = ftr_task_run(legacy_job, &job);
         secure_memzero(raw, sizeof(raw));
-        bool invalid = ret == FTR_E_LENGTH || ret == FTR_E_DESERIALIZE ||
-                       ret == FTR_E_NONCANONICAL || ret == FTR_E_SHARE_MISMATCH ||
-                       ret == FTR_E_IDENTIFIER || ret == FTR_E_THRESHOLD;
         if (ret == FTR_OK && key.key_package_len <= sizeof(key.key_package)) {
             memcpy(key.key_package, kp, key.key_package_len);
             ret = share_key_save(groups[i], &key);
@@ -422,18 +431,11 @@ int frost_signer_migrate_shares(int *migrated, int *removed) {
                 status = ret;
                 ESP_LOGE(TAG, "Could not store migrated share for group %s: %d", groups[i], ret);
             }
-        } else if (!invalid) {
-            status = ret;
-            ESP_LOGE(TAG, "Could not migrate share for group %s: %d", groups[i], ret);
         } else {
-            /* Nothing usable can be rebuilt from it, and protocol 2 cannot sign with it. */
-            ret = storage_delete_share(groups[i]);
-            if (ret == STORAGE_OK) {
-                (*removed)++;
-                FROST_LOGW(TAG, "Removed invalid pre-protocol-2 share for group %s", groups[i]);
-            } else {
-                status = ret;
-            }
+            /* Left as it is: only an explicit delete_share removes a share. */
+            (*unmigratable)++;
+            FROST_LOGW(TAG, "Share for group %s cannot be rebuilt as a key package (%d)", groups[i],
+                       ret);
         }
         secure_memzero(kp, sizeof(kp));
         secure_memzero(&key, sizeof(key));
@@ -551,10 +553,11 @@ static void frost_commit_generate(const char *group, const char *session_id_hex,
     s->group[STORAGE_GROUP_LEN] = '\0';
     memcpy(s->message, message, FTR_MESSAGE_LEN);
     s->index = info.index;
+    memcpy(s->verifying_share, info.verifying_share, sizeof(s->verifying_share));
     s->created_at = get_time_ms();
 
-    /* Consumed only now, so a failure setting up the session does not use up a valid
-     * approval. */
+    /* Consumed only now, so a missing share or a full session table does not use up a
+     * valid approval. */
     if (!SECRESULT_IS_TRUE(raw_ok)) {
         secresult_t approved = ag_verify_condition_secure(
             sign_approval_consume_secure(message, sign_approval_now_ms()));
@@ -637,7 +640,8 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
         free_session(s);
         return;
     }
-    if (info.index != s->index) {
+    if (info.index != s->index ||
+        ct_compare(info.verifying_share, s->verifying_share, sizeof(s->verifying_share)) != 0) {
         secure_memzero(&key, sizeof(key));
         free_session(s);
         PROTOCOL_ERROR(resp, resp->id, PROTOCOL_ERR_SHARE, "Share changed during session");

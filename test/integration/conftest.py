@@ -8,7 +8,7 @@ import serial
 
 DEFAULT_PORT = os.environ.get("KEEP_DEVICE_PORT", "/dev/ttyUSB0")
 DEFAULT_BAUD = int(os.environ.get("KEEP_DEVICE_BAUD", "115200"))
-DEFAULT_TIMEOUT = float(os.environ.get("KEEP_DEVICE_TIMEOUT", "5.0"))
+DEFAULT_TIMEOUT = float(os.environ.get("KEEP_DEVICE_TIMEOUT", "30.0"))
 
 
 class DeviceRPCMixin:

@@ -67,9 +67,12 @@ esp_err_t esp_partition_write(const esp_partition_t *partition, size_t dst_offse
     return ESP_OK;
 }
 
+static int mock_erases;
+
 esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t offset, size_t size) {
     if (!partition)
         return ESP_FAIL;
+    mock_erases++;
     if (partition == &mock_checkpoint_partition) {
         if (offset + size > sizeof(mock_checkpoint_flash))
             return ESP_FAIL;
@@ -88,7 +91,6 @@ esp_err_t esp_partition_erase_range(const esp_partition_t *partition, size_t off
 #include "storage.h"
 #include "storage_internal.h"
 #include "storage.c"
-#include "storage_checkpoint.c"
 #include "storage_metadata.c"
 #include "storage_export.c"
 
@@ -105,10 +107,6 @@ static void reset_flash(void) {
     memset(mock_checkpoint_flash, 0xFF, sizeof(mock_checkpoint_flash));
     initialized = false;
     storage_partition = NULL;
-    checkpoint_initialized = false;
-    checkpoint_partition = NULL;
-    checkpoint_counter = 0;
-    checkpoint_counter_loaded = false;
     export_attempt_count = 0;
     export_lockout_until = 0;
     export_consecutive_failures = 0;
@@ -922,34 +920,6 @@ static int test_export_share_invalid_passphrase(void) {
     return 0;
 }
 
-static int test_checkpoint_save_load(void) {
-    TEST("DKG checkpoint save/load roundtrip");
-    reset_flash();
-    checkpoint_partition_exists = true;
-
-    const char *session_id = "test_session_12345";
-    uint8_t data[256];
-    for (size_t i = 0; i < sizeof(data); i++) {
-        data[i] = (uint8_t)(i & 0xFF);
-    }
-
-    if (storage_checkpoint_save(session_id, data, sizeof(data)) != STORAGE_OK)
-        FAIL("save failed");
-
-    uint8_t loaded[256];
-    size_t loaded_len = 0;
-    if (storage_checkpoint_load(session_id, loaded, sizeof(loaded), &loaded_len) != STORAGE_OK)
-        FAIL("load failed");
-
-    if (loaded_len != sizeof(data))
-        FAIL("wrong data length");
-    if (memcmp(loaded, data, sizeof(data)) != 0)
-        FAIL("data mismatch");
-
-    PASS();
-    return 0;
-}
-
 static int test_export_share_invalid_group(void) {
     TEST("export share invalid group name");
     reset_flash();
@@ -982,90 +952,52 @@ static int test_export_consecutive_failures_overflow(void) {
     return 0;
 }
 
-static int test_checkpoint_clear(void) {
-    TEST("DKG checkpoint clear");
+static int test_retired_checkpoints_erased(void) {
+    TEST("unlock erases retired checkpoint regions once and nothing else");
     reset_flash();
-    checkpoint_partition_exists = true;
-
-    const char *session_id = "clear_test";
-    uint8_t data[] = {1, 2, 3, 4};
-
-    if (storage_checkpoint_save(session_id, data, sizeof(data)) != STORAGE_OK)
+    if (storage_init() != 0)
+        FAIL("init failed");
+    mock_crypto_initialized = true;
+    if (storage_save_share("keep", "deadbeef") != 0)
         FAIL("save failed");
-
-    if (!storage_checkpoint_exists(session_id))
-        FAIL("checkpoint should exist");
-
-    if (storage_checkpoint_clear(session_id) != STORAGE_OK)
-        FAIL("clear failed");
-
-    if (storage_checkpoint_exists(session_id))
-        FAIL("checkpoint should not exist after clear");
-
+    uint8_t shares_before[STORAGE_SECTOR_SIZE * 9];
+    memcpy(shares_before, mock_flash, sizeof(shares_before));
+    memset(mock_flash + RETIRED_SESSION_CHECKPOINT_OFFSET + 100, 0x5A, 64);
+    memset(mock_checkpoint_flash + 8000, 0xA5, 32);
+    if (storage_migrate_if_needed() != STORAGE_OK)
+        FAIL("migrate failed");
+    for (size_t i = 0; i < RETIRED_SESSION_CHECKPOINT_SIZE; i++)
+        if (mock_flash[RETIRED_SESSION_CHECKPOINT_OFFSET + i] != 0xFF)
+            FAIL("session checkpoint region not erased");
+    for (size_t i = 0; i < sizeof(mock_checkpoint_flash); i++)
+        if (mock_checkpoint_flash[i] != 0xFF)
+            FAIL("checkpoint partition not erased");
+    if (memcmp(shares_before, mock_flash, sizeof(shares_before)) != 0)
+        FAIL("share or metadata sectors changed");
+    mock_erases = 0;
+    if (storage_migrate_if_needed() != STORAGE_OK || mock_erases != 0)
+        FAIL("clean regions were erased again");
     PASS();
     return 0;
 }
 
-static int test_checkpoint_not_found(void) {
-    TEST("DKG checkpoint not found");
+static int test_retired_checkpoint_fault_keeps_unlock(void) {
+    TEST("a fault erasing retired checkpoints does not fail the unlock");
     reset_flash();
-    checkpoint_partition_exists = true;
-
-    uint8_t buf[64];
-    size_t len = 0;
-    if (storage_checkpoint_load("nonexistent", buf, sizeof(buf), &len) != STORAGE_ERR_NOT_FOUND)
-        FAIL("should fail");
-
-    PASS();
-    return 0;
-}
-
-static int test_checkpoint_wrong_session(void) {
-    TEST("DKG checkpoint wrong session id");
-    reset_flash();
-    checkpoint_partition_exists = true;
-
-    uint8_t data[] = {0xAA, 0xBB};
-    if (storage_checkpoint_save("session_a", data, sizeof(data)) != STORAGE_OK)
-        FAIL("save failed");
-
-    uint8_t buf[64];
-    size_t len = 0;
-    if (storage_checkpoint_load("session_b", buf, sizeof(buf), &len) != STORAGE_ERR_NOT_FOUND)
-        FAIL("should not find checkpoint for different session");
-
-    PASS();
-    return 0;
-}
-
-static int test_checkpoint_single_at_a_time(void) {
-    TEST("DKG checkpoint only one at a time");
-    reset_flash();
-    checkpoint_partition_exists = true;
-
-    uint8_t data1[] = {1, 2, 3};
-    uint8_t data2[] = {4, 5, 6};
-
-    if (storage_checkpoint_save("session_1", data1, sizeof(data1)) != STORAGE_OK)
-        FAIL("first save failed");
-
-    if (storage_checkpoint_save("session_2", data2, sizeof(data2)) != STORAGE_ERR_CHECKPOINT_EXISTS)
-        FAIL("second save should fail while first exists");
-
-    PASS();
-    return 0;
-}
-
-static int test_checkpoint_no_partition(void) {
-    TEST("DKG checkpoint without partition");
-    reset_flash();
-    checkpoint_partition_exists = false;
-
-    uint8_t data[] = {1, 2, 3};
-    if (storage_checkpoint_save("test", data, sizeof(data)) != STORAGE_ERR_NOT_INIT)
-        FAIL("should fail without partition");
-
-    checkpoint_partition_exists = true;
+    if (storage_init() != 0)
+        FAIL("init failed");
+    mock_crypto_initialized = true;
+    memset(mock_flash + RETIRED_SESSION_CHECKPOINT_OFFSET, 0x00, 16);
+    mock_read_fault_from = RETIRED_SESSION_CHECKPOINT_OFFSET;
+    int ret = storage_migrate_if_needed();
+    mock_read_fault_from = SIZE_MAX;
+    if (ret != STORAGE_OK)
+        FAIL("unlock-time migration should still succeed");
+    if (mock_flash[RETIRED_SESSION_CHECKPOINT_OFFSET] != 0x00)
+        FAIL("an unreadable region must not be erased blind");
+    if (storage_migrate_if_needed() != STORAGE_OK ||
+        mock_flash[RETIRED_SESSION_CHECKPOINT_OFFSET] != 0xFF)
+        FAIL("the next unlock should erase it");
     PASS();
     return 0;
 }
@@ -1101,6 +1033,8 @@ int main(void) {
     failures += test_metadata_save_load();
     failures += test_metadata_not_found();
     failures += test_export_records_metadata();
+    failures += test_retired_checkpoints_erased();
+    failures += test_retired_checkpoint_fault_keeps_unlock();
     failures += test_export_rate_limit_initial();
     failures += test_export_rate_limit_after_attempts();
     failures += test_export_lockout_after_failures();
@@ -1111,12 +1045,6 @@ int main(void) {
     failures += test_export_consecutive_failures_overflow();
 
     printf("\n=== DKG Checkpoint Tests ===\n\n");
-    failures += test_checkpoint_save_load();
-    failures += test_checkpoint_clear();
-    failures += test_checkpoint_not_found();
-    failures += test_checkpoint_wrong_session();
-    failures += test_checkpoint_single_at_a_time();
-    failures += test_checkpoint_no_partition();
 
     printf("\n");
     if (failures == 0) {

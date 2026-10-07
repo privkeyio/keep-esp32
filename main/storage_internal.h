@@ -19,7 +19,6 @@ uint8_t *storage_get_sector_buf(void);
 bool storage_validate_group_name(const char *group);
 void storage_pad_group_name(char padded[STORAGE_GROUP_LEN + 1], const char *group);
 
-void storage_checkpoint_cleanup(void);
 void storage_export_cleanup(void);
 
 #endif

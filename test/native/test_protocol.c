@@ -302,6 +302,19 @@ static int test_signing_package_length(void) {
     return 0;
 }
 
+static int test_session_id_length(void) {
+    TEST("session_id of 64 accepted, longer refused rather than truncated");
+    rpc_request_t req;
+    if (hex_param_request("frost_commit", "session_id", 64, &req) != 0 ||
+        strlen(req.session_id) != 64)
+        FAIL("64-character session_id should be kept whole");
+    protocol_free_request(&req);
+    if (hex_param_request("frost_commit", "session_id", 66, &req) != ERR_PROTOCOL_PARAMS)
+        FAIL("66-character session_id should be refused");
+    PASS();
+    return 0;
+}
+
 static int test_legacy_share_field(void) {
     TEST("a request with the retired share field is flagged");
     rpc_request_t req;
@@ -489,6 +502,7 @@ int main(void) {
     failures += test_participants_boundary();
     failures += test_key_package_length();
     failures += test_signing_package_length();
+    failures += test_session_id_length();
     failures += test_legacy_share_field();
     failures += test_psbt_too_long();
     failures += test_psbt_allocation();

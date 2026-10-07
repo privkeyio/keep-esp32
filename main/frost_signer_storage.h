@@ -25,6 +25,8 @@
 typedef struct {
     uint8_t key_package[SHARE_KEY_PACKAGE_MAX];
     size_t key_package_len;
+    /* A KeyPackage carries no group size, so this is the host's word, checked only to be
+     * 2..16 and to cover the index and threshold. Signing never depends on it. */
     uint16_t participants;
 } share_key_t;
 

@@ -129,15 +129,16 @@ static void handle_unlock(const rpc_request_t *req, rpc_response_t *resp) {
         ESP_LOGW(TAG, "Storage migration warning: %d", migrate_ret);
     }
 
-    int migrated = 0, removed = 0;
-    int shares_ret = frost_signer_migrate_shares(&migrated, &removed);
+    int migrated = 0, unmigratable = 0;
+    int shares_ret = frost_signer_migrate_shares(&migrated, &unmigratable);
     if (shares_ret != 0) {
         ESP_LOGW(TAG, "Share migration incomplete: %d", shares_ret);
     }
 
     char result[96];
     snprintf(result, sizeof(result),
-             "{\"unlocked\":true,\"shares_migrated\":%d,\"shares_removed\":%d}", migrated, removed);
+             "{\"unlocked\":true,\"shares_migrated\":%d,\"shares_unmigratable\":%d}", migrated,
+             unmigratable);
     protocol_success(resp, req->id, result);
 }
 
@@ -439,6 +440,8 @@ void app_main(void) {
                 PROTOCOL_ERROR(&resp, 0, PROTOCOL_ERR_PARSE, "Parse error");
             }
             protocol_free_request(&req);
+            /* The line may have carried a key package or PIN. */
+            secure_memzero(line_buf, sizeof(line_buf));
             if (resp.success) {
                 consecutive_errors = 0;
             } else {
