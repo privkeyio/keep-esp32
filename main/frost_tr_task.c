@@ -29,6 +29,9 @@ static SemaphoreHandle_t start_sem, done_sem, lock;
 static ftr_job_fn job_fn;
 static void *job_arg;
 static int job_result;
+/* The refill below would hide each job's depth from uxTaskGetStackHighWaterMark, so the
+ * deepest use is measured here before refilling. */
+static size_t stack_free_min = FTR_TASK_STACK_SIZE;
 
 static void __attribute__((noinline)) run_job(void) {
     volatile uint8_t pad[FTR_JOB_PAD];
@@ -42,9 +45,17 @@ static void frost_task(void *unused) {
     for (;;) {
         xSemaphoreTake(start_sem, portMAX_DELAY);
         run_job();
+        size_t untouched = 0;
+        while (untouched < FTR_TASK_STACK_SIZE && task_stack[untouched] == FTR_STACK_FILL) {
+            untouched++;
+        }
+        if (untouched < stack_free_min) {
+            stack_free_min = untouched;
+        }
         /* Everything below the loop's frame belonged to the job: Rust temporaries, copies
-         * of the signing share and nonces. Restore the fill byte so the high-water mark
-         * stays meaningful. Inline volatile stores, no call, so nothing is live below sp. */
+         * of the signing share and nonces. Restore the fill byte, which also lets the next
+         * job's depth be measured. Inline volatile stores, no call, so nothing is live below
+         * sp. */
         volatile uint8_t *p = (volatile uint8_t *)task_stack;
         volatile uint8_t *stop = (volatile uint8_t *)esp_cpu_get_sp() - FTR_WIPE_STOP;
         while (p < stop) {
@@ -83,7 +94,7 @@ int ftr_task_run(ftr_job_fn job, void *arg) {
 }
 
 size_t ftr_task_stack_free_min(void) {
-    return task_handle != NULL ? (size_t)uxTaskGetStackHighWaterMark(task_handle) : 0;
+    return task_handle != NULL ? stack_free_min : 0;
 }
 
 #else
