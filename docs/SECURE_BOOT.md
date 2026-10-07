@@ -23,6 +23,7 @@ This creates `keys/secure_boot_signing_key.pem` (RSA-3072 private key).
 ### 2. Build with Secure Boot
 
 ```bash
+scripts/build-frost-tr.sh --docker
 idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.secureboot" build
 ```
 
@@ -125,14 +126,18 @@ For automated builds without secure boot (development):
 
 ```yaml
 - name: Build firmware
-  run: idf.py build
+  run: |
+    scripts/build-frost-tr.sh --docker
+    idf.py build
 ```
 
 For signed release builds:
 
 ```yaml
 - name: Build firmware (unsigned)
-  run: idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.secureboot" build
+  run: |
+    scripts/build-frost-tr.sh --docker
+    idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.secureboot" build
 
 - name: Sign firmware
   run: ./scripts/sign_firmware.sh sign-all

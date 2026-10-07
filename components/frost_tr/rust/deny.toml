@@ -24,6 +24,13 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# FROST nonces come only from the firmware RNG registered with ftr_init(); an OS
+# or seeded generator crate here would be a way around it.
+deny = [
+    { name = "getrandom" },
+    { name = "rand" },
+    { name = "rand_chacha" },
+]
 
 [sources]
 unknown-registry = "deny"

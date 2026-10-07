@@ -29,14 +29,19 @@ done
 if [ "$DOCKER" = 1 ]; then
     inner=()
     [ "$MODE" = test ] && inner=(--test)
-    # Runs as root with the image's toolchain home so it works whatever uid owns
-    # the checkout (CI runners are not uid 1000), then hands the outputs back.
-    exec docker run --rm -u 0 -e HOME=/home/esp \
-        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e FROST_TR_TARGET_DIR \
-        -v "$ROOT:/work" -w /work "$FROST_TR_IMAGE" \
-        bash -c 'bash scripts/build-frost-tr.sh "$@"; rc=$?
-                 chown -R "$HOST_UID:$HOST_GID" components/frost_tr/lib components/frost_tr/rust/target 2>/dev/null
-                 exit $rc' _ "${inner[@]}"
+    mkdir -p "$ROOT/components/frost_tr/lib"
+    # The source tree is mounted read-only and only lib/ is writable, so crate
+    # build scripts running in the container cannot change the checkout. Runs
+    # as root with the image's toolchain home (CI runners are not uid 1000),
+    # then hands the archive back to the caller's uid.
+    exec "${DOCKER_CMD:-docker}" run --rm -u 0 -e HOME=/home/esp \
+        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+        -v "$ROOT:/work:ro" \
+        -v "$ROOT/components/frost_tr/lib:/work/components/frost_tr/lib" \
+        -w /work "$FROST_TR_IMAGE" \
+        bash -c 'FROST_TR_TARGET_DIR=/tmp/frost_tr-target bash scripts/build-frost-tr.sh "$@"; rc=$?
+                 chown "$HOST_UID:$HOST_GID" components/frost_tr/lib/libfrost_tr.a 2>/dev/null
+                 exit $rc' _ ${inner[@]+"${inner[@]}"}
 fi
 
 if [ -f /home/esp/export-esp.sh ]; then
@@ -50,7 +55,7 @@ TARGET_DIR="${FROST_TR_TARGET_DIR:-$CRATE/target}"
 
 # Panic and source locations embed paths; map them to fixed names so the
 # archive does not depend on where the tree or the cargo home live.
-export RUSTFLAGS="--remap-path-prefix=$CRATE=/frost_tr --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo ${RUSTFLAGS:-}"
+export RUSTFLAGS="--remap-path-prefix=$CRATE=/frost_tr --remap-path-prefix=$TARGET_DIR=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo ${RUSTFLAGS:-}"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
 
 if [ "$MODE" = test ]; then

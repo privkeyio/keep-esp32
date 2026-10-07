@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Boot self-test: heap alignment, the ZF test vectors byte for byte, and that
-//! the firmware RNG is registered. Each failing check returns its own code so a
-//! failure on a device can be traced to the exact step.
-
+//! the firmware RNG is registered and healthy. Each failing check returns its
+//! own code so a failure on a device can be traced to the exact step.
 
 use alloc::collections::BTreeMap;
 
@@ -13,7 +12,7 @@ use frost::keys::{KeyPackage, PublicKeyPackage, SigningShare, VerifyingShare};
 use frost::round1::SigningNonces;
 use frost::{Identifier, SigningPackage, VerifyingKey};
 
-use crate::rng::registered;
+use crate::rng::{healthy, registered};
 use crate::vectors::{MESSAGE, MIN_SIGNERS, PARTICIPANTS, SIGNATURE, VERIFYING_KEY};
 
 type Nonce = frost_core::round1::Nonce<frost::Secp256K1Sha256TR>;
@@ -30,6 +29,7 @@ pub const E_AGGREGATE: i32 = 8;
 pub const E_SIGNATURE: i32 = 9;
 pub const E_VERIFY: i32 = 10;
 pub const E_RNG_UNREGISTERED: i32 = 11;
+pub const E_RNG_UNHEALTHY: i32 = 12;
 pub const E_ALIGNMENT: i32 = 13;
 
 pub fn vectors() -> i32 {
@@ -90,11 +90,15 @@ pub fn vectors() -> i32 {
     OK
 }
 
+/// The firmware RNG is registered and reports itself healthy. A draw is not
+/// made here: on the device each 32-byte draw takes about 1.5 s.
 pub fn rng_registered() -> i32 {
-    if registered() {
-        OK
-    } else {
+    if !registered() {
         E_RNG_UNREGISTERED
+    } else if !healthy() {
+        E_RNG_UNHEALTHY
+    } else {
+        OK
     }
 }
 

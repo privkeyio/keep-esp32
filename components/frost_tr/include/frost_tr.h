@@ -27,8 +27,8 @@ typedef uint32_t (*ftr_rng_healthy_fn)(void);
 int ftr_init(ftr_rng_fill_fn fill, ftr_rng_healthy_fn healthy);
 
 // Boot self-test: heap alignment, the ZF test vectors byte for byte, and that
-// the RNG is registered. Returns 0, or the code of the first failed check
-// (see rust/src/selftest.rs).
+// the RNG is registered and healthy. Returns 0, or the code of the first failed
+// check (see rust/src/selftest.rs).
 int ftr_selftest(void);
 
 #ifdef __cplusplus

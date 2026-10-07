@@ -133,6 +133,11 @@ name = "getrandom"
 version = "0.2.15"
 ' fail "getrandom in a Cargo.lock is the same bypass as a dependency"
 
+run_probe components/frost_tr/rust/src/probe_rngs.rs 'struct A; struct B;
+impl rand_core::RngCore for A { }
+impl rand_core::RngCore for B { }
+' fail "a second hand-written RNG in frost_tr is rejected"
+
 run_probe components/frost_tr/rust/src/probe_ok.rs '// OsRng is not used here: draws go through the registered firmware RNG.
 fn f() { let x = 1; }
 ' pass "a comment naming a banned RNG is not a draw"

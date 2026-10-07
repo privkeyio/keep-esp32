@@ -281,6 +281,16 @@ done)
 lock_bad=$(git ls-files 'Cargo.lock' '*/Cargo.lock' | while read -r f; do
   grep -nHE '^name = "getrandom"' "$f" || true
 done)
+# A hand-written generator needs no banned crate or name, so cap the number of
+# RNG implementations in frost_tr at one: the wrapper around the firmware RNG.
+rng_impls=$(git ls-files 'components/frost_tr/*.rs' | while read -r f; do
+  grep -nHE 'impl[^{]*(RngCore|CryptoRng)[[:space:]]+for' "$f" \
+    | grep -vE '^[^:]*:[0-9]+:[[:space:]]*//' | grep -E 'RngCore' || true
+done)
+if [ "$(printf '%s\n' "$rng_impls" | grep -c .)" -gt 1 ]; then
+  rust_bad="$rust_bad$(printf '\n%s\n' "$rng_impls")
+  more than one RngCore implementation in components/frost_tr; only the firmware RNG wrapper may exist"
+fi
 if [ -n "$rust_bad$lock_bad" ]; then
   fail "Rust randomness that bypasses the firmware RNG:"
   printf '%s\n' "$rust_bad" "$lock_bad" | grep -v '^$' | sed 's/^/  /'

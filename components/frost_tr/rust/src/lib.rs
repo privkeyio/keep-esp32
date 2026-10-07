@@ -30,7 +30,7 @@ pub unsafe extern "C" fn ftr_init(fill: Option<rng::FillFn>, healthy: Option<rng
 }
 
 /// Runs the boot self-test: heap alignment, the ZF test vectors byte for byte,
-/// and that the firmware RNG is registered. Returns 0 on success or the code of
+/// and that the firmware RNG is registered and healthy. Returns 0 on success or the code of
 /// the first failed check (see `selftest.rs`).
 #[no_mangle]
 pub extern "C" fn ftr_selftest() -> i32 {

@@ -4,8 +4,8 @@
 """Generate components/frost_tr/rust/src/vectors.rs from the ZF test vectors.
 
 vectors.json is a byte-for-byte copy of tests/helpers/vectors.json from the
-frost-secp256k1-tr 3.0.0 crate; its SHA-256 is checked here and in the crate's
-tests. Run with --check in CI to fail when the generated file is stale.
+frost-secp256k1-tr 3.0.0 crate; its SHA-256 is checked here before anything is
+generated. Run with --check in CI to fail when the generated file is stale.
 """
 import hashlib
 import json

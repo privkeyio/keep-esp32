@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Platform glue for the no_std build: a heap that wipes freed memory, a panic
-//! handler, and the fatal path. On the device these use ESP-IDF; in host
-//! builds linked into the native C test harness they use libc.
+//! handler, and the fatal path. On the device these use ESP-IDF; host builds
+//! (the crate's own tests, and any host program linking the archive) use libc.
 
 use core::alloc::{GlobalAlloc, Layout};
 
