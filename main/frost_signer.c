@@ -431,11 +431,16 @@ int frost_signer_migrate_shares(int *migrated, int *unmigratable) {
                 status = ret;
                 ESP_LOGE(TAG, "Could not store migrated share for group %s: %d", groups[i], ret);
             }
-        } else {
+        } else if (ret == FTR_E_LENGTH || ret == FTR_E_DESERIALIZE || ret == FTR_E_NONCANONICAL ||
+                   ret == FTR_E_SHARE_MISMATCH || ret == FTR_E_IDENTIFIER ||
+                   ret == FTR_E_THRESHOLD) {
             /* Left as it is: only an explicit delete_share removes a share. */
             (*unmigratable)++;
             FROST_LOGW(TAG, "Share for group %s cannot be rebuilt as a key package (%d)", groups[i],
                        ret);
+        } else {
+            status = ret;
+            ESP_LOGE(TAG, "Could not migrate share for group %s: %d", groups[i], ret);
         }
         secure_memzero(kp, sizeof(kp));
         secure_memzero(&key, sizeof(key));

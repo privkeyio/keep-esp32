@@ -355,7 +355,9 @@ clear_slot:;
 #define RETIRED_CHECKPOINT_PARTITION    "checkpoint"
 
 /* Erases [offset, offset + size) only if any byte is still written, so an unlock does not
- * wear the flash once the region is clean. */
+ * wear the flash once the region is clean. Erased reads as 0xFF only while these data
+ * partitions are not flash-encrypted; with encrypted data partitions this would erase on
+ * every unlock. */
 static int erase_if_written(const esp_partition_t *partition, size_t offset, size_t size) {
     for (size_t at = offset; at < offset + size; at += STORAGE_SECTOR_SIZE) {
         if (esp_partition_read(partition, at, sector_buf, STORAGE_SECTOR_SIZE) != ESP_OK) {
