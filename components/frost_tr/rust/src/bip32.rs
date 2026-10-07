@@ -106,21 +106,29 @@ pub fn tweak(kp: &KeyPackage, path: &[u32]) -> Result<KeyPackage, i32> {
     }
     let tg = ProjectivePoint::GENERATOR * t;
 
-    let mut share_bytes = kp.signing_share().serialize();
-    let share = <[u8; 32]>::try_from(&share_bytes[..]).ok().and_then(|b| scalar(&b));
-    share_bytes.zeroize();
-    let mut sum = share.ok_or(E_PATH)? + t;
-    if bool::from(sum.is_zero()) {
-        return Err(E_PATH);
-    }
-    let mut sum_bytes: [u8; 32] = sum.to_repr().into();
-    sum.zeroize();
-    let tweaked_share = SigningShare::deserialize(&sum_bytes).map_err(|_| E_PATH);
-    sum_bytes.zeroize();
-
     let shift = |encoded: &[u8]| -> Result<[u8; 33], i32> { compressed(&(point(encoded).ok_or(E_PATH)? + tg)).ok_or(E_PATH) };
     let vs = kp.verifying_share().serialize().map_err(|_| E_PATH)?;
     let tweaked_vs = VerifyingShare::deserialize(&shift(&vs)?).map_err(|_| E_PATH)?;
     let tweaked_vk = VerifyingKey::deserialize(&shift(&vk)?).map_err(|_| E_PATH)?;
+
+    // Every copy of the share, and of the tweaked share (equivalent, as the
+    // tweak is public), is wiped here rather than left to the task's stack refill.
+    let mut share_bytes = kp.signing_share().serialize();
+    let mut share_arr = [0u8; 32];
+    let ok = share_bytes.len() == 32;
+    if ok {
+        share_arr.copy_from_slice(&share_bytes);
+    }
+    share_bytes.zeroize();
+    let mut share = if ok { scalar(&share_arr) } else { None };
+    share_arr.zeroize();
+    let mut sum = share.map(|s| s + t);
+    share.zeroize();
+    let Some(mut sum_scalar) = sum.take() else { return Err(E_PATH) };
+    let mut sum_bytes: [u8; 32] = sum_scalar.to_repr().into();
+    let zero = bool::from(sum_scalar.is_zero());
+    sum_scalar.zeroize();
+    let tweaked_share = if zero { Err(E_PATH) } else { SigningShare::deserialize(&sum_bytes).map_err(|_| E_PATH) };
+    sum_bytes.zeroize();
     Ok(KeyPackage::new(*kp.identifier(), tweaked_share?, tweaked_vs, tweaked_vk, *kp.min_signers()))
 }

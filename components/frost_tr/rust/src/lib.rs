@@ -149,9 +149,13 @@ pub unsafe extern "C" fn ftr_sign(
     let Some(nonces) = nonces.as_mut() else {
         return signer::E_NULL;
     };
+    if path_len > bip32::MAX_DEPTH {
+        glue::wipe(nonces.as_mut_ptr(), signer::NONCES_LEN);
+        return signer::E_PATH;
+    }
     let path: Option<&[u32]> = match (path.is_null(), path_len) {
         (_, 0) => Some(&[]),
-        (false, n) if n <= bip32::MAX_DEPTH => Some(core::slice::from_raw_parts(path, n)),
+        (false, n) => Some(core::slice::from_raw_parts(path, n)),
         _ => None,
     };
     let (Some(kp), Some(sp), Some(msg), Some(share), Some(path)) = (
@@ -669,8 +673,7 @@ mod tests {
             let mut f = fixture();
             let sp = SigningPackage::new(f.commitments.clone(), &msg).serialize().unwrap();
             let r = device_sign_at(&f.kp, &mut f.nonces, &sp, &msg, path);
-            let want = if path.len() > bip32::MAX_DEPTH { signer::E_NULL } else { signer::E_PATH };
-            assert_eq!(r, Err(want), "{path:?}");
+            assert_eq!(r, Err(signer::E_PATH), "{path:?}");
             assert_eq!(f.nonces, [0u8; 64], "nonces burned for {path:?}");
         }
         let mut f = fixture();

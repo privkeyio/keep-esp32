@@ -564,7 +564,9 @@ static void frost_commit_generate(const char *group, const char *session_id_hex,
     memcpy(s->message, message, FTR_MESSAGE_LEN);
     s->index = info.index;
     memcpy(s->verifying_share, info.verifying_share, sizeof(s->verifying_share));
-    memcpy(s->path, path, path_len * sizeof(s->path[0]));
+    if (path_len > 0) {
+        memcpy(s->path, path, path_len * sizeof(s->path[0]));
+    }
     s->path_len = path_len;
     s->created_at = get_time_ms();
 

@@ -337,8 +337,27 @@ static int test_derivation_path(void) {
         req.derivation_path_len != 0)
         FAIL("no path means an empty path");
     protocol_free_request(&req);
-    const char *bad[] = {
-        "[2147483648]", "[0,1,2,3,4,5,6,7,8]", "[-1]", "[1.5]", "5", "[\"0\"]", "[null]", "{}"};
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"derivation_path\":[]}}", &req) !=
+            0 ||
+        req.derivation_path_len != 0)
+        FAIL("an explicit empty path is the group key");
+    protocol_free_request(&req);
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_sign\",\"params\":{\"derivation_path\":[0]}}", &req) !=
+        ERR_PROTOCOL_PARAMS)
+        FAIL("a path outside frost_commit should be refused");
+    const char *bad[] = {"[2147483648]",
+                         "[0,1,2,3,4,5,6,7,8]",
+                         "[-1]",
+                         "[-0]",
+                         "[1.5]",
+                         "5",
+                         "[\"0\"]",
+                         "[null]",
+                         "[true]",
+                         "[1e400]",
+                         "{}"};
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         char json[128];
         snprintf(json, sizeof(json),

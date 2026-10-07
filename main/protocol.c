@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
+#include <math.h>
 
 static bool is_valid_base64(const char *str, size_t len) {
     if (len == 0)
@@ -136,7 +137,10 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
         }
         cJSON *path = cJSON_GetObjectItem(params, "derivation_path");
         if (path) {
-            int n = cJSON_IsArray(path) ? cJSON_GetArraySize(path) : -1;
+            /* The path is fixed at commit; anywhere else it would be silently ignored. */
+            int n = cJSON_IsArray(path) && req->method == RPC_METHOD_FROST_COMMIT
+                        ? cJSON_GetArraySize(path)
+                        : -1;
             if (n < 0 || n > FTR_MAX_PATH_DEPTH) {
                 cJSON_Delete(root);
                 return ERR_PROTOCOL_PARAMS;
@@ -144,8 +148,9 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
             for (int i = 0; i < n; i++) {
                 cJSON *index = cJSON_GetArrayItem(path, i);
                 double v = cJSON_IsNumber(index) ? index->valuedouble : -1.0;
-                /* Unhardened only: hardened derivation needs a secret no signer holds. */
-                if (v < 0.0 || v >= 2147483648.0 || v != (double)(uint32_t)v) {
+                /* Unhardened only: hardened derivation needs a secret no signer holds. The
+                 * range test comes first so NaN never reaches the cast. */
+                if (!(v >= 0.0 && v < 2147483648.0) || signbit(v) || v != (double)(uint32_t)v) {
                     cJSON_Delete(root);
                     return ERR_PROTOCOL_PARAMS;
                 }

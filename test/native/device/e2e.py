@@ -193,7 +193,7 @@ def frost_sign(group, devices, message, psbt=None, peers=(), name="g", path=None
     session = secrets.token_hex(32)
     commits, nonces = {}, {}
     params = {"group": name, "session_id": session, "message": message.hex()}
-    if path:
+    if path is not None:
         params["derivation_path"] = path
     for d in devices:
         r = d.rpc("frost_commit", params)
