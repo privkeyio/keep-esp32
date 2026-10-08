@@ -1,0 +1,20 @@
+[package]
+name = "gen-kfp"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Writes vectors/kfp.json from keep's own KFP v2 code (keep-core, keep-frost-net and the nostr crate keep uses)"
+
+[dependencies]
+keep-core = { git = "https://github.com/privkeyio/keep", rev = "cdc47ddb120a50a2c31d7a2abd4279845c4dddd2", features = ["allow-ws", "allow-internal"] }
+keep-frost-net = { git = "https://github.com/privkeyio/keep", rev = "cdc47ddb120a50a2c31d7a2abd4279845c4dddd2" }
+nostr-relay-builder = "=0.44.1"
+nostr-sdk = "=0.44.1"
+frost-secp256k1-tr = "=3.0.0"
+tokio = { version = "1", features = ["full"] }
+rustls = "0.23"
+hex = "0.4"
+serde_json = "1"
+
+[workspace]
