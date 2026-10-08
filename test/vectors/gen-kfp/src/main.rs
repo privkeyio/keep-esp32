@@ -6,9 +6,12 @@
 //! nostr crate keep uses): transport keys, announce proofs and the announces a
 //! running keep node publishes, rendezvous addresses, NIP-44 v2 payloads, keep
 //! events sealed to a member, NIP-01 serializations and salted session ids.
-//! Groups come from keep's dealer, so each run writes a fresh, equally valid set:
+//! Groups come from keep's dealer, so each run writes a fresh, equally valid set.
+//! The lockfile is not tracked (the RNG hygiene check bans getrandom in any);
+//! seed it from keep's at the pinned commit, which resolves under keep's MSRV:
 //!
-//!   cargo run --release > ../kfp.json
+//!   git -C <keep> show cdc47ddb120a50a2c31d7a2abd4279845c4dddd2:Cargo.lock > Cargo.lock
+//!   cargo run --release > ../../../components/frost_tr/rust/vectors/kfp.json
 use std::time::Duration;
 
 use keep_core::frost::{ThresholdConfig, TrustedDealer};
@@ -189,7 +192,7 @@ async fn main() {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "source": "keep-core/keep-frost-net cdc47ddb and nostr 0.44.7 (vectors/gen-kfp)",
+            "source": "keep-core/keep-frost-net cdc47ddb and nostr 0.44.7 (test/vectors/gen-kfp)",
             "groups": groups,
             "serializations": serializations,
             "sessions": sessions,

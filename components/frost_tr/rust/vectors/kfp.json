@@ -1997,5 +1997,5 @@
    "threshold": 2
   }
  ],
- "source": "keep-core/keep-frost-net cdc47ddb and nostr 0.44.7 (vectors/gen-kfp)"
+ "source": "keep-core/keep-frost-net cdc47ddb and nostr 0.44.7 (test/vectors/gen-kfp)"
 }
