@@ -17,8 +17,6 @@
 //!   taptweak-key-package <key_package> <merkle_root|->
 //!   taptweak-public-key-package <pubkeys> <merkle_root|->
 //!                                         the BIP-341 TapTweak as keep applies it
-//!   key-spend-sighash <psbt_hex>          input 0's BIP-341 SIGHASH_DEFAULT key-spend sighash
-//!   key-spend-finalize <psbt_hex> <sig>   the transaction with input 0's key-path witness
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -131,10 +129,6 @@ fn path_arg(s: &str) -> Vec<u32> {
 
 fn merkle_root_arg(s: &str) -> Option<[u8; 32]> {
     (s != "-").then(|| unhex(s).try_into().unwrap_or_else(|_| die("merkle root must be 32 bytes")))
-}
-
-fn psbt_arg(s: &str) -> bitcoin::Psbt {
-    bitcoin::Psbt::deserialize(&unhex(s)).unwrap_or_else(|e| die(&format!("psbt: {e}")))
 }
 
 fn participant_index(id: &Identifier) -> u16 {
@@ -264,29 +258,6 @@ fn main() {
         "taptweak-public-key-package" => {
             let pkp = PublicKeyPackage::deserialize(&unhex(arg(1))).unwrap_or_else(|e| die(&format!("pubkeys: {e}")));
             println!("{}", hex(&pkp.tweak(merkle_root_arg(arg(2))).serialize().unwrap()));
-        }
-        "key-spend-sighash" => {
-            use bitcoin::sighash::{Prevouts, SighashCache, TapSighashType};
-            let psbt = psbt_arg(arg(1));
-            let prevouts: Vec<bitcoin::TxOut> = psbt
-                .inputs
-                .iter()
-                .map(|i| i.witness_utxo.clone().unwrap_or_else(|| die("an input has no witness_utxo")))
-                .collect();
-            let sighash = SighashCache::new(&psbt.unsigned_tx)
-                .taproot_key_spend_signature_hash(0, &Prevouts::All(&prevouts), TapSighashType::Default)
-                .unwrap_or_else(|e| die(&format!("sighash: {e}")));
-            println!("{}", hex(sighash.as_ref()));
-        }
-        "key-spend-finalize" => {
-            let mut psbt = psbt_arg(arg(1));
-            let sig = unhex(arg(2));
-            if sig.len() != 64 {
-                die("signature must be 64 bytes");
-            }
-            psbt.inputs[0].final_script_witness = Some(bitcoin::Witness::from_slice(&[sig]));
-            let tx = psbt.extract_tx_unchecked_fee_rate();
-            println!("{}", hex(&bitcoin::consensus::serialize(&tx)));
         }
         _ => die("unknown command"),
     }

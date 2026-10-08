@@ -344,6 +344,12 @@ static int test_derivation_path(void) {
         FAIL("an explicit empty path is the group key");
     protocol_free_request(&req);
     if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"Derivation_Path\":[0]}}", &req) !=
+            0 ||
+        req.derivation_path_len != 0)
+        FAIL("only the exact name is the path");
+    protocol_free_request(&req);
+    if (protocol_parse_request(
             "{\"id\":1,\"method\":\"frost_sign\",\"params\":{\"derivation_path\":[0]}}", &req) !=
         ERR_PROTOCOL_PARAMS)
         FAIL("a path outside frost_commit should be refused");
@@ -384,6 +390,12 @@ static int test_taproot_tweak(void) {
             0 ||
         !req.taproot_tweak || req.has_merkle_root)
         FAIL("an empty tweak is a key-path spend with no script tree");
+    protocol_free_request(&req);
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"Taproot_Tweak\":{}}}", &req) !=
+            0 ||
+        req.taproot_tweak)
+        FAIL("only the exact name is the tweak");
     protocol_free_request(&req);
     snprintf(json, sizeof(json),
              "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"derivation_path\":[0,3],"

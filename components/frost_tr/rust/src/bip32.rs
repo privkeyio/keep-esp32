@@ -111,8 +111,10 @@ pub fn tweak(kp: &KeyPackage, path: &[u32]) -> Result<KeyPackage, i32> {
     let tweaked_vs = VerifyingShare::deserialize(&shift(&vs)?).map_err(|_| E_PATH)?;
     let tweaked_vk = VerifyingKey::deserialize(&shift(&vk)?).map_err(|_| E_PATH)?;
 
-    // Every copy of the share, and of the tweaked share (equivalent, as the
-    // tweak is public), is wiped here rather than left to the task's stack refill.
+    // The buffers this function owns that hold the share, or the tweaked share
+    // (equivalent, as the tweak is public), are wiped here, including the heap
+    // copy. Copies made by value inside the scalar and frost-core calls are not;
+    // the signing task's stack refill clears those, so this runs only there.
     let mut share_bytes = kp.signing_share().serialize();
     let mut share_arr = [0u8; 32];
     let ok = share_bytes.len() == 32;

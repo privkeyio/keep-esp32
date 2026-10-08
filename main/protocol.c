@@ -136,7 +136,7 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
             }
             memcpy(req->session_id, session_id->valuestring, len + 1);
         }
-        cJSON *path = cJSON_GetObjectItem(params, "derivation_path");
+        cJSON *path = cJSON_GetObjectItemCaseSensitive(params, "derivation_path");
         if (path) {
             /* The path is fixed at commit; anywhere else it would be silently ignored. */
             int n = cJSON_IsArray(path) && req->method == RPC_METHOD_FROST_COMMIT
