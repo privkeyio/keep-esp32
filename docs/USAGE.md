@@ -265,10 +265,10 @@ See [Warden documentation](https://github.com/privkeyio/warden) for policy creat
 
 | Method | Description |
 |--------|-------------|
-| `frost_commit` | Round 1: `group`, `session_id`, 32-byte `message`, optional `derivation_path` (up to 8 unhardened indexes); returns this signer's `SigningCommitments` |
+| `frost_commit` | Round 1: `group`, `session_id`, 32-byte `message`, optional `derivation_path` (up to 8 unhardened indexes), optional `taproot_tweak` (`{}` or `{"merkle_root": "<32-byte hex>"}`); returns this signer's `SigningCommitments` |
 | `frost_sign` | Round 2: `group`, `session_id`, `signing_package` (frost-core `SigningPackage` with every signer's commitments); returns the `SignatureShare` |
 
-The device signs only the message given at `frost_commit`, and only a package that contains its own commitment unchanged and at least the threshold of signers. With a `derivation_path` the round signs under the BIP-32 child key keep derives from the group key for that path (keep's deterministic chain code), which spends a `rawtr(child)` output; the path is fixed at `frost_commit`. Signing nonces live in RAM: after a reset the round starts again with a fresh `frost_commit`. Resending the same package returns the same share; any other package for that session is refused.
+The device signs only the message given at `frost_commit`, and only a package that contains its own commitment unchanged and at least the threshold of signers. With a `derivation_path` the round signs under the BIP-32 child key keep derives from the group key for that path (keep's deterministic chain code), which spends a `rawtr(child)` output. With a `taproot_tweak` the round is a BIP-341 key-path spend: it signs under the output key of that key (the child key, or the group key without a path), committing to the script tree's `merkle_root` or, with `{}`, to no tree, which spends keep's `tr()` addresses (a `tr(<group xpub>/<chain>/<index>)` wallet address, or the key path of a `tr(<group>, <tree>)` recovery wallet). The path and the tweak are fixed at `frost_commit`. Signing nonces live in RAM: after a reset the round starts again with a fresh `frost_commit`. Resending the same package returns the same share; any other package for that session is refused.
 
 DKG and session resume (`dkg_*`, `frost_session_resume`, `frost_session_list`) are not available in protocol 2.
 

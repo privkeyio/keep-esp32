@@ -5,6 +5,7 @@
 #include "error_context.h"
 #include "crypto_asm.h"
 #include "cJSON.h"
+#include "hex_utils.h"
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
@@ -157,6 +158,26 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
                 req->derivation_path[i] = (uint32_t)v;
             }
             req->derivation_path_len = (size_t)n;
+        }
+        cJSON *taproot = cJSON_GetObjectItemCaseSensitive(params, "taproot_tweak");
+        if (taproot) {
+            /* Fixed at commit like the path. Its one member, merkle_root, is optional;
+             * any other member is refused rather than ignored. */
+            int members = cJSON_IsObject(taproot) && req->method == RPC_METHOD_FROST_COMMIT
+                              ? cJSON_GetArraySize(taproot)
+                              : -1;
+            cJSON *merkle_root =
+                members == 1 ? cJSON_GetObjectItemCaseSensitive(taproot, "merkle_root") : NULL;
+            bool ok = members == 0 ||
+                      (cJSON_IsString(merkle_root) && strlen(merkle_root->valuestring) == 64 &&
+                       hex_to_bytes(merkle_root->valuestring, req->merkle_root,
+                                    sizeof(req->merkle_root)) == (int)sizeof(req->merkle_root));
+            if (!ok) {
+                cJSON_Delete(root);
+                return ERR_PROTOCOL_PARAMS;
+            }
+            req->taproot_tweak = true;
+            req->has_merkle_root = members == 1;
         }
         cJSON *signing_package = cJSON_GetObjectItem(params, "signing_package");
         if (signing_package && cJSON_IsString(signing_package)) {

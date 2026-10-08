@@ -370,6 +370,63 @@ static int test_derivation_path(void) {
     return 0;
 }
 
+static int test_taproot_tweak(void) {
+    TEST("taproot_tweak: an optional 32-byte merkle_root on frost_commit, anything else refused");
+    const char *root = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    rpc_request_t req;
+    char json[256];
+    if (protocol_parse_request("{\"id\":1,\"method\":\"frost_commit\",\"params\":{}}", &req) != 0 ||
+        req.taproot_tweak || req.has_merkle_root)
+        FAIL("no tweak unless asked");
+    protocol_free_request(&req);
+    if (protocol_parse_request(
+            "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"taproot_tweak\":{}}}", &req) !=
+            0 ||
+        !req.taproot_tweak || req.has_merkle_root)
+        FAIL("an empty tweak is a key-path spend with no script tree");
+    protocol_free_request(&req);
+    snprintf(json, sizeof(json),
+             "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"derivation_path\":[0,3],"
+             "\"taproot_tweak\":{\"merkle_root\":\"%s\"}}}",
+             root);
+    if (protocol_parse_request(json, &req) != 0 || !req.taproot_tweak || !req.has_merkle_root ||
+        req.merkle_root[0] != 0x00 || req.merkle_root[1] != 0x11 || req.merkle_root[31] != 0xff ||
+        req.derivation_path_len != 2)
+        FAIL("merkle root not parsed");
+    protocol_free_request(&req);
+    snprintf(json, sizeof(json),
+             "{\"id\":1,\"method\":\"frost_sign\",\"params\":{\"taproot_tweak\":{}}}");
+    if (protocol_parse_request(json, &req) != ERR_PROTOCOL_PARAMS)
+        FAIL("a tweak outside frost_commit should be refused");
+    const char *bad[] = {
+        "true",
+        "null",
+        "[]",
+        "\"\"",
+        "{\"merkle_root\":null}",
+        "{\"merkle_root\":\"\"}",
+        "{\"merkle_root\":\"0011\"}",
+        "{\"merkle_root\":12}",
+        "{\"Merkle_root\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\"}",
+        "{\"merkle_root\":\"zz112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\"}",
+        "{\"merkle_root\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00\"}",
+        "{\"root\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\"}",
+        "{\"merkle_root\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\","
+        "\"extra\":1}",
+        "{\"merkle_root\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\","
+        "\"merkle_root\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\"}"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char req_json[512];
+        snprintf(req_json, sizeof(req_json),
+                 "{\"id\":1,\"method\":\"frost_commit\",\"params\":{\"taproot_tweak\":%s}}",
+                 bad[i]);
+        if (protocol_parse_request(req_json, &req) != ERR_PROTOCOL_PARAMS)
+            FAIL(bad[i]);
+    }
+    PASS();
+    return 0;
+}
+
 static int test_legacy_share_field(void) {
     TEST("a request with the retired share field is flagged");
     rpc_request_t req;
@@ -559,6 +616,7 @@ int main(void) {
     failures += test_signing_package_length();
     failures += test_session_id_length();
     failures += test_derivation_path();
+    failures += test_taproot_tweak();
     failures += test_legacy_share_field();
     failures += test_psbt_too_long();
     failures += test_psbt_allocation();

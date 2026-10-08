@@ -127,13 +127,16 @@ pub unsafe extern "C" fn ftr_commit(
 
 /// Signs `signing_package` with the nonces from `ftr_commit`. Refuses unless
 /// the package's message is `expected_message`. With a non-empty `path`, signs
-/// under the BIP-32 child key keep derives for it. `nonces` is zeroed on every
-/// path, success or failure.
+/// under the BIP-32 child key keep derives for it; with `taproot`, then under
+/// the BIP-341 output key committing to `merkle_root` (no script tree when
+/// null). A `merkle_root` without `taproot` is refused. `nonces` is zeroed on
+/// every path, success or failure.
 ///
 /// # Safety
 /// `kp` and `signing_package` must point to readable buffers of the given
-/// lengths, `path` to `path_len` indexes (or be null with `path_len` 0); the
-/// fixed-size pointers to buffers of their stated sizes.
+/// lengths, `path` to `path_len` indexes (or be null with `path_len` 0),
+/// `merkle_root` to 32 bytes or be null; the fixed-size pointers to buffers of
+/// their stated sizes.
 #[no_mangle]
 pub unsafe extern "C" fn ftr_sign(
     kp: *const u8,
@@ -144,6 +147,8 @@ pub unsafe extern "C" fn ftr_sign(
     expected_message: *const [u8; signer::MESSAGE_LEN],
     path: *const u32,
     path_len: usize,
+    taproot: bool,
+    merkle_root: *const [u8; 32],
     out_share: *mut [u8; signer::SIGNATURE_SHARE_LEN],
 ) -> i32 {
     let Some(nonces) = nonces.as_mut() else {
@@ -153,6 +158,11 @@ pub unsafe extern "C" fn ftr_sign(
         glue::wipe(nonces.as_mut_ptr(), signer::NONCES_LEN);
         return signer::E_PATH;
     }
+    if !taproot && !merkle_root.is_null() {
+        glue::wipe(nonces.as_mut_ptr(), signer::NONCES_LEN);
+        return signer::E_TWEAK;
+    }
+    let taproot = taproot.then(|| merkle_root.as_ref().copied());
     let path: Option<&[u32]> = match (path.is_null(), path_len) {
         (_, 0) => Some(&[]),
         (false, n) => Some(core::slice::from_raw_parts(path, n)),
@@ -168,7 +178,7 @@ pub unsafe extern "C" fn ftr_sign(
         glue::wipe(nonces.as_mut_ptr(), signer::NONCES_LEN);
         return signer::E_NULL;
     };
-    status(signer::sign(kp, nonces, sp, msg, path, share))
+    status(signer::sign(kp, nonces, sp, msg, path, taproot, share))
 }
 
 #[cfg(test)]
@@ -291,8 +301,23 @@ mod tests {
     }
 
     fn device_sign_at(kp: &[u8], nonces: &mut [u8; 64], sp: &[u8], msg: &[u8; 32], path: &[u32]) -> Result<[u8; 32], i32> {
+        device_sign_for(kp, nonces, sp, msg, path, None)
+    }
+
+    fn device_sign_for(
+        kp: &[u8],
+        nonces: &mut [u8; 64],
+        sp: &[u8],
+        msg: &[u8; 32],
+        path: &[u32],
+        taproot: Option<Option<[u8; 32]>>,
+    ) -> Result<[u8; 32], i32> {
         let mut out = [0u8; 32];
-        let r = unsafe { ftr_sign(kp.as_ptr(), kp.len(), nonces, sp.as_ptr(), sp.len(), msg, path.as_ptr(), path.len(), &mut out) };
+        let root = taproot.flatten();
+        let root_ptr = root.as_ref().map_or(core::ptr::null(), |r| r as *const [u8; 32]);
+        let r = unsafe {
+            ftr_sign(kp.as_ptr(), kp.len(), nonces, sp.as_ptr(), sp.len(), msg, path.as_ptr(), path.len(), taproot.is_some(), root_ptr, &mut out)
+        };
         match r {
             0 => Ok(out),
             e => Err(e),
@@ -465,7 +490,7 @@ mod tests {
         assert_eq!(device_sign(&f.kp, &mut zero, &sp, &msg), Err(signer::E_NONCES));
         let mut out = [0u8; 32];
         let r = unsafe {
-            ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, core::ptr::null(), 0, &msg, core::ptr::null(), 0, &mut out)
+            ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, core::ptr::null(), 0, &msg, core::ptr::null(), 0, false, core::ptr::null(), &mut out)
         };
         assert_eq!(r, signer::E_NULL);
         assert_eq!(f.nonces, [0u8; 64], "nonces are burned on a null argument too");
@@ -581,6 +606,7 @@ mod tests {
             ("FTR_E_SIGN", signer::E_SIGN as i64),
             ("FTR_E_SELFCHECK", signer::E_SELFCHECK as i64),
             ("FTR_E_PATH", signer::E_PATH as i64),
+            ("FTR_E_TWEAK", signer::E_TWEAK as i64),
             ("FTR_MAX_PATH_DEPTH", bip32::MAX_DEPTH as i64),
         ];
         for (name, value) in expected {
@@ -679,9 +705,133 @@ mod tests {
         let mut f = fixture();
         let sp = SigningPackage::new(f.commitments.clone(), &msg).serialize().unwrap();
         let mut out = [0u8; 32];
-        let r = unsafe { ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, sp.as_ptr(), sp.len(), &msg, core::ptr::null(), 2, &mut out) };
+        let r = unsafe {
+            ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, sp.as_ptr(), sp.len(), &msg, core::ptr::null(), 2, false, core::ptr::null(), &mut out)
+        };
         assert_eq!(r, signer::E_NULL, "a null path with a length is refused");
         assert_eq!(f.nonces, [0u8; 64]);
+    }
+
+    fn taproot_vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!("../vectors/taproot.json")).unwrap()
+    }
+
+    fn case_taproot(c: &serde_json::Value) -> Option<Option<[u8; 32]>> {
+        Some(c["merkle_root"].as_str().map(|h| unhex(h).try_into().unwrap()))
+    }
+
+    fn case_path(c: &serde_json::Value) -> Vec<u32> {
+        c["path"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as u32).collect()
+    }
+
+    #[test]
+    fn taproot_spend_keys_match_keep_byte_for_byte() {
+        let v = taproot_vectors();
+        let mut cases = 0;
+        for g in v["groups"].as_array().unwrap() {
+            let kps: Vec<KeyPackage> =
+                g["key_packages"].as_array().unwrap().iter().map(|h| KeyPackage::deserialize(&unhex(h.as_str().unwrap())).unwrap()).collect();
+            for c in g["cases"].as_array().unwrap() {
+                let path = case_path(c);
+                for (kp, want) in kps.iter().zip(c["tweaked_key_packages"].as_array().unwrap()) {
+                    let tweaked = signer::spend_key(kp.clone(), &path, case_taproot(c)).unwrap();
+                    assert_eq!(tweaked.serialize().unwrap(), unhex(want.as_str().unwrap()), "{path:?} {}", c["merkle_root"]);
+                    assert_eq!(tweaked.verifying_key().serialize().unwrap()[1..], unhex(c["output_key"].as_str().unwrap())[..]);
+                }
+                let spk = unhex(c["script_pubkey"].as_str().unwrap());
+                assert_eq!(spk[..2], [0x51, 0x20], "P2TR");
+                assert_eq!(spk[2..], unhex(c["output_key"].as_str().unwrap())[..], "the output key is the scriptPubKey's");
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 24);
+    }
+
+    /// The device signs a key-path spend next to keep's own tweaked packages,
+    /// and the signature verifies under the output key of the scriptPubKey keep
+    /// pays to.
+    #[test]
+    fn signs_key_path_spends_with_keep() {
+        let _g = with_rng();
+        let v = taproot_vectors();
+        for g in v["groups"].as_array().unwrap() {
+            let min = g["min_signers"].as_u64().unwrap() as usize;
+            let kps: Vec<Vec<u8>> = g["key_packages"].as_array().unwrap().iter().map(|h| unhex(h.as_str().unwrap())).collect();
+            for c in g["cases"].as_array().unwrap() {
+                let path = case_path(c);
+                let theirs: Vec<KeyPackage> = c["tweaked_key_packages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|h| KeyPackage::deserialize(&unhex(h.as_str().unwrap())).unwrap())
+                    .collect();
+                let pubkeys = frost::keys::PublicKeyPackage::deserialize(&unhex(c["tweaked_public_key_package"].as_str().unwrap())).unwrap();
+                let msg = [0x5au8; 32];
+                let (mut dev_nonces, dev_c) = device_commit(&kps[0]);
+                let dev_id = *theirs[0].identifier();
+                let mut commitments = BTreeMap::from([(dev_id, dev_c)]);
+                let mut nonces = BTreeMap::new();
+                for kp in theirs.iter().skip(1).take(min - 1) {
+                    let (n, c) = frost::round1::commit(kp.signing_share(), &mut rng::DeviceRng);
+                    nonces.insert(*kp.identifier(), (n, kp));
+                    commitments.insert(*kp.identifier(), c);
+                }
+                let package = SigningPackage::new(commitments, &msg);
+                let share = device_sign_for(&kps[0], &mut dev_nonces, &package.serialize().unwrap(), &msg, &path, case_taproot(c)).unwrap();
+                let mut shares = BTreeMap::from([(dev_id, frost::round2::SignatureShare::deserialize(&share).unwrap())]);
+                for (id, (n, kp)) in &nonces {
+                    shares.insert(*id, frost::round2::sign(&package, n, kp).unwrap());
+                }
+                let sig = frost::aggregate(&package, &shares, &pubkeys).unwrap();
+                let output_key = unhex(c["output_key"].as_str().unwrap());
+                let mut lift = vec![0x02];
+                lift.extend(&output_key);
+                frost::VerifyingKey::deserialize(&lift).unwrap().verify(&msg, &sig).unwrap();
+            }
+        }
+    }
+
+    /// Without the tweak, or with another merkle root, the device's share does
+    /// not fit keep's key-path spend: aggregation refuses it.
+    #[test]
+    fn a_share_for_another_key_does_not_aggregate() {
+        let _g = with_rng();
+        let v = taproot_vectors();
+        let g = &v["groups"][0];
+        let kps: Vec<Vec<u8>> = g["key_packages"].as_array().unwrap().iter().map(|h| unhex(h.as_str().unwrap())).collect();
+        let c = &g["cases"][5];
+        assert!(c["merkle_root"].is_string());
+        let theirs = KeyPackage::deserialize(&unhex(c["tweaked_key_packages"][1].as_str().unwrap())).unwrap();
+        let pubkeys = frost::keys::PublicKeyPackage::deserialize(&unhex(c["tweaked_public_key_package"].as_str().unwrap())).unwrap();
+        for wrong in [None, Some(None), Some(Some([7u8; 32]))] {
+            let msg = [0x6bu8; 32];
+            let (mut dev_nonces, dev_c) = device_commit(&kps[0]);
+            let (n, peer_c) = frost::round1::commit(theirs.signing_share(), &mut rng::DeviceRng);
+            let dev_id = *KeyPackage::deserialize(&kps[0]).unwrap().identifier();
+            let package = SigningPackage::new(BTreeMap::from([(dev_id, dev_c), (*theirs.identifier(), peer_c)]), &msg);
+            let share = device_sign_for(&kps[0], &mut dev_nonces, &package.serialize().unwrap(), &msg, &[], wrong).unwrap();
+            let shares = BTreeMap::from([
+                (dev_id, frost::round2::SignatureShare::deserialize(&share).unwrap()),
+                (*theirs.identifier(), frost::round2::sign(&package, &n, &theirs).unwrap()),
+            ]);
+            assert!(frost::aggregate(&package, &shares, &pubkeys).is_err(), "{wrong:?}");
+        }
+    }
+
+    #[test]
+    fn a_merkle_root_without_the_tweak_is_refused() {
+        let _g = with_rng();
+        let msg = [0x42; 32];
+        let mut f = fixture();
+        let sp = SigningPackage::new(f.commitments.clone(), &msg).serialize().unwrap();
+        let root = [9u8; 32];
+        let mut out = [0u8; 32];
+        let r = unsafe {
+            ftr_sign(f.kp.as_ptr(), f.kp.len(), &mut f.nonces, sp.as_ptr(), sp.len(), &msg, core::ptr::null(), 0, false, &root, &mut out)
+        };
+        assert_eq!(r, signer::E_TWEAK);
+        assert_eq!(f.nonces, [0u8; 64], "nonces are burned");
+        assert_eq!(out, [0u8; 32]);
     }
 
     #[test]

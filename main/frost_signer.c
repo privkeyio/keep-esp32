@@ -92,6 +92,9 @@ typedef struct {
     uint8_t verifying_share[33];
     uint32_t path[FTR_MAX_PATH_DEPTH];
     size_t path_len;
+    bool taproot;
+    bool has_merkle_root;
+    uint8_t merkle_root[32];
     bool has_policy;
     uint8_t policy_hash[32];
     uint32_t created_at;
@@ -185,13 +188,15 @@ typedef struct {
     const uint8_t *message;
     const uint32_t *path;
     size_t path_len;
+    bool taproot;
+    const uint8_t *merkle_root;
     uint8_t *share;
 } sign_job_t;
 
 static int sign_job(void *arg) {
     sign_job_t *j = arg;
     return ftr_sign(j->kp, j->kp_len, j->nonces, j->package, j->package_len, j->message, j->path,
-                    j->path_len, j->share);
+                    j->path_len, j->taproot, j->merkle_root, j->share);
 }
 
 #define LOAD_KEY_INVALID -10
@@ -526,7 +531,8 @@ static int frost_commit_validate(const char *session_id_hex, const char *message
 
 static void frost_commit_generate(const char *group, const char *session_id_hex,
                                   const uint8_t *session_id, const uint8_t *message,
-                                  const uint32_t *path, size_t path_len, rpc_response_t *resp) {
+                                  const uint32_t *path, size_t path_len, bool taproot,
+                                  const uint8_t *merkle_root, rpc_response_t *resp) {
     ag_random_delay_us(100, 1000);
 
     bool has_policy = false;
@@ -568,6 +574,11 @@ static void frost_commit_generate(const char *group, const char *session_id_hex,
         memcpy(s->path, path, path_len * sizeof(s->path[0]));
     }
     s->path_len = path_len;
+    s->taproot = taproot;
+    if (merkle_root != NULL) {
+        memcpy(s->merkle_root, merkle_root, sizeof(s->merkle_root));
+        s->has_merkle_root = true;
+    }
     s->created_at = get_time_ms();
 
     /* Consumed only now, so a missing share or a full session table does not use up a
@@ -608,12 +619,14 @@ static void frost_commit_generate(const char *group, const char *session_id_hex,
 }
 
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex,
-                  const uint32_t *path, size_t path_len, rpc_response_t *resp) {
+                  const uint32_t *path, size_t path_len, bool taproot, const uint8_t *merkle_root,
+                  rpc_response_t *resp) {
     KEEP_ASSERT_VOID(group != NULL);
     KEEP_ASSERT_VOID(session_id_hex != NULL);
     KEEP_ASSERT_VOID(message_hex != NULL);
     KEEP_ASSERT_VOID(path != NULL || path_len == 0);
     KEEP_ASSERT_VOID(path_len <= FTR_MAX_PATH_DEPTH);
+    KEEP_ASSERT_VOID(taproot || merkle_root == NULL);
     KEEP_ASSERT_VOID(resp != NULL);
     KEEP_ASSERT_VOID(group[0] != '\0');
 
@@ -624,7 +637,8 @@ void frost_commit(const char *group, const char *session_id_hex, const char *mes
         return;
     }
 
-    frost_commit_generate(group, session_id_hex, session_id, message, path, path_len, resp);
+    frost_commit_generate(group, session_id_hex, session_id, message, path, path_len, taproot,
+                          merkle_root, resp);
 }
 
 static void respond_share(const signing_session_t *s, rpc_response_t *resp) {
@@ -675,6 +689,8 @@ static void frost_sign_execute(signing_session_t *s, const char *session_id_hex,
                       .message = s->message,
                       .path = s->path,
                       .path_len = s->path_len,
+                      .taproot = s->taproot,
+                      .merkle_root = s->has_merkle_root ? s->merkle_root : NULL,
                       .share = share};
     int ret = ftr_task_run(sign_job, &job);
     secure_memzero(&key, sizeof(key));
