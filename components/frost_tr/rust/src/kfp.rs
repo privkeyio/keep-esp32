@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::rng::DeviceRng;
-use crate::signer::{identifier_index, E_IDENTIFIER};
+use crate::signer::{identifier_index, E_IDENTIFIER, E_SELFCHECK};
 
 pub const E_KEY: i32 = -16;
 pub const E_DECRYPT: i32 = -17;
@@ -41,7 +41,6 @@ const TWEAK_MARKER: [u8; 3] = [0xff, b'T', b'R'];
 /// NIP-44 v2 bounds (as the nostr crate keep uses enforces them).
 pub const MAX_PLAINTEXT: usize = 65_536 - 128;
 const MIN_PAYLOAD: usize = 1 + 32 + 2 + 32 + 32;
-const MAX_PAYLOAD: usize = 1 + 32 + 2 + padded_len(MAX_PLAINTEXT) + 32;
 
 fn group_xonly(kp: &KeyPackage) -> Result<[u8; 32], i32> {
     let vk = kp.verifying_key().serialize().map_err(|_| E_KEY)?;
@@ -81,10 +80,22 @@ pub fn transport_pubkey(kp: &KeyPackage) -> Result<[u8; 32], i32> {
     Ok(xonly(&transport_secret(kp)?.public_key()))
 }
 
-/// The announce proof binding `transport_xonly` to this share: keep's
-/// `sign_proof`, BIP-340 by the signing share over SHA256 of the proof digest,
-/// with zero auxiliary randomness.
+/// The announce proof binding `transport_xonly` to this share: BIP-340 by the
+/// signing share over SHA256 of keep's proof digest, as keep's `sign_proof`
+/// and `verify_proof` take it. keep signs with zero auxiliary randomness; the
+/// device draws it, so a fault injected into one of two runs over the same
+/// timestamp does not meet a repeated nonce.
 pub fn announce_proof(kp: &KeyPackage, transport_xonly: &[u8; 32], timestamp: u64) -> Result<[u8; 64], i32> {
+    let mut aux = [0u8; 32];
+    DeviceRng.fill_bytes(&mut aux);
+    let r = announce_proof_with_aux(kp, transport_xonly, timestamp, &aux);
+    aux.zeroize();
+    r
+}
+
+/// The 32-byte BIP-340 message of the announce proof: SHA256 of keep's proof
+/// digest.
+pub(crate) fn proof_message(kp: &KeyPackage, transport_xonly: &[u8; 32], timestamp: u64) -> Result<[u8; 32], i32> {
     let group = group_xonly(kp)?;
     let index = identifier_index(kp.identifier()).ok_or(E_IDENTIFIER)?;
     let verifying_share = kp.verifying_share().serialize().map_err(|_| E_KEY)?;
@@ -96,9 +107,22 @@ pub fn announce_proof(kp: &KeyPackage, transport_xonly: &[u8; 32], timestamp: u6
         .chain_update(transport_xonly)
         .chain_update(timestamp.to_be_bytes())
         .finalize();
+    Ok(Sha256::digest(digest).into())
+}
+
+pub(crate) fn announce_proof_with_aux(
+    kp: &KeyPackage,
+    transport_xonly: &[u8; 32],
+    timestamp: u64,
+    aux: &[u8; 32],
+) -> Result<[u8; 64], i32> {
+    let message = proof_message(kp, transport_xonly, timestamp)?;
     let share = Zeroizing::new(kp.signing_share().serialize());
     let key = SigningKey::from_bytes(&share).map_err(|_| E_KEY)?;
-    let sig = key.sign_raw(&Sha256::digest(digest), &[0u8; 32]).map_err(|_| E_KEY)?;
+    let sig = key.sign_raw(&message, aux).map_err(|_| E_KEY)?;
+    // Recomputing the signature's validity catches a fault injected into the
+    // signing above before the signature leaves the device.
+    key.verifying_key().verify_raw(&message, &sig).map_err(|_| E_SELFCHECK)?;
     Ok(sig.to_bytes())
 }
 
@@ -132,10 +156,11 @@ fn conversation_key(secret: &SecretKey, peer: &[u8; 32]) -> Result<Zeroizing<[u8
     let point = lift_x(peer).ok_or(E_KEY)?;
     let shared = (ProjectivePoint::from(point) * *secret.to_nonzero_scalar()).to_affine();
     let mut shared_x: [u8; 32] = shared.x().into();
-    let (prk, _) = Hkdf::<Sha256>::extract(Some(b"nip44-v2"), &shared_x);
+    let (mut prk, _) = Hkdf::<Sha256>::extract(Some(b"nip44-v2"), &shared_x);
     shared_x.zeroize();
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&prk);
+    prk[..].zeroize();
     Ok(out)
 }
 
@@ -170,59 +195,73 @@ const fn padded_len(len: usize) -> usize {
     chunk * ((len - 1) / chunk + 1)
 }
 
-/// NIP-44 v2 payload (base64) of `plaintext` from this device's transport key
-/// to the x-only `recipient`, under `nonce`.
-pub fn seal_with_nonce(kp: &KeyPackage, recipient: &[u8; 32], plaintext: &[u8], nonce: &[u8; 32]) -> Result<Vec<u8>, i32> {
-    if plaintext.is_empty() || plaintext.len() > MAX_PLAINTEXT {
+const fn raw_len(plaintext_len: usize) -> usize {
+    1 + 32 + 2 + padded_len(plaintext_len) + 32
+}
+
+const fn encoded_len(raw: usize) -> usize {
+    raw.div_ceil(3) * 4
+}
+
+/// Writes the NIP-44 v2 payload (base64) of `plaintext` from this device's
+/// transport key to the x-only `recipient`, under `nonce`, into `out`;
+/// returns its length. Refuses before allocating when `out` cannot hold it.
+pub fn seal_with_nonce(kp: &KeyPackage, recipient: &[u8; 32], plaintext: &[u8], nonce: &[u8; 32], out: &mut [u8]) -> Result<usize, i32> {
+    if plaintext.is_empty() || plaintext.len() > MAX_PLAINTEXT || encoded_len(raw_len(plaintext.len())) > out.len() {
         return Err(E_CAPACITY);
     }
     let conversation = conversation_key(&transport_secret(kp)?, recipient)?;
     let keys = MessageKeys::new(&conversation, nonce)?;
-    let mut buffer = Zeroizing::new(Vec::with_capacity(2 + padded_len(plaintext.len())));
-    buffer.extend_from_slice(&(plaintext.len() as u16).to_be_bytes());
-    buffer.extend_from_slice(plaintext);
-    buffer.resize(2 + padded_len(plaintext.len()), 0);
-    keys.cipher().apply_keystream(&mut buffer);
-    let tag = keys.mac(nonce, &buffer).finalize().into_bytes();
-    let mut payload = Vec::with_capacity(1 + 32 + buffer.len() + 32);
-    payload.push(2);
-    payload.extend_from_slice(nonce);
-    payload.extend_from_slice(&buffer);
-    payload.extend_from_slice(&tag);
-    let encoded = Base64::encode_string(&payload);
-    Ok(encoded.into_bytes())
+    let body = 2 + padded_len(plaintext.len());
+    let mut raw = Zeroizing::new(Vec::with_capacity(raw_len(plaintext.len())));
+    raw.push(2);
+    raw.extend_from_slice(nonce);
+    raw.extend_from_slice(&(plaintext.len() as u16).to_be_bytes());
+    raw.extend_from_slice(plaintext);
+    raw.resize(33 + body, 0);
+    keys.cipher().apply_keystream(&mut raw[33..]);
+    let tag = keys.mac(nonce, &raw[33..]).finalize().into_bytes();
+    raw.extend_from_slice(&tag);
+    Ok(Base64::encode(&raw, out).map_err(|_| E_CAPACITY)?.len())
 }
 
-pub fn seal(kp: &KeyPackage, recipient: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, i32> {
+pub fn seal(kp: &KeyPackage, recipient: &[u8; 32], plaintext: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let mut nonce = [0u8; 32];
     DeviceRng.fill_bytes(&mut nonce);
-    seal_with_nonce(kp, recipient, plaintext, &nonce)
+    seal_with_nonce(kp, recipient, plaintext, &nonce, out)
 }
 
-/// The plaintext of a NIP-44 v2 `payload` (base64) the x-only `sender` sealed to
-/// this device's transport key. The MAC is checked before anything is
-/// decrypted, so a valid result was produced by the holder of `sender`'s key
-/// (or by this device).
-pub fn open(kp: &KeyPackage, sender: &[u8; 32], payload: &[u8]) -> Result<Zeroizing<Vec<u8>>, i32> {
-    if payload.len() > (MAX_PAYLOAD + 2) / 3 * 4 {
+/// Writes the plaintext of a NIP-44 v2 `payload` (base64) the x-only `sender`
+/// sealed to this device's transport key into `out`; returns its length. A
+/// payload too large for `out` is refused before it is decoded. The MAC is
+/// checked before anything is decrypted, so a valid result was produced by the
+/// holder of `sender`'s key or by this device (the key is symmetric).
+pub fn open(kp: &KeyPackage, sender: &[u8; 32], payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let cap = out.len().min(MAX_PLAINTEXT);
+    if cap == 0 || payload.len() > encoded_len(raw_len(cap)) {
         return Err(E_CAPACITY);
     }
-    let raw = Base64::decode_vec(core::str::from_utf8(payload).map_err(|_| E_DECRYPT)?).map_err(|_| E_DECRYPT)?;
-    if raw.len() < MIN_PAYLOAD || raw.len() > MAX_PAYLOAD || raw[0] != 2 {
+    let mut raw = Zeroizing::new(alloc::vec![0u8; payload.len() / 4 * 3]);
+    let len = Base64::decode(payload, &mut raw).map_err(|_| E_DECRYPT)?.len();
+    raw.truncate(len);
+    if len < MIN_PAYLOAD || raw[0] != 2 {
         return Err(E_DECRYPT);
     }
     let nonce: [u8; 32] = raw[1..33].try_into().map_err(|_| E_DECRYPT)?;
-    let (ciphertext, tag) = raw[33..].split_at(raw.len() - 33 - 32);
     let conversation = conversation_key(&transport_secret(kp)?, sender)?;
     let keys = MessageKeys::new(&conversation, &nonce)?;
-    keys.mac(&nonce, ciphertext).verify_slice(tag).map_err(|_| E_DECRYPT)?;
-    let mut buffer = Zeroizing::new(ciphertext.to_vec());
-    keys.cipher().apply_keystream(&mut buffer);
-    let len = u16::from_be_bytes([buffer[0], buffer[1]]) as usize;
-    if len == 0 || buffer.len() != 2 + padded_len(len) {
+    let (body, tag) = raw[33..].split_at_mut(len - 33 - 32);
+    keys.mac(&nonce, body).verify_slice(tag).map_err(|_| E_DECRYPT)?;
+    keys.cipher().apply_keystream(body);
+    let plain_len = u16::from_be_bytes([body[0], body[1]]) as usize;
+    if plain_len == 0 || plain_len > MAX_PLAINTEXT || body.len() != 2 + padded_len(plain_len) {
         return Err(E_DECRYPT);
     }
-    Ok(Zeroizing::new(buffer[2..2 + len].to_vec()))
+    if plain_len > out.len() {
+        return Err(E_CAPACITY);
+    }
+    out[..plain_len].copy_from_slice(&body[2..2 + plain_len]);
+    Ok(plain_len)
 }
 
 /// The NIP-01 id of a serialized event (`[0,pubkey,created_at,kind,tags,content]`)
@@ -233,7 +272,10 @@ pub fn sign_event(kp: &KeyPackage, serialized: &[u8]) -> Result<([u8; 32], [u8; 
     let key = SigningKey::from(secret.to_nonzero_scalar());
     let mut aux = [0u8; 32];
     DeviceRng.fill_bytes(&mut aux);
-    let sig = key.sign_raw(&id, &aux).map_err(|_| E_KEY)?;
+    let sig = key.sign_raw(&id, &aux);
+    aux.zeroize();
+    let sig = sig.map_err(|_| E_KEY)?;
+    key.verifying_key().verify_raw(&id, &sig).map_err(|_| E_SELFCHECK)?;
     Ok((id, sig.to_bytes()))
 }
 
@@ -263,11 +305,15 @@ pub fn session_id(message: &[u8], participants: &[u16], threshold: u16, salt: &[
     out
 }
 
-/// Whether `salt` encodes the key a request signs with: empty only with no path
-/// and no tweak, otherwise an 8-byte attempt counter followed by each path
-/// index (big endian) and, for a key-path spend, `ff 'T' 'R'` then `00` or
-/// `01 || merkle_root`.
+/// Whether `salt` encodes the key a request signs with, as keep's `salt_binds`:
+/// empty only with no path and no tweak, otherwise an 8-byte attempt counter
+/// followed by each (unhardened) path index, big endian, and, for a key-path
+/// spend, `ff 'T' 'R'` then `00` or `01 || merkle_root`.
 pub fn salt_binds(salt: &[u8], path: &[u32], taproot: Option<Option<[u8; 32]>>) -> bool {
+    // A hardened index could read as the tweak marker, so keep refuses it.
+    if path.iter().any(|&i| i >= crate::bip32::HARDENED) {
+        return false;
+    }
     let mut suffix = Vec::with_capacity(path.len() * 4 + 36);
     for i in path {
         suffix.extend_from_slice(&i.to_be_bytes());
@@ -325,10 +371,16 @@ mod tests {
             b.resize(2 + body, 0x41);
             b
         };
-        assert_eq!(open(&kp, &peer, &authentic(&kp, &peer, &buffer(5, 32))).unwrap()[..], [0x41; 5]);
-        assert_eq!(open(&kp, &peer, &authentic(&kp, &peer, &buffer(40, 64))).unwrap()[..], [0x41; 40]);
+        let opened = |payload: &[u8]| {
+            let mut out = alloc::vec![0u8; MAX_PLAINTEXT];
+            open(&kp, &peer, payload, &mut out).map(|n| out[..n].to_vec())
+        };
+        assert_eq!(opened(&authentic(&kp, &peer, &buffer(5, 32))).unwrap()[..], [0x41; 5]);
+        assert_eq!(opened(&authentic(&kp, &peer, &buffer(40, 64))).unwrap()[..], [0x41; 40]);
+        // Correctly padded, but longer than NIP-44 lets a sender seal.
+        assert_eq!(opened(&authentic(&kp, &peer, &buffer(65_500, 65_536))).err(), Some(E_DECRYPT));
         for (prefix, body) in [(0u16, 32usize), (33, 32), (40, 32), (65_535, 32), (5, 64), (40, 96)] {
-            assert_eq!(open(&kp, &peer, &authentic(&kp, &peer, &buffer(prefix, body))).err(), Some(E_DECRYPT), "prefix {prefix}, body {body}");
+            assert_eq!(opened(&authentic(&kp, &peer, &buffer(prefix, body))).err(), Some(E_DECRYPT), "prefix {prefix}, body {body}");
         }
     }
 }

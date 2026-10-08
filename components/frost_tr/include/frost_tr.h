@@ -115,12 +115,17 @@ int ftr_kfp_rendezvous(const uint8_t group[32], uint16_t index, uint8_t out[32])
 
 // NIP-44 v2 from the transport key to the x-only `recipient`: a base64 payload
 // of up to `cap` bytes, not NUL-terminated. Plaintext is 1..FTR_KFP_MAX_PLAINTEXT.
+// The result reads to the recipient as authored by this device, so the
+// plaintext must be one the firmware built, never one a host chose.
 int ftr_kfp_seal(const uint8_t *kp, size_t kp_len, const uint8_t recipient[32],
                  const uint8_t *plaintext, size_t plaintext_len, uint8_t *out, size_t cap,
                  size_t *out_len);
 
 // Opens a NIP-44 v2 base64 payload the x-only `sender` sealed to the transport
-// key. Writes nothing unless the MAC verifies; the caller wipes `out` after use.
+// key, refusing one too large for `cap` before decoding it. Writes nothing
+// unless the MAC verifies; the caller wipes `out` after use and never returns
+// it to a host. The key is symmetric, so a payload this device sealed to
+// `sender` opens too: the caller checks the outer event is signed by `sender`.
 int ftr_kfp_open(const uint8_t *kp, size_t kp_len, const uint8_t sender[32], const uint8_t *payload,
                  size_t payload_len, uint8_t *out, size_t cap, size_t *out_len);
 
@@ -130,7 +135,8 @@ int ftr_kfp_open(const uint8_t *kp, size_t kp_len, const uint8_t sender[32], con
 int ftr_kfp_sign_event(const uint8_t *kp, size_t kp_len, const uint8_t *serialized,
                        size_t serialized_len, uint8_t out_id[32], uint8_t out_sig[64]);
 
-// keep's salted session id (BLAKE2b-512, first 32 bytes) for a sign request.
+// keep's salted session id (BLAKE2b-512, first 32 bytes) for a sign request of
+// 1..FTR_MAX_SIGNERS participants.
 int ftr_kfp_session_id(const uint8_t *message, size_t message_len, const uint16_t *participants,
                        size_t participants_len, uint16_t threshold, const uint8_t *salt,
                        size_t salt_len, uint8_t out[32]);

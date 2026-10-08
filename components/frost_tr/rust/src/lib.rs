@@ -243,19 +243,13 @@ pub unsafe extern "C" fn ftr_kfp_seal(
     if out.is_null() {
         return signer::E_NULL;
     }
-    let r = kfp_key(kp, kp_len).and_then(|kp| kfp::seal(&kp, recipient, plaintext)).and_then(|payload| {
-        if payload.len() > cap {
-            return Err(kfp::E_CAPACITY);
-        }
-        core::ptr::copy_nonoverlapping(payload.as_ptr(), out, payload.len());
-        *out_len = payload.len();
-        Ok(())
-    });
-    status(r)
+    let out = core::slice::from_raw_parts_mut(out, cap);
+    status(kfp_key(kp, kp_len).and_then(|kp| kfp::seal(&kp, recipient, plaintext, out)).map(|n| *out_len = n))
 }
 
 /// Opens a NIP-44 v2 base64 `payload` the x-only `sender` sealed to this key
-/// package's transport key. Nothing is written unless the MAC verifies.
+/// package's transport key. A payload too large for `cap` is refused before it
+/// is decoded, and nothing is written unless the MAC verifies.
 ///
 /// # Safety
 /// The pointers must be valid for the given lengths; `out` for `cap` bytes.
@@ -276,15 +270,8 @@ pub unsafe extern "C" fn ftr_kfp_open(
     if out.is_null() {
         return signer::E_NULL;
     }
-    let r = kfp_key(kp, kp_len).and_then(|kp| kfp::open(&kp, sender, payload)).and_then(|plain| {
-        if plain.len() > cap {
-            return Err(kfp::E_CAPACITY);
-        }
-        core::ptr::copy_nonoverlapping(plain.as_ptr(), out, plain.len());
-        *out_len = plain.len();
-        Ok(())
-    });
-    status(r)
+    let out = core::slice::from_raw_parts_mut(out, cap);
+    status(kfp_key(kp, kp_len).and_then(|kp| kfp::open(&kp, sender, payload, out)).map(|n| *out_len = n))
 }
 
 /// The NIP-01 id of `serialized` (`[0,pubkey,created_at,kind,tags,content]`)
@@ -331,7 +318,10 @@ pub unsafe extern "C" fn ftr_kfp_session_id(
 ) -> i32 {
     let message = if message_len == 0 { Some(&[][..]) } else { slice(message, message_len) };
     let salt = if salt_len == 0 { Some(&[][..]) } else { slice(salt, salt_len) };
-    if participants.is_null() || participants_len == 0 || participants_len > usize::from(signer::MAX_SIGNERS) {
+    if participants_len == 0 || participants_len > usize::from(signer::MAX_SIGNERS) {
+        return signer::E_LENGTH;
+    }
+    if participants.is_null() {
         return signer::E_NULL;
     }
     let (Some(message), Some(salt), Some(out)) = (message, salt, out.as_mut()) else { return signer::E_NULL };
@@ -355,7 +345,13 @@ pub unsafe extern "C" fn ftr_kfp_salt_binds(
     merkle_root: *const [u8; 32],
 ) -> i32 {
     let salt = if salt_len == 0 { Some(&[][..]) } else { slice(salt, salt_len) };
-    if path_len > bip32::MAX_DEPTH || (path_len > 0 && path.is_null()) || (!taproot && !merkle_root.is_null()) {
+    if path_len > bip32::MAX_DEPTH {
+        return signer::E_PATH;
+    }
+    if !taproot && !merkle_root.is_null() {
+        return signer::E_TWEAK;
+    }
+    if path_len > 0 && path.is_null() {
         return signer::E_NULL;
     }
     let Some(salt) = salt else { return signer::E_NULL };
@@ -1049,11 +1045,19 @@ mod tests {
             let mut transport = [0u8; 32];
             assert_eq!(unsafe { ftr_kfp_transport_pubkey(kp.as_ptr(), kp.len(), &mut transport) }, 0);
             assert_eq!(transport, arr32(m["transport_pubkey"].as_str().unwrap()), "transport key of {}", m["index"]);
+            let key = signer::load(&kp).unwrap();
+            let share_key = k256::schnorr::VerifyingKey::from_bytes(&key.verifying_share().serialize().unwrap()[1..]).unwrap();
             for p in m["proofs"].as_array().unwrap() {
-                let mut sig = [0u8; 64];
                 let ts = p["timestamp"].as_u64().unwrap();
+                // keep signs with zero aux: the same aux gives keep's bytes.
+                let keep = kfp::announce_proof_with_aux(&key, &transport, ts, &[0u8; 32]).unwrap();
+                assert_eq!(keep[..], unhex(p["proof"].as_str().unwrap())[..], "proof at {ts}");
+                // The device's own aux gives a different signature keep still verifies.
+                let mut sig = [0u8; 64];
                 assert_eq!(unsafe { ftr_kfp_announce_proof(kp.as_ptr(), kp.len(), ts, &mut sig) }, 0);
-                assert_eq!(sig[..], unhex(p["proof"].as_str().unwrap())[..], "proof at {ts}");
+                assert_ne!(sig, keep);
+                let message = kfp::proof_message(&key, &transport, ts).unwrap();
+                share_key.verify_raw(&message, &k256::schnorr::Signature::try_from(&sig[..]).unwrap()).unwrap();
             }
         }
     }
@@ -1069,9 +1073,9 @@ mod tests {
             let ann = &m["announce"];
             assert_eq!(ann["pubkey"], m["transport_pubkey"]);
             let content: serde_json::Value = serde_json::from_str(ann["content"].as_str().unwrap()).unwrap();
-            let mut sig = [0u8; 64];
             let ts = content["timestamp"].as_u64().unwrap();
-            assert_eq!(unsafe { ftr_kfp_announce_proof(kp.as_ptr(), kp.len(), ts, &mut sig) }, 0);
+            let transport = arr32(m["transport_pubkey"].as_str().unwrap());
+            let sig = kfp::announce_proof_with_aux(&signer::load(&kp).unwrap(), &transport, ts, &[0u8; 32]).unwrap();
             assert_eq!(hex_lower(&sig), content["proof_signature"].as_str().unwrap());
             let p_tags: Vec<&str> =
                 ann["tags"].as_array().unwrap().iter().filter(|t| t[0] == "p").map(|t| t[1].as_str().unwrap()).collect();
@@ -1117,7 +1121,9 @@ mod tests {
             for (i, c) in m["nip44"].as_array().unwrap().iter().enumerate() {
                 let len = c["length"].as_u64().unwrap() as usize;
                 let plaintext: Vec<u8> = (0..len).map(|b| (b * 7 + i) as u8).collect();
-                let payload = kfp::seal_with_nonce(&kp, &peer, &plaintext, &arr32(c["nonce"].as_str().unwrap())).unwrap();
+                let mut sealed = vec![0u8; 90_000];
+                let n = kfp::seal_with_nonce(&kp, &peer, &plaintext, &arr32(c["nonce"].as_str().unwrap()), &mut sealed).unwrap();
+                let payload = sealed[..n].to_vec();
                 match c["payload"].as_str() {
                     Some(want) => {
                         assert_eq!(core::str::from_utf8(&payload).unwrap(), want, "length {len}");
@@ -1233,6 +1239,11 @@ mod tests {
             assert_eq!(r, 0);
             assert_eq!(hex_lower(&out), c["id"].as_str().unwrap());
         }
+        let mut out = [0u8; 32];
+        let none: [u16; 0] = [];
+        assert_eq!(unsafe { ftr_kfp_session_id([1u8].as_ptr(), 1, none.as_ptr(), 0, 2, core::ptr::null(), 0, &mut out) }, signer::E_LENGTH);
+        let many = [1u16; 17];
+        assert_eq!(unsafe { ftr_kfp_session_id([1u8].as_ptr(), 1, many.as_ptr(), 17, 2, core::ptr::null(), 0, &mut out) }, signer::E_LENGTH);
     }
 
     /// keep's salts: an attempt counter then the path and the tweak marker.
@@ -1259,7 +1270,11 @@ mod tests {
         assert_eq!(binds(&tree, &[1], true, Some(&root)), 1);
         assert_eq!(binds(&tree, &[1], true, Some(&[0xac; 32])), 0);
         assert_eq!(binds(&tree[..7], &[], false, None), 0, "shorter than the counter");
-        assert_eq!(binds(&bip86, &[], false, Some(&root)), signer::E_NULL, "a root without the tweak");
+        assert_eq!(binds(&bip86, &[], false, Some(&root)), signer::E_TWEAK, "a root without the tweak");
+        // A hardened index could read as the tweak marker; keep refuses it.
+        assert_eq!(binds(&bip86, &[0xff54_5200], false, None), 0);
+        assert_eq!(binds(&[attempt(0), vec![0x80, 0, 0, 0]].concat(), &[0x8000_0000], false, None), 0);
+        assert_eq!(binds(&[], &[0; 9], false, None), signer::E_PATH);
         // keep's own vectors use these salts.
         let v = kfp_vectors();
         let s = &v["sessions"];
