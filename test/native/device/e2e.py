@@ -81,6 +81,21 @@ def bip340_verify(pubkey, msg, sig):
     return R is not None and R[1] % 2 == 0 and R[0] == r
 
 
+def taproot_output_key(internal, merkle_root=None):
+    """BIP341: the x-only output key of x-only `internal` with this script tree root."""
+    t = int.from_bytes(tagged_hash("TapTweak", internal + (merkle_root or b"")), "big")
+    return point_add(lift_x(int.from_bytes(internal, "big")), point_mul(G, t))[0].to_bytes(32, "big")
+
+
+def tapleaf_root(script):
+    """The merkle root of a tree with one tapscript leaf (version 0xc0)."""
+    return tagged_hash("TapLeaf", bytes([0xC0, len(script)]) + script)
+
+
+LEAF_KEY = G[0].to_bytes(32, "big")
+RECOVERY_ROOT = tapleaf_root(bytes([0x20]) + LEAF_KEY + bytes([0xAC]))
+
+
 def bip340_sign(seckey, msg):
     d0 = int.from_bytes(seckey, "big")
     pt = point_mul(G, d0)
@@ -180,11 +195,15 @@ class Group:
         return d
 
 
-def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
+NO_TWEAK = object()
+
+
+def frost_sign(group, devices, message, psbt=None, peers=(), name="g", path=None, merkle_root=NO_TWEAK):
     """Signs as the host does: every device commits, the full set of commitments goes back
     to each as one signing package. `peers` are signer indices played by frost_tool. With a
     PSBT, every device approves it with bitcoin_sign first, since each enforces its own
-    policy."""
+    policy. Given `merkle_root` (None: no script tree) the round is a BIP341 key-path spend
+    under the output key of the path's key."""
     if psbt is not None:
         for d in devices:
             r = d.rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
@@ -192,13 +211,27 @@ def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
                 raise RuntimeError("device computed a different sighash")
     session = secrets.token_hex(32)
     commits, nonces = {}, {}
+    params = {"group": name, "session_id": session, "message": message.hex()}
+    if path is not None:
+        params["derivation_path"] = path
+    if merkle_root is not NO_TWEAK:
+        params["taproot_tweak"] = {} if merkle_root is None else {"merkle_root": merkle_root.hex()}
     for d in devices:
-        r = d.rpc("frost_commit", {"group": name, "session_id": session, "message": message.hex()})
+        r = d.rpc("frost_commit", params)
         if r["index"] != d.index:
             raise RuntimeError("commitment from the wrong index")
         commits[d.index] = r["commitment"]
+    kp, pubkeys = group.kp, group.pubkeys
+    if path:
+        p = ",".join(map(str, path))
+        kp = {i: group.run("tweak-key-package", k, p) for i, k in group.kp.items()}
+        pubkeys = group.run("tweak-public-key-package", group.pubkeys, p)
+    if merkle_root is not NO_TWEAK:
+        root = "-" if merkle_root is None else merkle_root.hex()
+        kp = {i: group.run("taptweak-key-package", k, root) for i, k in kp.items()}
+        pubkeys = group.run("taptweak-public-key-package", pubkeys, root)
     for i in peers:
-        r = json.loads(group.run("commit", group.kp[i]))
+        r = json.loads(group.run("commit", kp[i]))
         commits[i], nonces[i] = r["commitment"], r["nonces"]
     package = group.package(message, commits)
     shares = {}
@@ -206,9 +239,15 @@ def frost_sign(group, devices, message, psbt=None, peers=(), name="g"):
         shares[d.index] = d.rpc("frost_sign", {"group": name, "session_id": session,
                                                "signing_package": package})["signature_share"]
     for i in peers:
-        shares[i] = group.run("sign", group.kp[i], nonces[i], package)
-    return bytes.fromhex(group.run("aggregate", group.pubkeys, package,
+        shares[i] = group.run("sign", kp[i], nonces[i], package)
+    return bytes.fromhex(group.run("aggregate", pubkeys, package,
                                    *[f"{i}:{s}" for i, s in sorted(shares.items())]))
+
+
+def child_xonly(group, path):
+    """The x-only child key keep derives for `path`, from its tweaked key package."""
+    tweaked = group.run("tweak-key-package", group.kp[1], ",".join(map(str, path)))
+    return bytes.fromhex(tweaked)[103:135]
 
 
 def check(label, cond):
@@ -529,6 +568,83 @@ def signing_gate(build):
         d.close()
 
 
+def derivation(build):
+    for parity in ("even", "odd"):
+        devices, group = setup(build, parity)
+        for path in ([0], [0, 7], [1, 1000], [0x7FFFFFFF], [0, 1, 2, 3, 4, 5, 6, 7]):
+            msg = secrets.token_bytes(32)
+            sig = frost_sign(group, devices, msg, path=path)
+            child = child_xonly(group, path)
+            check(f"2-of-3 ({parity}) at {path} verifies as BIP340 under keep's child key",
+                  bip340_verify(child, msg, sig))
+            check(f"and not under the group key ({parity}, {path})",
+                  not bip340_verify(group.group33[1:], msg, sig))
+        msg = secrets.token_bytes(32)
+        check(f"a device and a keep signer at [0, 3] ({parity})",
+              bip340_verify(child_xonly(group, [0, 3]), msg,
+                            frost_sign(group, devices[:1], msg, peers=[2], path=[0, 3])))
+        for d in devices:
+            d.close()
+
+    group = Group(build, 3, 5, "odd")
+    devices = [group.device(build, i) for i in (1, 4)]
+    msg = secrets.token_bytes(32)
+    check("3-of-5 with two devices and a keep signer at [1, 5] verifies under the child key",
+          bip340_verify(child_xonly(group, [1, 5]), msg, frost_sign(group, devices, msg, peers=[3], path=[1, 5])))
+
+    d = devices[0]
+    commit = lambda path: d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
+                                                 "message": secrets.token_hex(32), "derivation_path": path})
+    for label, path in (("a hardened index", [0x80000000]), ("a ninth index", [0] * 9),
+                        ("a negative index", [-1]), ("a fractional index", [1.5]),
+                        ("a non-array path", 5), ("a string index", ["0"])):
+        expect_error(f"{label} is refused at commit", lambda: commit(path), "Parse error")
+    check("an empty path signs under the group key",
+          bip340_verify(group.group33[1:], msg := secrets.token_bytes(32),
+                        frost_sign(group, devices, msg, peers=[3], path=[])))
+    for d in devices:
+        d.close()
+
+
+def key_path_spends(build):
+    """Key-path spends of keep's tr() outputs: a BIP86 child key with no script tree, and
+    the group key under a recovery tree's merkle root. Output keys are computed here, from
+    BIP341, not by the tool that tweaks the peers."""
+    root = RECOVERY_ROOT
+    for parity in ("even", "odd"):
+        devices, group = setup(build, parity)
+        for path, merkle_root in (([0, 0], None), ([1, 7], None), ([], None), ([], root), ([0, 5], root)):
+            internal = child_xonly(group, path) if path else group.group33[1:]
+            msg = secrets.token_bytes(32)
+            sig = frost_sign(group, devices, msg, path=path, merkle_root=merkle_root)
+            tree = "a script tree" if merkle_root else "no script tree"
+            check(f"2-of-3 ({parity}) at {path} with {tree} verifies under the BIP341 output key",
+                  bip340_verify(taproot_output_key(internal, merkle_root), msg, sig))
+            check(f"and not under the internal key ({parity}, {path}, {tree})",
+                  not bip340_verify(internal, msg, sig))
+        msg = secrets.token_bytes(32)
+        check(f"a device and a keep signer at [0, 3] ({parity}), no script tree",
+              bip340_verify(taproot_output_key(child_xonly(group, [0, 3])), msg,
+                            frost_sign(group, devices[:1], msg, peers=[2], path=[0, 3], merkle_root=None)))
+        for d in devices:
+            d.close()
+
+    group = Group(build, 3, 5, "odd")
+    devices = [group.device(build, i) for i in (2, 5)]
+    msg = secrets.token_bytes(32)
+    check("3-of-5 with two devices and a keep signer under a recovery tree root",
+          bip340_verify(taproot_output_key(group.group33[1:], root), msg,
+                        frost_sign(group, devices, msg, peers=[1], path=[], merkle_root=root)))
+    d = devices[0]
+    commit = lambda tweak: d.rpc("frost_commit", {"group": "g", "session_id": secrets.token_hex(32),
+                                                  "message": secrets.token_hex(32), "taproot_tweak": tweak})
+    for label, tweak in (("a short merkle root", {"merkle_root": "00" * 31}), ("a null merkle root", {"merkle_root": None}),
+                         ("an unknown member", {"merkle_root": root.hex(), "x": 1}), ("a non-object tweak", True)):
+        expect_error(f"{label} is refused at commit", lambda: commit(tweak), "Parse error")
+    for d in devices:
+        d.close()
+
+
 def protocol(build):
     group = Group(build, 2, 3)
     d = Device(os.path.join(build, "keep_device"), "protocol")
@@ -725,8 +841,14 @@ def regtest(build, knots_bin):
         for d in devices:
             d.rpc("test_set_confirm", {"approve": True})
             d.rpc("policy_update", {"bundle": warden.bundle({"max_amount": 200000000}, 100)})
-        addr = cli("deriveaddresses", cli("getdescriptorinfo", f"rawtr({xonly})")["descriptor"])[0]
-        for sighash_type in (None, 0x21):
+        leaf_key, root = LEAF_KEY.hex(), RECOVERY_ROOT
+        spends = ((None, None, NO_TWEAK, "rawtr({key})"), (0x21, None, NO_TWEAK, "rawtr({key})"),
+                  (None, [0, 3], NO_TWEAK, "rawtr({key})"), (None, [0, 3], None, "tr({key})"),
+                  (None, [1, 9], None, "tr({key})"), (None, None, root, f"tr({{key}},pk({leaf_key}))"))
+        for sighash_type, path, merkle_root, desc in spends:
+            key = child_xonly(group, path).hex() if path else xonly
+            desc = desc.format(key=key)
+            addr = cli("deriveaddresses", cli("getdescriptorinfo", desc)["descriptor"])[0]
             txid = cli("sendtoaddress", addr, "1.0")
             mine(1, waddr)
             vout = next(o["n"] for o in cli("getrawtransaction", txid, "true")["vout"]
@@ -734,18 +856,22 @@ def regtest(build, knots_bin):
             dest = cli("getnewaddress", "", "bech32m")
             psbt = cli("createpsbt", json.dumps([{"txid": txid, "vout": vout}]),
                        json.dumps([{dest: 0.9999}]))
-            psbt = cli("utxoupdatepsbt", psbt, json.dumps([f"rawtr({xonly})"]))
+            psbt = cli("utxoupdatepsbt", psbt, json.dumps([desc]))
             if sighash_type is not None:
                 psbt = devices[0].rpc("test_set_sighash", {"psbt": psbt, "sighash": sighash_type})["psbt"]
             r = devices[0].rpc("bitcoin_sign", {"psbt": psbt, "input_idx": 0})
-            sig = frost_sign(group, devices, bytes.fromhex(r["sighash"]), psbt)
+            sig = frost_sign(group, devices, bytes.fromhex(r["sighash"]), psbt, path=path, merkle_root=merkle_root)
             if r["sighash_type"]:
                 sig += bytes([r["sighash_type"]])
             final = devices[0].rpc("test_finalize", {"psbt": psbt, "witness_sig": sig.hex()})["hex"]
             spend = cli("sendrawtransaction", final)
             mine(1, waddr)
             conf = cli("getrawtransaction", spend, "true")["confirmations"]
-            check(f"regtest: FROST spend under a policy, sighash type {r['sighash_type']:#x}, mined", conf == 1)
+            where = f"from the child key at {path}" if path else "from the group key"
+            if merkle_root not in (NO_TWEAK, None):
+                where += " under a script tree"
+            check(f"regtest: FROST spend of {desc.split('(')[0]}() {where} under a policy, "
+                  f"sighash type {r['sighash_type']:#x}, mined", conf == 1)
     finally:
         for d in devices:
             d.close()
@@ -760,6 +886,8 @@ def regtest(build, knots_bin):
 def main():
     build = sys.argv[1]
     offline(build)
+    derivation(build)
+    key_path_spends(build)
     protocol(build)
     policy_pinning(build)
     signing_gate(build)

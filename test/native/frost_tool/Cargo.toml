@@ -10,3 +10,4 @@ description = "The host side of a FROST round for the native tests: dealer, peer
 frost-secp256k1-tr = { version = "=3.0.0", default-features = false, features = ["serialization"] }
 rand_chacha = { version = "=0.3.1", default-features = false }
 rand_core = { version = "=0.6.4", default-features = false }
+bitcoin = { version = "=0.32.102", default-features = false, features = ["std"] }

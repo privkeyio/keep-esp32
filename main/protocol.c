@@ -5,10 +5,12 @@
 #include "error_context.h"
 #include "crypto_asm.h"
 #include "cJSON.h"
+#include "hex_utils.h"
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
+#include <math.h>
 
 static bool is_valid_base64(const char *str, size_t len) {
     if (len == 0)
@@ -133,6 +135,49 @@ int protocol_parse_request(const char *json, rpc_request_t *req) {
                 return ERR_PROTOCOL_PARAMS;
             }
             memcpy(req->session_id, session_id->valuestring, len + 1);
+        }
+        cJSON *path = cJSON_GetObjectItemCaseSensitive(params, "derivation_path");
+        if (path) {
+            /* The path is fixed at commit; anywhere else it would be silently ignored. */
+            int n = cJSON_IsArray(path) && req->method == RPC_METHOD_FROST_COMMIT
+                        ? cJSON_GetArraySize(path)
+                        : -1;
+            if (n < 0 || n > FTR_MAX_PATH_DEPTH) {
+                cJSON_Delete(root);
+                return ERR_PROTOCOL_PARAMS;
+            }
+            for (int i = 0; i < n; i++) {
+                cJSON *index = cJSON_GetArrayItem(path, i);
+                double v = cJSON_IsNumber(index) ? index->valuedouble : -1.0;
+                /* Unhardened only: hardened derivation needs a secret no signer holds. The
+                 * range test comes first so NaN never reaches the cast. */
+                if (!(v >= 0.0 && v < 2147483648.0) || signbit(v) || v != (double)(uint32_t)v) {
+                    cJSON_Delete(root);
+                    return ERR_PROTOCOL_PARAMS;
+                }
+                req->derivation_path[i] = (uint32_t)v;
+            }
+            req->derivation_path_len = (size_t)n;
+        }
+        cJSON *taproot = cJSON_GetObjectItemCaseSensitive(params, "taproot_tweak");
+        if (taproot) {
+            /* Fixed at commit like the path. Its one member, merkle_root, is optional;
+             * any other member is refused rather than ignored. */
+            int members = cJSON_IsObject(taproot) && req->method == RPC_METHOD_FROST_COMMIT
+                              ? cJSON_GetArraySize(taproot)
+                              : -1;
+            cJSON *merkle_root =
+                members == 1 ? cJSON_GetObjectItemCaseSensitive(taproot, "merkle_root") : NULL;
+            bool ok = members == 0 ||
+                      (cJSON_IsString(merkle_root) && strlen(merkle_root->valuestring) == 64 &&
+                       hex_to_bytes(merkle_root->valuestring, req->merkle_root,
+                                    sizeof(req->merkle_root)) == (int)sizeof(req->merkle_root));
+            if (!ok) {
+                cJSON_Delete(root);
+                return ERR_PROTOCOL_PARAMS;
+            }
+            req->taproot_tweak = true;
+            req->has_merkle_root = members == 1;
         }
         cJSON *signing_package = cJSON_GetObjectItem(params, "signing_package");
         if (signing_package && cJSON_IsString(signing_package)) {

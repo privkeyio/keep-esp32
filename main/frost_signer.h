@@ -25,6 +25,7 @@ void frost_import_share(const char *group, const char *key_package_hex, uint16_t
 void frost_get_pubkey(const char *group, rpc_response_t *resp);
 void frost_get_share_info(const char *group, rpc_response_t *resp);
 void frost_commit(const char *group, const char *session_id_hex, const char *message_hex,
+                  const uint32_t *path, size_t path_len, bool taproot, const uint8_t *merkle_root,
                   rpc_response_t *resp);
 void frost_sign(const char *group, const char *session_id_hex, const char *signing_package_hex,
                 rpc_response_t *resp);

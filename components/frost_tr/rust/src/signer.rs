@@ -6,7 +6,7 @@
 //! encoding of what it claims to be before it is used.
 
 use frost_secp256k1_tr as frost;
-use frost::keys::{KeyPackage, SigningShare, VerifyingShare};
+use frost::keys::{KeyPackage, SigningShare, Tweak, VerifyingShare};
 use frost::round1::SigningNonces;
 use frost::{Identifier, SigningPackage, VerifyingKey};
 use zeroize::Zeroize;
@@ -38,6 +38,8 @@ pub const E_OWN_COMMITMENT: i32 = -10;
 pub const E_NONCES: i32 = -11;
 pub const E_SIGN: i32 = -12;
 pub const E_SELFCHECK: i32 = -13;
+pub const E_PATH: i32 = -14;
+pub const E_TWEAK: i32 = -15;
 
 pub struct KeyInfo {
     pub index: u16,
@@ -170,19 +172,35 @@ fn nonces_from(bytes: &[u8; NONCES_LEN]) -> Result<SigningNonces, i32> {
     Ok(n)
 }
 
+/// `kp` as it signs: under the BIP-32 child key for `path` (the group key when
+/// empty) and then, for a key-path spend, with the BIP-341 TapTweak committing
+/// to the script tree's merkle root (`Some(None)`: no tree), as keep's
+/// `spend_key_package` does. The crate's tweak leaves copies of the share only
+/// on the signing task's stack, which is refilled after every job.
+pub fn spend_key(kp: KeyPackage, path: &[u32], taproot: Option<Option<[u8; 32]>>) -> Result<KeyPackage, i32> {
+    let kp = if path.is_empty() { kp } else { crate::bip32::tweak(&kp, path)? };
+    Ok(match taproot {
+        Some(root) => kp.tweak(root.as_ref()),
+        None => kp,
+    })
+}
+
 /// Produces this signer's share for `package`, which must carry exactly the
-/// message approved at commit. `nonces` is wiped before anything else, so the
-/// same nonces can never sign twice, whatever the outcome.
+/// message approved at commit, under [`spend_key`] for `path` and `taproot`.
+/// `nonces` is wiped before anything else, so the same nonces can never sign
+/// twice, whatever the outcome.
 pub fn sign(
     kp_bytes: &[u8],
     nonces: &mut [u8; NONCES_LEN],
     package: &[u8],
     expected_message: &[u8; MESSAGE_LEN],
+    path: &[u32],
+    taproot: Option<Option<[u8; 32]>>,
     share_out: &mut [u8; SIGNATURE_SHARE_LEN],
 ) -> Result<(), i32> {
     let mut local = *nonces;
     unsafe { crate::glue::wipe(nonces.as_mut_ptr(), NONCES_LEN) };
-    let result = sign_with(kp_bytes, &local, package, expected_message, share_out);
+    let result = sign_with(kp_bytes, &local, package, expected_message, path, taproot, share_out);
     local.zeroize();
     result
 }
@@ -192,10 +210,12 @@ fn sign_with(
     nonces: &[u8; NONCES_LEN],
     package: &[u8],
     expected_message: &[u8; MESSAGE_LEN],
+    path: &[u32],
+    taproot: Option<Option<[u8; 32]>>,
     share_out: &mut [u8; SIGNATURE_SHARE_LEN],
 ) -> Result<(), i32> {
     let signer_nonces = nonces_from(nonces)?;
-    let kp = load(kp_bytes)?;
+    let kp = spend_key(load(kp_bytes)?, path, taproot)?;
     if package.is_empty() || package.len() > SIGNING_PACKAGE_MAX {
         return Err(E_LENGTH);
     }

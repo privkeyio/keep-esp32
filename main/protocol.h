@@ -54,6 +54,15 @@ typedef struct {
     bool legacy_share;
     uint16_t participants;
     char session_id[65];
+    /* BIP-32 unhardened path for frost_commit; empty signs under the group key. */
+    uint32_t derivation_path[FTR_MAX_PATH_DEPTH];
+    size_t derivation_path_len;
+    /* BIP-341 key-path spend for frost_commit: sign under the output key of the
+     * path's key, committing to merkle_root when has_merkle_root (no script tree
+     * otherwise). */
+    bool taproot_tweak;
+    bool has_merkle_root;
+    uint8_t merkle_root[32];
     char signing_package[PROTOCOL_SIGNING_PACKAGE_HEX + 1];
     char psbt[PROTOCOL_MAX_PSBT_LEN];
     size_t input_idx;

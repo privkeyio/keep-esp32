@@ -126,7 +126,9 @@ behavior rather than certification compliance.
 ### Signing Sessions
 
 - Maximum 4 concurrent sessions; a released session's slot is reused before any open round
-- Sessions bound to the message, the group and the key package they committed under
+- Sessions bound to the message, the group, the key package, the BIP-32 path and the
+  BIP-341 tweak they committed under; the signing key is derived on the device from its
+  own key package
 - Discarded when a policy is installed
 - DKG is not available in protocol 2
 
