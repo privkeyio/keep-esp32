@@ -11,6 +11,7 @@ extern crate alloc;
 
 mod bip32;
 mod glue;
+mod kfp;
 mod rng;
 mod selftest;
 mod signer;
@@ -179,6 +180,188 @@ pub unsafe extern "C" fn ftr_sign(
         return signer::E_NULL;
     };
     status(signer::sign(kp, nonces, sp, msg, path, taproot, share))
+}
+
+fn kfp_key(kp: *const u8, kp_len: usize) -> Result<frost_secp256k1_tr::keys::KeyPackage, i32> {
+    signer::load(unsafe { slice(kp, kp_len) }.ok_or(signer::E_NULL)?)
+}
+
+/// The x-only KFP v2 transport public key keep derives from this key package.
+///
+/// # Safety
+/// `kp` must point to `kp_len` readable bytes, `out` to 32 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_transport_pubkey(kp: *const u8, kp_len: usize, out: *mut [u8; 32]) -> i32 {
+    let Some(out) = out.as_mut() else { return signer::E_NULL };
+    status(kfp_key(kp, kp_len).and_then(|kp| kfp::transport_pubkey(&kp)).map(|k| *out = k))
+}
+
+/// The announce proof binding this key package's transport key at `timestamp`.
+///
+/// # Safety
+/// `kp` must point to `kp_len` readable bytes, `out` to 64 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_announce_proof(kp: *const u8, kp_len: usize, timestamp: u64, out: *mut [u8; 64]) -> i32 {
+    let Some(out) = out.as_mut() else { return signer::E_NULL };
+    let r = kfp_key(kp, kp_len).and_then(|kp| {
+        let transport = kfp::transport_pubkey(&kp)?;
+        kfp::announce_proof(&kp, &transport, timestamp)
+    });
+    status(r.map(|sig| *out = sig))
+}
+
+/// The rendezvous address keep announces to for member `index` of `group`.
+///
+/// # Safety
+/// `group` must point to 32 readable bytes, `out` to 32 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_rendezvous(group: *const [u8; 32], index: u16, out: *mut [u8; 32]) -> i32 {
+    let (Some(group), Some(out)) = (group.as_ref(), out.as_mut()) else { return signer::E_NULL };
+    status(kfp::rendezvous(group, index).map(|x| *out = x))
+}
+
+/// Seals `plaintext` with NIP-44 v2 from this key package's transport key to
+/// the x-only `recipient`, writing the base64 payload (not NUL-terminated).
+///
+/// # Safety
+/// The pointers must be valid for the given lengths; `out` for `cap` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_seal(
+    kp: *const u8,
+    kp_len: usize,
+    recipient: *const [u8; 32],
+    plaintext: *const u8,
+    plaintext_len: usize,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let (Some(recipient), Some(plaintext), Some(out_len)) = (recipient.as_ref(), slice(plaintext, plaintext_len), out_len.as_mut())
+    else {
+        return signer::E_NULL;
+    };
+    if out.is_null() {
+        return signer::E_NULL;
+    }
+    let r = kfp_key(kp, kp_len).and_then(|kp| kfp::seal(&kp, recipient, plaintext)).and_then(|payload| {
+        if payload.len() > cap {
+            return Err(kfp::E_CAPACITY);
+        }
+        core::ptr::copy_nonoverlapping(payload.as_ptr(), out, payload.len());
+        *out_len = payload.len();
+        Ok(())
+    });
+    status(r)
+}
+
+/// Opens a NIP-44 v2 base64 `payload` the x-only `sender` sealed to this key
+/// package's transport key. Nothing is written unless the MAC verifies.
+///
+/// # Safety
+/// The pointers must be valid for the given lengths; `out` for `cap` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_open(
+    kp: *const u8,
+    kp_len: usize,
+    sender: *const [u8; 32],
+    payload: *const u8,
+    payload_len: usize,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let (Some(sender), Some(payload), Some(out_len)) = (sender.as_ref(), slice(payload, payload_len), out_len.as_mut()) else {
+        return signer::E_NULL;
+    };
+    if out.is_null() {
+        return signer::E_NULL;
+    }
+    let r = kfp_key(kp, kp_len).and_then(|kp| kfp::open(&kp, sender, payload)).and_then(|plain| {
+        if plain.len() > cap {
+            return Err(kfp::E_CAPACITY);
+        }
+        core::ptr::copy_nonoverlapping(plain.as_ptr(), out, plain.len());
+        *out_len = plain.len();
+        Ok(())
+    });
+    status(r)
+}
+
+/// The NIP-01 id of `serialized` (`[0,pubkey,created_at,kind,tags,content]`)
+/// and its BIP-340 signature by this key package's transport key. For events
+/// the firmware builds itself; never reachable with host-chosen bytes.
+///
+/// # Safety
+/// `kp` and `serialized` must point to readable buffers of the given lengths,
+/// `out_id` to 32 and `out_sig` to 64 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_sign_event(
+    kp: *const u8,
+    kp_len: usize,
+    serialized: *const u8,
+    serialized_len: usize,
+    out_id: *mut [u8; 32],
+    out_sig: *mut [u8; 64],
+) -> i32 {
+    let (Some(serialized), Some(out_id), Some(out_sig)) = (slice(serialized, serialized_len), out_id.as_mut(), out_sig.as_mut()) else {
+        return signer::E_NULL;
+    };
+    let r = kfp_key(kp, kp_len).and_then(|kp| kfp::sign_event(&kp, serialized));
+    status(r.map(|(id, sig)| {
+        *out_id = id;
+        *out_sig = sig;
+    }))
+}
+
+/// keep's salted session id for a request.
+///
+/// # Safety
+/// The pointers must be valid for the given lengths (`salt` may be null when
+/// `salt_len` is 0); `out` must point to 32 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_session_id(
+    message: *const u8,
+    message_len: usize,
+    participants: *const u16,
+    participants_len: usize,
+    threshold: u16,
+    salt: *const u8,
+    salt_len: usize,
+    out: *mut [u8; 32],
+) -> i32 {
+    let message = if message_len == 0 { Some(&[][..]) } else { slice(message, message_len) };
+    let salt = if salt_len == 0 { Some(&[][..]) } else { slice(salt, salt_len) };
+    if participants.is_null() || participants_len == 0 || participants_len > usize::from(signer::MAX_SIGNERS) {
+        return signer::E_NULL;
+    }
+    let (Some(message), Some(salt), Some(out)) = (message, salt, out.as_mut()) else { return signer::E_NULL };
+    *out = kfp::session_id(message, core::slice::from_raw_parts(participants, participants_len), threshold, salt);
+    0
+}
+
+/// 1 when `salt` binds the request's path and taproot tweak (as keep's
+/// `salt_binds`), 0 when it does not, or an error code.
+///
+/// # Safety
+/// The pointers must be valid for the given lengths (null when 0);
+/// `merkle_root`, when non-null, must point to 32 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ftr_kfp_salt_binds(
+    salt: *const u8,
+    salt_len: usize,
+    path: *const u32,
+    path_len: usize,
+    taproot: bool,
+    merkle_root: *const [u8; 32],
+) -> i32 {
+    let salt = if salt_len == 0 { Some(&[][..]) } else { slice(salt, salt_len) };
+    if path_len > bip32::MAX_DEPTH || (path_len > 0 && path.is_null()) || (!taproot && !merkle_root.is_null()) {
+        return signer::E_NULL;
+    }
+    let Some(salt) = salt else { return signer::E_NULL };
+    let path = if path_len == 0 { &[][..] } else { core::slice::from_raw_parts(path, path_len) };
+    let taproot = taproot.then(|| merkle_root.as_ref().copied());
+    i32::from(kfp::salt_binds(salt, path, taproot))
 }
 
 #[cfg(test)]
@@ -607,6 +790,10 @@ mod tests {
             ("FTR_E_SELFCHECK", signer::E_SELFCHECK as i64),
             ("FTR_E_PATH", signer::E_PATH as i64),
             ("FTR_E_TWEAK", signer::E_TWEAK as i64),
+            ("FTR_E_KEY", kfp::E_KEY as i64),
+            ("FTR_E_DECRYPT", kfp::E_DECRYPT as i64),
+            ("FTR_E_CAPACITY", kfp::E_CAPACITY as i64),
+            ("FTR_KFP_MAX_PLAINTEXT", kfp::MAX_PLAINTEXT as i64),
             ("FTR_MAX_PATH_DEPTH", bip32::MAX_DEPTH as i64),
         ];
         for (name, value) in expected {
@@ -832,6 +1019,253 @@ mod tests {
         assert_eq!(r, signer::E_TWEAK);
         assert_eq!(f.nonces, [0u8; 64], "nonces are burned");
         assert_eq!(out, [0u8; 32]);
+    }
+
+    fn kfp_vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!("../vectors/kfp.json")).unwrap()
+    }
+
+    fn arr32(h: &str) -> [u8; 32] {
+        unhex(h).try_into().unwrap()
+    }
+
+    /// Each member's (key package, vector) pair, in the vector file's order.
+    fn kfp_members(v: &serde_json::Value) -> Vec<(Vec<u8>, serde_json::Value, [u8; 32], u16)> {
+        let mut out = Vec::new();
+        for g in v["groups"].as_array().unwrap() {
+            let group: [u8; 32] = unhex(g["group_key"].as_str().unwrap())[1..33].try_into().unwrap();
+            let n = g["members"].as_array().unwrap().len() as u16;
+            for (kp, m) in g["key_packages"].as_array().unwrap().iter().zip(g["members"].as_array().unwrap()) {
+                out.push((unhex(kp.as_str().unwrap()), m.clone(), group, n));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn kfp_transport_keys_and_proofs_match_keep() {
+        let v = kfp_vectors();
+        for (kp, m, _, _) in kfp_members(&v) {
+            let mut transport = [0u8; 32];
+            assert_eq!(unsafe { ftr_kfp_transport_pubkey(kp.as_ptr(), kp.len(), &mut transport) }, 0);
+            assert_eq!(transport, arr32(m["transport_pubkey"].as_str().unwrap()), "transport key of {}", m["index"]);
+            for p in m["proofs"].as_array().unwrap() {
+                let mut sig = [0u8; 64];
+                let ts = p["timestamp"].as_u64().unwrap();
+                assert_eq!(unsafe { ftr_kfp_announce_proof(kp.as_ptr(), kp.len(), ts, &mut sig) }, 0);
+                assert_eq!(sig[..], unhex(p["proof"].as_str().unwrap())[..], "proof at {ts}");
+            }
+        }
+    }
+
+    /// The announce keep publishes: its proof is the device's for the same
+    /// timestamp, it is authored by the transport key, and its p tags are the
+    /// rendezvous addresses of every other member in index order.
+    #[test]
+    fn kfp_announces_and_rendezvous_match_keep() {
+        let v = kfp_vectors();
+        for (kp, m, group, n) in kfp_members(&v) {
+            let index = m["index"].as_u64().unwrap() as u16;
+            let ann = &m["announce"];
+            assert_eq!(ann["pubkey"], m["transport_pubkey"]);
+            let content: serde_json::Value = serde_json::from_str(ann["content"].as_str().unwrap()).unwrap();
+            let mut sig = [0u8; 64];
+            let ts = content["timestamp"].as_u64().unwrap();
+            assert_eq!(unsafe { ftr_kfp_announce_proof(kp.as_ptr(), kp.len(), ts, &mut sig) }, 0);
+            assert_eq!(hex_lower(&sig), content["proof_signature"].as_str().unwrap());
+            let p_tags: Vec<&str> =
+                ann["tags"].as_array().unwrap().iter().filter(|t| t[0] == "p").map(|t| t[1].as_str().unwrap()).collect();
+            let others: Vec<u16> = (1..=n).filter(|i| *i != index).collect();
+            assert_eq!(p_tags.len(), others.len());
+            for (j, tag) in others.iter().zip(p_tags) {
+                let mut addr = [0u8; 32];
+                assert_eq!(unsafe { ftr_kfp_rendezvous(&group, *j, &mut addr) }, 0);
+                assert_eq!(hex_lower(&addr), tag, "rendezvous of {j}");
+            }
+        }
+    }
+
+    fn hex_lower(b: &[u8]) -> alloc::string::String {
+        b.iter().map(|x| alloc::format!("{x:02x}")).collect()
+    }
+
+    fn sha256_hex(b: &[u8]) -> alloc::string::String {
+        use sha2::{Digest, Sha256};
+        hex_lower(&Sha256::digest(b))
+    }
+
+    fn open(kp: &[u8], sender: &[u8; 32], payload: &[u8]) -> Result<Vec<u8>, i32> {
+        let mut out = vec![0u8; kfp::MAX_PLAINTEXT];
+        let mut len = 0usize;
+        match unsafe { ftr_kfp_open(kp.as_ptr(), kp.len(), sender, payload.as_ptr(), payload.len(), out.as_mut_ptr(), out.len(), &mut len) } {
+            0 => Ok(out[..len].to_vec()),
+            e => Err(e),
+        }
+    }
+
+    /// NIP-44 v2 against the nostr crate keep uses: the device's payload for a
+    /// given nonce is keep's byte for byte, both ways it opens, and keep's own
+    /// sealed events open to the plaintext keep wrote.
+    #[test]
+    fn kfp_nip44_matches_keep() {
+        let _g = with_rng();
+        let v = kfp_vectors();
+        let mut checked = 0;
+        for (kp_bytes, m, _, _) in kfp_members(&v) {
+            let kp = signer::load(&kp_bytes).unwrap();
+            let peer = arr32(m["peer_pubkey"].as_str().unwrap());
+            for (i, c) in m["nip44"].as_array().unwrap().iter().enumerate() {
+                let len = c["length"].as_u64().unwrap() as usize;
+                let plaintext: Vec<u8> = (0..len).map(|b| (b * 7 + i) as u8).collect();
+                let payload = kfp::seal_with_nonce(&kp, &peer, &plaintext, &arr32(c["nonce"].as_str().unwrap())).unwrap();
+                match c["payload"].as_str() {
+                    Some(want) => {
+                        assert_eq!(core::str::from_utf8(&payload).unwrap(), want, "length {len}");
+                        assert_eq!(open(&kp_bytes, &peer, want.as_bytes()).unwrap(), plaintext);
+                    }
+                    None => assert_eq!(sha256_hex(&payload), c["payload_sha256"].as_str().unwrap(), "length {len}"),
+                }
+                assert_eq!(open(&kp_bytes, &peer, &payload).unwrap(), plaintext);
+                checked += 1;
+            }
+            for e in m["events"].as_array().unwrap() {
+                let ev = &e["event"];
+                let sender = arr32(ev["pubkey"].as_str().unwrap());
+                let plain = open(&kp_bytes, &sender, ev["content"].as_str().unwrap().as_bytes()).unwrap();
+                assert_eq!(core::str::from_utf8(&plain).unwrap(), e["plaintext"].as_str().unwrap());
+            }
+        }
+        assert_eq!(checked, 11 * 15);
+    }
+
+    #[test]
+    fn kfp_open_refuses_what_it_should() {
+        use base64ct::Encoding;
+        let _g = with_rng();
+        let v = kfp_vectors();
+        let (kp, m, _, _) = kfp_members(&v).remove(0);
+        let peer = arr32(m["peer_pubkey"].as_str().unwrap());
+        let good = m["nip44"][3]["payload"].as_str().unwrap().as_bytes().to_vec();
+        assert!(open(&kp, &peer, &good).is_ok());
+        let mut raw = base64ct::Base64::decode_vec(core::str::from_utf8(&good).unwrap()).unwrap();
+        let encode = |r: &[u8]| base64ct::Base64::encode_string(r).into_bytes();
+        for at in [0usize, 1, 40, raw.len() - 1] {
+            let mut t = raw.clone();
+            t[at] ^= 1;
+            assert_eq!(open(&kp, &peer, &encode(&t)), Err(kfp::E_DECRYPT), "flipped byte {at}");
+        }
+        let other = arr32(m["transport_pubkey"].as_str().unwrap());
+        assert_eq!(open(&kp, &other, &good), Err(kfp::E_DECRYPT), "another sender");
+        assert_eq!(open(&kp, &[0u8; 32], &good), Err(kfp::E_KEY), "not a point");
+        assert_eq!(open(&kp, &peer, b"not base64!"), Err(kfp::E_DECRYPT));
+        raw.truncate(98);
+        assert_eq!(open(&kp, &peer, &encode(&raw)), Err(kfp::E_DECRYPT), "too short");
+        assert_eq!(open(&kp, &peer, &vec![b'A'; 90_000]), Err(kfp::E_CAPACITY), "too long");
+        let mut out = [0u8; 4];
+        let mut len = 0usize;
+        let r = unsafe { ftr_kfp_open(kp.as_ptr(), kp.len(), &peer, good.as_ptr(), good.len(), out.as_mut_ptr(), out.len(), &mut len) };
+        assert_eq!(r, kfp::E_CAPACITY);
+        assert_eq!(out, [0u8; 4], "nothing written when it does not fit");
+        let mut sealed = [0u8; 8];
+        let r = unsafe { ftr_kfp_seal(kp.as_ptr(), kp.len(), &peer, b"x".as_ptr(), 1, sealed.as_mut_ptr(), sealed.len(), &mut len) };
+        assert_eq!(r, kfp::E_CAPACITY);
+        let r = unsafe { ftr_kfp_seal(kp.as_ptr(), kp.len(), &peer, b"".as_ptr(), 0, sealed.as_mut_ptr(), sealed.len(), &mut len) };
+        assert_eq!(r, kfp::E_CAPACITY, "an empty message cannot be sealed");
+    }
+
+    /// Two seals of one message use fresh nonces from the device RNG.
+    #[test]
+    fn kfp_seal_draws_a_fresh_nonce() {
+        let _g = with_rng();
+        let v = kfp_vectors();
+        let (kp, m, _, _) = kfp_members(&v).remove(0);
+        let peer = arr32(m["peer_pubkey"].as_str().unwrap());
+        let seal = || {
+            let mut out = vec![0u8; 256];
+            let mut len = 0usize;
+            assert_eq!(unsafe { ftr_kfp_seal(kp.as_ptr(), kp.len(), &peer, b"hello".as_ptr(), 5, out.as_mut_ptr(), out.len(), &mut len) }, 0);
+            out.truncate(len);
+            out
+        };
+        let (a, b) = (seal(), seal());
+        assert_ne!(a, b);
+        assert_eq!(open(&kp, &peer, &a).unwrap(), b"hello");
+        assert_eq!(open(&kp, &peer, &b).unwrap(), b"hello");
+    }
+
+    /// NIP-01 ids of keep events (including every escaped character) and a
+    /// BIP-340 signature by the transport key that verifies.
+    #[test]
+    fn kfp_event_ids_and_signatures() {
+        let _g = with_rng();
+        let v = kfp_vectors();
+        let (kp, m, _, _) = kfp_members(&v).remove(0);
+        for e in v["serializations"].as_array().unwrap() {
+            let ser = e["serialized"].as_str().unwrap().as_bytes();
+            let (mut id, mut sig) = ([0u8; 32], [0u8; 64]);
+            assert_eq!(unsafe { ftr_kfp_sign_event(kp.as_ptr(), kp.len(), ser.as_ptr(), ser.len(), &mut id, &mut sig) }, 0);
+            assert_eq!(hex_lower(&id), e["id"].as_str().unwrap());
+            let vk = k256::schnorr::VerifyingKey::from_bytes(&unhex(m["transport_pubkey"].as_str().unwrap())).unwrap();
+            vk.verify_raw(&id, &k256::schnorr::Signature::try_from(&sig[..]).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn kfp_session_ids_match_keep() {
+        let v = kfp_vectors();
+        for c in v["sessions"].as_array().unwrap() {
+            let message = unhex(c["message"].as_str().unwrap());
+            let salt = unhex(c["salt"].as_str().unwrap());
+            let participants: Vec<u16> = c["participants"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as u16).collect();
+            let mut out = [0u8; 32];
+            let r = unsafe {
+                ftr_kfp_session_id(
+                    message.as_ptr(),
+                    message.len(),
+                    participants.as_ptr(),
+                    participants.len(),
+                    c["threshold"].as_u64().unwrap() as u16,
+                    salt.as_ptr(),
+                    salt.len(),
+                    &mut out,
+                )
+            };
+            assert_eq!(r, 0);
+            assert_eq!(hex_lower(&out), c["id"].as_str().unwrap());
+        }
+    }
+
+    /// keep's salts: an attempt counter then the path and the tweak marker.
+    #[test]
+    fn kfp_salt_binding() {
+        let binds = |salt: &[u8], path: &[u32], taproot: bool, root: Option<&[u8; 32]>| unsafe {
+            ftr_kfp_salt_binds(salt.as_ptr(), salt.len(), path.as_ptr(), path.len(), taproot, root.map_or(core::ptr::null(), |r| r))
+        };
+        let attempt = |n: u64| n.to_be_bytes().to_vec();
+        let root = [0xab; 32];
+        assert_eq!(binds(&[], &[], false, None), 1);
+        assert_eq!(binds(&attempt(3), &[], false, None), 1, "a retry of a plain request");
+        assert_eq!(binds(&[], &[0], false, None), 0, "a path needs a salt");
+        assert_eq!(binds(&[], &[], true, None), 0, "a tweak needs a salt");
+        let path_salt = [attempt(0), 0u32.to_be_bytes().to_vec(), 7u32.to_be_bytes().to_vec()].concat();
+        assert_eq!(binds(&path_salt, &[0, 7], false, None), 1);
+        assert_eq!(binds(&path_salt, &[0, 8], false, None), 0);
+        assert_eq!(binds(&path_salt, &[0], false, None), 0);
+        let bip86 = [attempt(1), vec![0xff, b'T', b'R', 0]].concat();
+        assert_eq!(binds(&bip86, &[], true, None), 1);
+        assert_eq!(binds(&bip86, &[], false, None), 0);
+        assert_eq!(binds(&bip86, &[], true, Some(&root)), 0);
+        let tree = [attempt(2), 1u32.to_be_bytes().to_vec(), vec![0xff, b'T', b'R', 1], root.to_vec()].concat();
+        assert_eq!(binds(&tree, &[1], true, Some(&root)), 1);
+        assert_eq!(binds(&tree, &[1], true, Some(&[0xac; 32])), 0);
+        assert_eq!(binds(&tree[..7], &[], false, None), 0, "shorter than the counter");
+        assert_eq!(binds(&bip86, &[], false, Some(&root)), signer::E_NULL, "a root without the tweak");
+        // keep's own vectors use these salts.
+        let v = kfp_vectors();
+        let s = &v["sessions"];
+        assert_eq!(unhex(s[2]["salt"].as_str().unwrap()), path_salt);
+        assert_eq!(unhex(s[3]["salt"].as_str().unwrap()), bip86);
+        assert_eq!(unhex(s[4]["salt"].as_str().unwrap()), tree);
     }
 
     #[test]

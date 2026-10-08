@@ -24,6 +24,7 @@ extern "C" {
 #define FTR_MAX_SIGNERS         16
 #define FTR_SIGNING_PACKAGE_MAX 1687
 #define FTR_MAX_PATH_DEPTH      8
+#define FTR_KFP_MAX_PLAINTEXT   65408
 
 // Status codes of the key package and signing calls (see rust/src/signer.rs).
 #define FTR_OK                 0
@@ -42,6 +43,9 @@ extern "C" {
 #define FTR_E_SELFCHECK        -13
 #define FTR_E_PATH             -14
 #define FTR_E_TWEAK            -15
+#define FTR_E_KEY              -16
+#define FTR_E_DECRYPT          -17
+#define FTR_E_CAPACITY         -18
 
 typedef struct {
     uint16_t index;
@@ -96,6 +100,45 @@ int ftr_sign(const uint8_t *kp, size_t kp_len, uint8_t nonces[FTR_NONCES_LEN],
              const uint8_t *signing_package, size_t signing_package_len,
              const uint8_t expected_message[FTR_MESSAGE_LEN], const uint32_t *path, size_t path_len,
              bool taproot, const uint8_t *merkle_root, uint8_t out_share[FTR_SIGNATURE_SHARE_LEN]);
+
+// KFP v2 (keep-frost-net), with the transport key derived inside from the key
+// package, so it never leaves the device and no caller supplies it.
+
+// The x-only transport public key keep derives from the key package.
+int ftr_kfp_transport_pubkey(const uint8_t *kp, size_t kp_len, uint8_t out[32]);
+
+// The announce proof binding this key package's transport key at `timestamp`.
+int ftr_kfp_announce_proof(const uint8_t *kp, size_t kp_len, uint64_t timestamp, uint8_t out[64]);
+
+// The rendezvous address keep announces to for member `index` of `group`.
+int ftr_kfp_rendezvous(const uint8_t group[32], uint16_t index, uint8_t out[32]);
+
+// NIP-44 v2 from the transport key to the x-only `recipient`: a base64 payload
+// of up to `cap` bytes, not NUL-terminated. Plaintext is 1..FTR_KFP_MAX_PLAINTEXT.
+int ftr_kfp_seal(const uint8_t *kp, size_t kp_len, const uint8_t recipient[32],
+                 const uint8_t *plaintext, size_t plaintext_len, uint8_t *out, size_t cap,
+                 size_t *out_len);
+
+// Opens a NIP-44 v2 base64 payload the x-only `sender` sealed to the transport
+// key. Writes nothing unless the MAC verifies; the caller wipes `out` after use.
+int ftr_kfp_open(const uint8_t *kp, size_t kp_len, const uint8_t sender[32], const uint8_t *payload,
+                 size_t payload_len, uint8_t *out, size_t cap, size_t *out_len);
+
+// The NIP-01 id of a serialized event built by the firmware
+// (`[0,pubkey,created_at,kind,tags,content]`) and its BIP-340 signature by the
+// transport key. Never to be called with bytes a host chose.
+int ftr_kfp_sign_event(const uint8_t *kp, size_t kp_len, const uint8_t *serialized,
+                       size_t serialized_len, uint8_t out_id[32], uint8_t out_sig[64]);
+
+// keep's salted session id (BLAKE2b-512, first 32 bytes) for a sign request.
+int ftr_kfp_session_id(const uint8_t *message, size_t message_len, const uint16_t *participants,
+                       size_t participants_len, uint16_t threshold, const uint8_t *salt,
+                       size_t salt_len, uint8_t out[32]);
+
+// 1 when `salt` binds the request's path and taproot tweak, 0 when it does not,
+// or a negative error code.
+int ftr_kfp_salt_binds(const uint8_t *salt, size_t salt_len, const uint32_t *path, size_t path_len,
+                       bool taproot, const uint8_t *merkle_root);
 
 #ifdef __cplusplus
 }
