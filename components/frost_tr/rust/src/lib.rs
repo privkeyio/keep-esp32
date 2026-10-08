@@ -182,6 +182,13 @@ pub unsafe extern "C" fn ftr_sign(
     status(signer::sign(kp, nonces, sp, msg, path, taproot, share))
 }
 
+/// Whether two byte ranges share any address: an output must never alias an
+/// input passed alongside it.
+fn overlaps(a: *const u8, a_len: usize, b: *const u8, b_len: usize) -> bool {
+    let (a, b) = (a as usize, b as usize);
+    a < b.saturating_add(b_len) && b < a.saturating_add(a_len)
+}
+
 fn kfp_key(kp: *const u8, kp_len: usize) -> Result<frost_secp256k1_tr::keys::KeyPackage, i32> {
     signer::load(unsafe { slice(kp, kp_len) }.ok_or(signer::E_NULL)?)
 }
@@ -240,7 +247,7 @@ pub unsafe extern "C" fn ftr_kfp_seal(
     else {
         return signer::E_NULL;
     };
-    if out.is_null() {
+    if out.is_null() || overlaps(plaintext.as_ptr(), plaintext.len(), out, cap) {
         return signer::E_NULL;
     }
     let out = core::slice::from_raw_parts_mut(out, cap);
@@ -267,7 +274,7 @@ pub unsafe extern "C" fn ftr_kfp_open(
     let (Some(sender), Some(payload), Some(out_len)) = (sender.as_ref(), slice(payload, payload_len), out_len.as_mut()) else {
         return signer::E_NULL;
     };
-    if out.is_null() {
+    if out.is_null() || overlaps(payload.as_ptr(), payload.len(), out, cap) {
         return signer::E_NULL;
     }
     let out = core::slice::from_raw_parts_mut(out, cap);
@@ -1172,6 +1179,13 @@ mod tests {
         let r = unsafe { ftr_kfp_open(kp.as_ptr(), kp.len(), &peer, good.as_ptr(), good.len(), out.as_mut_ptr(), out.len(), &mut len) };
         assert_eq!(r, kfp::E_CAPACITY);
         assert_eq!(out, [0u8; 4], "nothing written when it does not fit");
+        // In place is refused: the output may not alias the input.
+        let mut buf = good.clone();
+        let r = unsafe { ftr_kfp_open(kp.as_ptr(), kp.len(), &peer, buf.as_ptr(), buf.len(), buf.as_mut_ptr(), buf.len(), &mut len) };
+        assert_eq!(r, signer::E_NULL);
+        let mut buf = vec![b'x'; 256];
+        let r = unsafe { ftr_kfp_seal(kp.as_ptr(), kp.len(), &peer, buf.as_ptr(), 5, buf.as_mut_ptr().add(4), 200, &mut len) };
+        assert_eq!(r, signer::E_NULL);
         let mut sealed = [0u8; 8];
         let r = unsafe { ftr_kfp_seal(kp.as_ptr(), kp.len(), &peer, b"x".as_ptr(), 1, sealed.as_mut_ptr(), sealed.len(), &mut len) };
         assert_eq!(r, kfp::E_CAPACITY);

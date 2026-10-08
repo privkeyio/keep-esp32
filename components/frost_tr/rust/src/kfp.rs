@@ -120,9 +120,13 @@ pub(crate) fn announce_proof_with_aux(
     let share = Zeroizing::new(kp.signing_share().serialize());
     let key = SigningKey::from_bytes(&share).map_err(|_| E_KEY)?;
     let sig = key.sign_raw(&message, aux).map_err(|_| E_KEY)?;
-    // Recomputing the signature's validity catches a fault injected into the
-    // signing above before the signature leaves the device.
-    key.verifying_key().verify_raw(&message, &sig).map_err(|_| E_SELFCHECK)?;
+    // Checking the signature against the stored verifying share catches a
+    // fault injected into the signing, or into the share it used, before the
+    // signature leaves the device.
+    let verifying_share = kp.verifying_share().serialize().map_err(|_| E_KEY)?;
+    k256::schnorr::VerifyingKey::from_bytes(&verifying_share[1..])
+        .and_then(|vk| vk.verify_raw(&message, &sig))
+        .map_err(|_| E_SELFCHECK)?;
     Ok(sig.to_bytes())
 }
 

@@ -102,7 +102,9 @@ int ftr_sign(const uint8_t *kp, size_t kp_len, uint8_t nonces[FTR_NONCES_LEN],
              bool taproot, const uint8_t *merkle_root, uint8_t out_share[FTR_SIGNATURE_SHARE_LEN]);
 
 // KFP v2 (keep-frost-net), with the transport key derived inside from the key
-// package, so it never leaves the device and no caller supplies it.
+// package, so it never leaves the device and no caller supplies it. As for
+// every function here, no output buffer may overlap an input; seal and open
+// refuse one that does.
 
 // The x-only transport public key keep derives from the key package.
 int ftr_kfp_transport_pubkey(const uint8_t *kp, size_t kp_len, uint8_t out[32]);
